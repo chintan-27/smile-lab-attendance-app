@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    <title>Admin Dashboard - Lab Attendance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f7fafc;
+            padding: 2rem;
+        }
+
+        .header {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .tab-content {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .student-form {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #38a169;
+        }
+
+        .btn-secondary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a67d8;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+        }
+
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #dd6b20;
+        }
+
+        .student-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .student-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .student-info {
+            flex: 1;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background: #f7fafc;
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .back-btn {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: #718096;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .back-btn:hover {
+            background: #4a5568;
+        }
+
+        .remove-btn {
+            margin-left: 1rem;
+        }
+
+        /* Settings specific styles */
+        .settings-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .settings-section h4 {
+            color: #2d3748;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #48bb78;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(26px);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .status-indicator.connected {
+            background-color: #48bb78;
+        }
+
+        .status-indicator.disconnected {
+            background-color: #f56565;
+        }
+
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            background: #e2e8f0;
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 2px dashed #cbd5e0;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .file-upload:hover {
+            background: #edf2f7;
+            border-color: #a0aec0;
+        }
+
+        .file-upload input {
+            display: none;
+        }
+
+        .notification {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        .notification.success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .notification.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+
+        .notification.info {
+            background: #bee3f8;
+            color: #2c5282;
+            border: 1px solid #90cdf4;
+        }
+    </style>
+</head>
+
+<body>
+    <button id="backBtn" class="back-btn">← Back to Attendance</button>
+
+    <div class="header">
+        <h1>🎓 Admin Dashboard</h1>
+        <p>Manage students, view reports, and configure system settings</p>
+    </div>
+
+    <div class="tabs">
+        <div id="studentsTabBtn" class="tab active">👥 Students</div>
+        <div id="statsTabBtn" class="tab">📊 Statistics</div>
+        <div id="reportsTabBtn" class="tab">📋 Reports</div>
+        <div id="settingsTabBtn" class="tab">⚙️ Settings</div>
+    </div>
+
+    <!-- Students Tab -->
+    <div id="studentsTab" class="tab-content">
+        <h3>Manage Authorized Students</h3>
+        <p style="margin-bottom: 1rem; color: #718096;">Add or remove students who can sign in/out</p>
+
+        <div class="student-form">
+            <div class="form-group">
+                <label>UF ID</label>
+                <input type="text" id="newUfid" placeholder="12345678" />
+            </div>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="newName" placeholder="Student Name" />
+            </div>
+            <div class="form-group">
+                <label>Email (optional)</label>
+                <input type="email" id="newEmail" placeholder="student@ufl.edu" />
+            </div>
+            <button id="addStudentBtn" class="btn btn-primary">Add Student</button>
+        </div>
+
+        <div class="student-list" id="studentList">
+            <!-- Students will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Stats Tab -->
+    <div id="statsTab" class="tab-content" style="display: none;">
+        <h3>Statistics</h3>
+        <div class="stats-grid" id="statsGrid">
+            <!-- Stats will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Reports Tab -->
+    <div id="reportsTab" class="tab-content" style="display: none;">
+        <h3>Attendance Reports</h3>
+        <div id="attendanceReports">
+            <!-- Reports will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="settingsTab" class="tab-content" style="display: none;">
+        <div id="settingsNotification" class="notification"></div>
+
+        <!-- Email Configuration Section -->
+        <div class="settings-section">
+            <h4>📧 Email Configuration</h4>
+            <p style="color: #718096; margin-bottom: 1rem;">Configure automatic weekly email reports</p>
+
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="emailEnabled">
+                    <span class="slider"></span>
+                </label>
+                <span>Enable Email Reports</span>
+                <span id="emailStatus" class="status-indicator disconnected"></span>
+                <span id="emailStatusText">Disconnected</span>
+            </div>
+
+            <div id="emailConfigForm" style="display: none;">
+                <div
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div class="form-group">
+                        <label>SMTP Server</label>
+                        <input type="text" id="smtpServer" placeholder="smtp.gmail.com" />
+                    </div>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" id="smtpPort" value="587" />
+                    </div>
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" id="senderEmail" placeholder="your-email@gmail.com" />
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="senderPassword" placeholder="App Password" />
+                    </div>
+                    <div class="form-group">
+                        <label>Recipient Email</label>
+                        <input type="email" id="recipientEmail" placeholder="admin@ufl.edu" />
+                    </div>
+                    <div class="form-group">
+                        <label>Recipient Name</label>
+                        <input type="text" id="recipientName" placeholder="Lab Administrator" />
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button id="saveEmailConfig" class="btn btn-primary">Save Email Config</button>
+                    <button id="testEmail" class="btn btn-secondary">Test Email</button>
+                    <button id="sendWeeklyReport" class="btn btn-warning">Send Weekly Report Now</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Google Sheets Configuration Section -->
+        <div class="settings-section">
+            <h4>📊 Google Sheets Integration</h4>
+            <p style="color: #718096; margin-bottom: 1rem;">Sync attendance data to Google Sheets</p>
+
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="sheetsEnabled">
+                    <span class="slider"></span>
+                </label>
+                <span>Enable Google Sheets Sync</span>
+                <span id="sheetsStatus" class="status-indicator disconnected"></span>
+                <span id="sheetsStatusText">Disconnected</span>
+            </div>
+
+            <div id="sheetsConfigForm" style="display: none;">
+                <div
+                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div class="form-group">
+                        <label>Spreadsheet ID</label>
+                        <input type="text" id="spreadsheetId"
+                            placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" />
+                        <small style="color: #718096;">From the Google Sheets URL</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Sheet Name</label>
+                        <input type="text" id="sheetName" value="Attendance" />
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label>Google Service Account Credentials</label>
+                    <div class="file-upload" onclick="document.getElementById('credentialsFile').click()">
+                        <input type="file" id="credentialsFile" accept=".json">
+                        <div id="credentialsUploadText">📁 Click to upload credentials.json file</div>
+                    </div>
+                    <small style="color: #718096;">Upload your Google Service Account credentials JSON file</small>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoSyncEnabled">
+                        <span class="slider"></span>
+                    </label>
+                    <span>Auto-sync on sign in/out</span>
+                </div>
+
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <button id="saveSheetsConfig" class="btn btn-primary">Save Sheets Config</button>
+                    <button id="testSheetsConnection" class="btn btn-secondary">Test Connection</button>
+                    <button id="syncAllData" class="btn btn-warning">Sync All Data</button>
+                    <button id="syncTodaysData" class="btn btn-warning">Sync Today's Data</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Settings Section -->
+        <div class="settings-section">
+            <h4>🔐 System Settings</h4>
+            <p style="color: #718096; margin-bottom: 1rem;">Manage system configuration and security</p>
+
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                    <label>Lab Name</label>
+                    <input type="text" id="labName" placeholder="University of Florida Lab" />
+                </div>
+                <div class="form-group">
+                    <label>New Admin Password</label>
+                    <input type="password" id="newAdminPassword" placeholder="Enter new password" />
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button id="saveSystemSettings" class="btn btn-primary">Save Settings</button>
+                <button id="changePassword" class="btn btn-danger">Change Password</button>
+                <button id="backupData" class="btn btn-secondary">Backup Data</button>
+            </div>
+        </div>
+
+        <!-- Scheduler Status Section -->
+        <div class="settings-section">
+            <h4>⏰ Scheduler Status</h4>
+            <p style="color: #718096; margin-bottom: 1rem;">Weekly email report scheduler</p>
+
+            <div id="schedulerInfo" style="margin-bottom: 1rem;">
+                <p>Status: <span id="schedulerStatus">Checking...</span></p>
+                <p>Next run: <span id="nextRunTime">Every Saturday at 8:00 AM</span></p>
+            </div>
+
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button id="startScheduler" class="btn btn-primary">Start Scheduler</button>
+                <button id="stopScheduler" class="btn btn-danger">Stop Scheduler</button>
+                <button id="testScheduler" class="btn btn-secondary">Test Scheduler (10s)</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./admin.js"></script>
+</body>
+
+</html>

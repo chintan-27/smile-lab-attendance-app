@@ -1,19 +1,396 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <meta
-      http-equiv="X-Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <title>Hello from Electron renderer!</title>
-  </head>
-  <body>
-    <h1>Hello from Electron renderer!</h1>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+    <title>Lab Attendance System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 450px;
+            max-width: 90vw;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            color: #2d3748;
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #4a5568;
+            font-weight: 500;
+        }
+
+        /* OTP Style UFID Input */
+        .ufid-container {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+
+        .ufid-input {
+            width: 45px;
+            height: 50px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: 600;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .ufid-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .ufid-input.valid {
+            border-color: #48bb78;
+            background-color: #f0fff4;
+        }
+
+        .ufid-input.invalid {
+            border-color: #f56565;
+            background-color: #fffafa;
+        }
+
+        .ufid-status {
+            text-align: center;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            min-height: 20px;
+        }
+
+        .ufid-status.valid {
+            color: #22543d;
+        }
+
+        .ufid-status.invalid {
+            color: #742a2a;
+        }
+
+        /* Name input - only shown for new students */
+        .name-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.2s;
+            display: none;
+        }
+
+        .name-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .name-input.show {
+            display: block;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        button {
+            flex: 1;
+            padding: 0.875rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-signin {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-signin:hover:not(:disabled) {
+            background: #38a169;
+            transform: translateY(-1px);
+        }
+
+        .btn-signout {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-signout:hover:not(:disabled) {
+            background: #e53e3e;
+            transform: translateY(-1px);
+        }
+
+        .status {
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+            display: none;
+            margin-top: 1rem;
+            white-space: pre-line;
+        }
+
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e2e8f0;
+            color: #718096;
+            font-size: 0.8rem;
+        }
+
+        /* Admin Access Styles */
+        .admin-access {
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .btn-admin {
+            background: #4a5568;
+            color: white;
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-admin:hover {
+            background: #2d3748;
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            width: 300px;
+            max-width: 90vw;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .modal-header h3 {
+            color: #2d3748;
+            margin: 0;
+        }
+
+        .close {
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #718096;
+            background: none;
+            border: none;
+            padding: 0;
+            width: auto;
+            height: auto;
+        }
+
+        .close:hover {
+            color: #2d3748;
+        }
+
+        .modal-body input {
+            width: 100%;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+        }
+
+        .modal-body button {
+            width: 100%;
+            padding: 0.75rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .modal-body button:hover {
+            background: #5a67d8;
+        }
+
+        .clear-btn {
+            background: #718096;
+            color: white;
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+
+        .clear-btn:hover {
+            background: #4a5568;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 Lab Attendance</h1>
+            <p>Enter your 8-digit UF ID to sign in or out</p>
+        </div>
+
+        <form id="attendanceForm">
+            <div class="form-group">
+                <label>UF ID (8 digits)</label>
+                <div class="ufid-container">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="0">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="1">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="2">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="3">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="4">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="5">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="6">
+                    <input type="text" class="ufid-input" maxlength="1" data-index="7">
+                </div>
+                <div style="text-align: center;">
+                    <button type="button" class="clear-btn" id="clearBtn">Clear</button>
+                </div>
+                <div class="ufid-status" id="ufidStatus"></div>
+            </div>
+
+            <div class="form-group">
+                <input 
+                    type="text" 
+                    id="nameInput" 
+                    class="name-input"
+                    placeholder="Enter your full name"
+                    autocomplete="off"
+                />
+            </div>
+
+            <div class="button-group">
+                <button type="button" id="signInBtn" class="btn-signin" disabled>
+                    ✅ Sign In
+                </button>
+                <button type="button" id="signOutBtn" class="btn-signout" disabled>
+                    ❌ Sign Out
+                </button>
+            </div>
+        </form>
+
+        <div id="status" class="status"></div>
+
+        <div class="admin-access">
+            <button type="button" id="adminBtn" class="btn-admin">
+                🔐 Admin Access
+            </button>
+        </div>
+
+        <div class="footer">
+            University of Florida Lab System
+        </div>
+    </div>
+
+    <!-- Admin Login Modal -->
+    <div id="adminModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Admin Login</h3>
+                <button id="closeModal" class="close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="password" id="adminPassword" placeholder="Enter admin password" />
+                <button id="loginBtn">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./renderer.js"></script>
+</body>
 </html>
