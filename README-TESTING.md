@@ -1,6 +1,6 @@
 # Testing Guide for UF Lab Attendance System
 
-This guide explains how to run and maintain the automated tests for the **UF Lab Attendance System**. The suite covers **unit**, **integration**, and **end‑to‑end (E2E)** tests using **Jest** and **Spectron (Electron)**.
+This guide explains how to run and maintain the automated tests for the **UF Lab Attendance System**. The suite covers **unit**, **integration**, and **end‑to‑end (E2E)** tests using **Jest** and **Playwright (Electron)**.
 
 ## Folder Structure
 
@@ -57,7 +57,7 @@ npm test
 ```bash
 npm run test:unit
 npm run test:integration
-npm run test:e2e
+npm run test:e2e  # runs Playwright
 ```
 
 ### Watch mode (useful during development)
@@ -96,11 +96,10 @@ Coverage is written to the `coverage/` folder and includes `text`, `lcov`, and `
 - Ensure your app can boot in a minimal test mode with environment variable `NODE_ENV=test`.
 - In CI on Linux, run under a virtual display:
   ```bash
-  xvfb-run -a npm run test:e2e
+  xvfb-run -a npm run test:e2e  # runs Playwright
   ```
 
-> Spectron is officially archived but still widely used for legacy Electron apps.
-> If you plan to modernize, consider switching to Playwright with the Electron driver.
+> These E2E tests use Playwright’s Electron driver.
 
 ---
 
@@ -165,3 +164,17 @@ jobs:
 - Prefer **small, focused** tests; add E2E only for top‑value user flows.
 
 Happy testing! 🎯
+
+
+---
+
+## Migration Notes (from Spectron)
+
+- Replaced Spectron with `@playwright/test` using the Electron driver (`_electron`).
+- New config: `tests/e2e/playwright.config.ts`
+- E2E command: `npm run test:e2e` (runs Playwright)
+- API mapping examples:
+  - `app.client.getTitle()` → `expect(page).toHaveTitle()`
+  - `$(selector)` → `page.locator(selector)`
+  - `isDisplayed/isEnabled` → `toBeVisible()/toBeEnabled()`
+  - `browserWindow.setSize(w,h)` → `page.setViewportSize({ width, height })`
