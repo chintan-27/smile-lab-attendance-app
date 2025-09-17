@@ -1,396 +1,595 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
-    <title>Lab Attendance System</title>
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self';">
+    <title>UF SMILE Lab Attendance</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --uf-blue: #0021A5;
+            --uf-blue-dark: #001A85;
+            --uf-blue-light: #E6F3FF;
+            --uf-orange: #FA4616;
+            --uf-orange-light: #FFF4E6;
+            --uf-gray: #64748B;
+            --uf-gray-light: #F8FAFC;
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
+        html {
+            height: 100%;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+            background: #ffffff;
+            color: #333333;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            padding: 2rem 2rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--uf-blue);
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--uf-orange);
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: white;
         }
 
-        .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 16px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            width: 450px;
-            max-width: 90vw;
+        .admin-link {
+            color: var(--uf-gray);
+            text-decoration: none;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        .header {
+        .admin-link:hover {
+            background: var(--uf-gray-light);
+            color: var(--uf-blue);
+        }
+
+        /* Main Container */
+        .main-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
             text-align: center;
+            flex: 1;
+            /* This makes it take up available space */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* Welcome Section */
+        .welcome-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 1rem;
+        }
+
+        .welcome-subtitle {
+            font-size: 1.125rem;
+            color: var(--uf-gray);
+            margin-bottom: 3rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* UFID Input Section */
+        .ufid-section {
+            background: var(--uf-gray-light);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            margin-bottom: 3rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .ufid-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .ufid-description {
+            color: var(--uf-gray);
             margin-bottom: 2rem;
         }
 
-        .header h1 {
-            color: #2d3748;
-            font-size: 1.8rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .header p {
-            color: #718096;
-            font-size: 0.9rem;
-        }
-
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        label {
+        .ufid-label {
             display: block;
-            margin-bottom: 0.5rem;
-            color: #4a5568;
+            font-size: 0.9rem;
             font-weight: 500;
+            color: var(--uf-gray);
+            margin-bottom: 1rem;
+            text-align: left;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
-        /* OTP Style UFID Input */
-        .ufid-container {
+        /* OTP Style Input */
+        .ufid-inputs {
             display: flex;
-            gap: 0.5rem;
             justify-content: center;
-            margin-bottom: 1rem;
-        }
-
-        .ufid-input {
-            width: 45px;
-            height: 50px;
-            text-align: center;
-            font-size: 1.2rem;
-            font-weight: 600;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-
-        .ufid-input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .ufid-input.valid {
-            border-color: #48bb78;
-            background-color: #f0fff4;
-        }
-
-        .ufid-input.invalid {
-            border-color: #f56565;
-            background-color: #fffafa;
-        }
-
-        .ufid-status {
-            text-align: center;
-            margin-bottom: 1rem;
-            font-size: 0.9rem;
-            min-height: 20px;
-        }
-
-        .ufid-status.valid {
-            color: #22543d;
-        }
-
-        .ufid-status.invalid {
-            color: #742a2a;
-        }
-
-        /* Name input - only shown for new students */
-        .name-input {
-            width: 100%;
-            padding: 0.75rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.2s;
-            display: none;
-        }
-
-        .name-input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .name-input.show {
-            display: block;
-        }
-
-        .button-group {
-            display: flex;
             gap: 0.75rem;
-            margin-bottom: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
         }
 
-        button {
-            flex: 1;
-            padding: 0.875rem;
+        .ufid-digit {
+            width: 50px;
+            height: 60px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 600;
+            font-family: 'Monaco', 'Menlo', monospace;
+            background: white;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        .ufid-digit:focus {
+            border-color: var(--uf-blue);
+            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+            transform: scale(1.05);
+        }
+
+        .ufid-digit.filled {
+            border-color: var(--uf-blue);
+            background: var(--uf-blue-light);
+            color: var(--uf-blue);
+        }
+
+        .ufid-digit.error {
+            border-color: #ef4444;
+            background: #fee2e2;
+        }
+
+        /* Status Message */
+        .status-message {
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 1.5rem;
+            font-weight: 500;
+            display: none;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .status-message.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+
+        .status-message.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: 0.875rem 2rem;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
             align-items: center;
-            justify-content: center;
             gap: 0.5rem;
+            min-width: 140px;
+            justify-content: center;
         }
 
-        button:disabled {
-            opacity: 0.5;
+        .sign-in-btn {
+            background: var(--uf-blue);
+            color: white;
+        }
+
+        .sign-in-btn:hover:not(:disabled) {
+            background: var(--uf-blue-dark);
+            transform: translateY(-1px);
+        }
+
+        .sign-out-btn {
+            background: var(--uf-orange);
+            color: white;
+        }
+
+        .sign-out-btn:hover:not(:disabled) {
+            background: #e63e00;
+            transform: translateY(-1px);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.6;
             cursor: not-allowed;
+            transform: none !important;
         }
 
-        .btn-signin {
-            background: #48bb78;
-            color: white;
+        /* Features Section */
+        /* .features-section {
+            margin-top: 4rem;
         }
 
-        .btn-signin:hover:not(:disabled) {
-            background: #38a169;
-            transform: translateY(-1px);
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
         }
 
-        .btn-signout {
-            background: #f56565;
-            color: white;
-        }
-
-        .btn-signout:hover:not(:disabled) {
-            background: #e53e3e;
-            transform: translateY(-1px);
-        }
-
-        .status {
-            padding: 0.75rem;
-            border-radius: 8px;
+        .feature {
             text-align: center;
-            font-weight: 500;
-            display: none;
-            margin-top: 1rem;
-            white-space: pre-line;
+            padding: 1.5rem;
         }
 
-        .status.success {
-            background: #c6f6d5;
-            color: #22543d;
-            border: 1px solid #9ae6b4;
+        .feature-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: var(--uf-orange-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+            color: var(--uf-orange);
+            font-size: 2rem;
         }
 
-        .status.error {
-            background: #fed7d7;
-            color: #742a2a;
-            border: 1px solid #fc8181;
+        .feature-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.75rem;
         }
 
+        .feature-description {
+            color: var(--uf-gray);
+            line-height: 1.5;
+        } */
+
+        /* Footer */
         .footer {
             text-align: center;
-            margin-top: 1.5rem;
-            padding-top: 1rem;
+            padding: 2rem;
+            color: var(--uf-gray);
+            font-size: 0.875rem;
             border-top: 1px solid #e2e8f0;
-            color: #718096;
-            font-size: 0.8rem;
+            margin-top: 25%;
         }
 
-        /* Admin Access Styles */
-        .admin-access {
-            text-align: center;
-            margin-top: 1rem;
-        }
-
-        .btn-admin {
-            background: #4a5568;
-            color: white;
-            padding: 0.5rem 1rem;
-            font-size: 0.8rem;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-admin:hover {
-            background: #2d3748;
-        }
-
-        /* Modal Styles */
-        .modal {
+        /* Admin Modal */
+        .admin-modal {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.5);
-            display: none;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
             align-items: center;
             justify-content: center;
             z-index: 1000;
         }
 
-        .modal.show {
-            display: flex;
-        }
-
-        .modal-content {
+        .admin-modal-content {
             background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            width: 300px;
-            max-width: 90vw;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
 
-        .modal-header {
+        .admin-modal-header {
+            padding: 1.5rem 1.5rem 0;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            justify-content: space-between;
         }
 
-        .modal-header h3 {
-            color: #2d3748;
+        .admin-modal-header h3 {
             margin: 0;
-        }
-
-        .close {
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: #718096;
-            background: none;
-            border: none;
-            padding: 0;
-            width: auto;
-            height: auto;
-        }
-
-        .close:hover {
-            color: #2d3748;
-        }
-
-        .modal-body input {
-            width: 100%;
-            margin-bottom: 1rem;
-            padding: 0.75rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 6px;
-        }
-
-        .modal-body button {
-            width: 100%;
-            padding: 0.75rem;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
+            color: var(--uf-blue);
             font-weight: 600;
         }
 
-        .modal-body button:hover {
-            background: #5a67d8;
-        }
-
-        .clear-btn {
-            background: #718096;
-            color: white;
-            padding: 0.5rem 1rem;
-            font-size: 0.8rem;
+        .admin-modal-close {
+            background: none;
             border: none;
-            border-radius: 6px;
+            font-size: 1.5rem;
             cursor: pointer;
-            margin-top: 0.5rem;
+            color: #64748b;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .clear-btn:hover {
-            background: #4a5568;
+        .admin-modal-close:hover {
+            background: #f1f5f9;
+        }
+
+        .admin-modal-body {
+            padding: 1.5rem;
+        }
+
+        .admin-modal-body label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .admin-password-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .admin-password-input:focus {
+            outline: none;
+            border-color: var(--uf-blue);
+            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+        }
+
+        .admin-error {
+            margin-top: 0.5rem;
+            color: #dc2626;
+            font-size: 0.875rem;
+            display: none;
+        }
+
+        .admin-modal-footer {
+            padding: 0 1.5rem 1.5rem;
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+
+        .admin-cancel-btn,
+        .admin-login-btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .admin-cancel-btn {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .admin-cancel-btn:hover {
+            background: #e5e7eb;
+        }
+
+        .admin-login-btn {
+            background: var(--uf-blue);
+            color: white;
+        }
+
+        .admin-login-btn:hover {
+            background: var(--uf-blue-dark);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .header {
+                padding: 1.5rem 1rem 1rem;
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .main-container {
+                padding: 2rem 1rem;
+            }
+
+            .welcome-title {
+                font-size: 2rem;
+            }
+
+            .ufid-section {
+                padding: 2rem 1rem;
+            }
+
+            .ufid-inputs {
+                gap: 0.5rem;
+            }
+
+            .ufid-digit {
+                width: 45px;
+                height: 55px;
+                font-size: 1.25rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .action-btn {
+                width: 100%;
+                max-width: 300px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .ufid-inputs {
+                gap: 0.25rem;
+            }
+
+            .ufid-digit {
+                width: 40px;
+                height: 50px;
+                font-size: 1.125rem;
+            }
         }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🎓 Lab Attendance</h1>
-            <p>Enter your 8-digit UF ID to sign in or out</p>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">
+            <div class="logo-icon">
+                <i class="fas fa-graduation-cap"></i>
+            </div>
+            <span>UF SMILE Lab</span>
+        </div>
+        <a href="#" class="admin-link" id="adminLink">
+            <i class="fas fa-cog"></i>
+            Admin Access
+        </a>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Welcome Section -->
+        <h1 class="welcome-title">Welcome to UF SMILE Lab!</h1>
+        <p class="welcome-subtitle">
+            Your secure lab attendance system for the University of Florida.<br>
+            Simple, fast, and reliable check-in and check-out process.
+        </p>
+
+        <!-- UFID Input Section -->
+        <div class="ufid-section">
+            <h2 class="ufid-title">Student Check-In</h2>
+            <p class="ufid-description">Enter your 8-digit UF ID to sign in or out</p>
+
+            <label class="ufid-label">UF ID (8 digits)</label>
+            <div class="ufid-inputs">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="0">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="1">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="2">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="3">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="4">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="5">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="6">
+                <input type="text" class="ufid-digit" maxlength="1" data-index="7">
+            </div>
+
+            <div id="statusMessage" class="status-message"></div>
+
+            <div class="action-buttons">
+                <button class="action-btn sign-in-btn" id="signInBtn">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Sign In
+                </button>
+                <button class="action-btn sign-out-btn" id="signOutBtn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Sign Out
+                </button>
+            </div>
         </div>
 
-        <form id="attendanceForm">
-            <div class="form-group">
-                <label>UF ID (8 digits)</label>
-                <div class="ufid-container">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="0">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="1">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="2">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="3">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="4">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="5">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="6">
-                    <input type="text" class="ufid-input" maxlength="1" data-index="7">
+        <!-- Features Section -->
+        <!-- <div class="features-section">
+            <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <h3 class="feature-title">Quick Check-in</h3>
+                    <p class="feature-description">
+                        Simply enter your 8-digit UF ID to sign in and out of the lab instantly.
+                    </p>
                 </div>
-                <div style="text-align: center;">
-                    <button type="button" class="clear-btn" id="clearBtn">Clear</button>
+                <div class="feature">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3 class="feature-title">Secure & Private</h3>
+                    <p class="feature-description">
+                        Your attendance data is securely stored and only accessible to authorized personnel.
+                    </p>
                 </div>
-                <div class="ufid-status" id="ufidStatus"></div>
+                <div class="feature">
+                    <div class="feature-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <h3 class="feature-title">Track Your Time</h3>
+                    <p class="feature-description">
+                        Automatically track your lab hours for research, work-study, or course requirements.
+                    </p>
+                </div>
             </div>
-
-            <div class="form-group">
-                <input 
-                    type="text" 
-                    id="nameInput" 
-                    class="name-input"
-                    placeholder="Enter your full name"
-                    autocomplete="off"
-                />
-            </div>
-
-            <div class="button-group">
-                <button type="button" id="signInBtn" class="btn-signin" disabled>
-                    ✅ Sign In
-                </button>
-                <button type="button" id="signOutBtn" class="btn-signout" disabled>
-                    ❌ Sign Out
-                </button>
-            </div>
-        </form>
-
-        <div id="status" class="status"></div>
-
-        <div class="admin-access">
-            <button type="button" id="adminBtn" class="btn-admin">
-                🔐 Admin Access
-            </button>
         </div>
+    </div> -->
 
+        <!-- Footer -->
         <div class="footer">
-            University of Florida Lab System
+            © 2024 University of Florida - SMILE Lab Attendance System
         </div>
-    </div>
 
-    <!-- Admin Login Modal -->
-    <div id="adminModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Admin Login</h3>
-                <button id="closeModal" class="close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <input type="password" id="adminPassword" placeholder="Enter admin password" />
-                <button id="loginBtn">Login</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="./renderer.js"></script>
+        <script src="./index.js"></script>
 </body>
+
 </html>

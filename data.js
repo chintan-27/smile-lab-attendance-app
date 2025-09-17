@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const Logger = require('./logger.js');
 
 class DataManager {
     constructor() {
@@ -8,27 +9,37 @@ class DataManager {
         this.attendanceFile = path.join(this.dataDir, 'attendance.json');
         this.studentsFile = path.join(this.dataDir, 'students.json');
         this.configFile = path.join(this.dataDir, 'config.json');
-        
         this.encryptionEnabled = false;
         this.encryptionPassword = null;
         
+        // Initialize data directory and files first
         this.initializeData();
         this.loadEncryptionSettings();
+        
+        // Initialize logger after data directory exists
+        this.logger = new Logger(this);
+        
+        // Log initialization
+        this.logger.info('system', 'DataManager initialized successfully', 'system');
+        console.log('DataManager initialized with logger');
     }
 
     initializeData() {
         if (!fs.existsSync(this.dataDir)) {
             fs.mkdirSync(this.dataDir);
+            console.log('Created data directory:', this.dataDir);
         }
-
+        
         if (!fs.existsSync(this.attendanceFile)) {
             fs.writeFileSync(this.attendanceFile, JSON.stringify([], null, 2));
+            console.log('Created attendance.json file');
         }
-
+        
         if (!fs.existsSync(this.studentsFile)) {
             fs.writeFileSync(this.studentsFile, JSON.stringify([], null, 2));
+            console.log('Created students.json file');
         }
-
+        
         if (!fs.existsSync(this.configFile)) {
             const defaultConfig = {
                 adminPassword: this.hashPassword('admin123'),
@@ -61,6 +72,7 @@ class DataManager {
                 }
             };
             fs.writeFileSync(this.configFile, JSON.stringify(defaultConfig, null, 2));
+            console.log('Created config.json file with default settings');
         }
     }
 
@@ -68,8 +80,15 @@ class DataManager {
         try {
             const config = this.getConfig();
             this.encryptionEnabled = config.encryption?.enabled || false;
+            
+            if (this.logger) {
+                this.logger.info('encryption', `Encryption settings loaded: ${this.encryptionEnabled ? 'enabled' : 'disabled'}`, 'system');
+            }
         } catch (error) {
             console.error('Error loading encryption settings:', error);
+            if (this.logger) {
+                this.logger.error('encryption', `Error loading encryption settings: ${error.message}`, 'system');
+            }
         }
     }
 
@@ -79,20 +98,67 @@ class DataManager {
 
     verifyAdmin(password) {
         try {
+            if (this.logger) {
+                this.logger.info('auth', 'Admin password verification attempt', 'system');
+            }
+            
             const config = this.getConfig();
-            return this.hashPassword(password) === config.adminPassword;
+            const storedHash = config.adminPassword;
+            
+            if (!storedHash) {
+                console.log('No admin password set, using default');
+                if (this.logger) {
+                    this.logger.warning('auth', 'No admin password set, using default', 'system');
+                }
+                return this.hashPassword(password) === this.hashPassword('admin123');
+            }
+            
+            const inputHash = this.hashPassword(password);
+            const isValid = inputHash === storedHash;
+            
+            console.log('Password verification:', {
+                inputHash: inputHash.substring(0, 10) + '...',
+                storedHash: storedHash.substring(0, 10) + '...',
+                isValid
+            });
+            
+            if (this.logger) {
+                if (isValid) {
+                    this.logger.info('auth', 'Admin password verification successful', 'admin');
+                } else {
+                    this.logger.warning('auth', 'Admin password verification failed', 'system');
+                }
+            }
+            
+            return isValid;
         } catch (error) {
+            console.error('Error verifying admin password:', error);
+            if (this.logger) {
+                this.logger.error('auth', `Admin password verification error: ${error.message}`, 'system');
+            }
             return false;
         }
     }
 
     changeAdminPassword(newPassword) {
         try {
+            if (this.logger) {
+                this.logger.info('admin', 'Admin password change initiated', 'admin');
+            }
+            
             const config = this.getConfig();
             config.adminPassword = this.hashPassword(newPassword);
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('admin', 'Admin password changed successfully', 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('admin', `Admin password change failed: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
@@ -102,6 +168,9 @@ class DataManager {
             const data = fs.readFileSync(this.configFile, 'utf8');
             return JSON.parse(data);
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('config', `Error reading config: ${error.message}`, 'system');
+            }
             return {};
         }
     }
@@ -113,12 +182,18 @@ class DataManager {
             const key = crypto.scryptSync(password, 'salt', 32);
             const iv = crypto.randomBytes(16);
             const cipher = crypto.createCipher(algorithm, key);
-            
             let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
             encrypted += cipher.final('hex');
             
+            if (this.logger) {
+                this.logger.info('encryption', 'Data encrypted successfully', 'system');
+            }
+            
             return { success: true, data: iv.toString('hex') + ':' + encrypted };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', `Encryption failed: ${error.message}`, 'system');
+            }
             return { success: false, error: error.message };
         }
     }
@@ -131,18 +206,28 @@ class DataManager {
             const iv = Buffer.from(textParts.shift(), 'hex');
             const encryptedText = textParts.join(':');
             const decipher = crypto.createDecipher(algorithm, key);
-            
             let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
             decrypted += decipher.final('utf8');
             
+            if (this.logger) {
+                this.logger.info('encryption', 'Data decrypted successfully', 'system');
+            }
+            
             return { success: true, data: JSON.parse(decrypted) };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', 'Decryption failed - invalid password or corrupted data', 'system');
+            }
             return { success: false, error: 'Invalid password or corrupted data' };
         }
     }
 
     updateEncryptionSettings(enabled, password = null) {
         try {
+            if (this.logger) {
+                this.logger.info('encryption', `Updating encryption settings: ${enabled ? 'enabling' : 'disabling'}`, 'admin');
+            }
+            
             const config = this.getConfig();
             config.encryption = {
                 enabled: enabled,
@@ -153,13 +238,23 @@ class DataManager {
             if (enabled && password) {
                 config.encryption.passwordHash = this.hashPassword(password);
                 this.encryptionPassword = password;
+                if (this.logger) {
+                    this.logger.info('encryption', 'Encryption password set and stored', 'admin');
+                }
             }
             
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
             this.encryptionEnabled = enabled;
             
+            if (this.logger) {
+                this.logger.info('encryption', `Encryption settings updated successfully: ${enabled ? 'enabled' : 'disabled'}`, 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', `Encryption settings update failed: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
@@ -168,10 +263,27 @@ class DataManager {
         try {
             const config = this.getConfig();
             if (!config.encryption?.passwordHash) {
+                if (this.logger) {
+                    this.logger.warning('encryption', 'No encryption password set for verification', 'admin');
+                }
                 return false;
             }
-            return this.hashPassword(password) === config.encryption.passwordHash;
+            
+            const isValid = this.hashPassword(password) === config.encryption.passwordHash;
+            
+            if (this.logger) {
+                if (isValid) {
+                    this.logger.info('encryption', 'Encryption password verification successful', 'admin');
+                } else {
+                    this.logger.warning('encryption', 'Encryption password verification failed', 'admin');
+                }
+            }
+            
+            return isValid;
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', `Encryption password verification error: ${error.message}`, 'admin');
+            }
             return false;
         }
     }
@@ -180,10 +292,24 @@ class DataManager {
         if (!this.encryptionEnabled || !this.encryptionPassword) {
             return data;
         }
-
-        if (Array.isArray(data)) {
-            return data.map(item => {
-                const encrypted = { ...item };
+        
+        try {
+            if (Array.isArray(data)) {
+                return data.map(item => {
+                    const encrypted = { ...item };
+                    fields.forEach(field => {
+                        if (encrypted[field]) {
+                            const result = this.encrypt(encrypted[field], this.encryptionPassword);
+                            if (result.success) {
+                                encrypted[field] = result.data;
+                                encrypted[field + '_encrypted'] = true;
+                            }
+                        }
+                    });
+                    return encrypted;
+                });
+            } else {
+                const encrypted = { ...data };
                 fields.forEach(field => {
                     if (encrypted[field]) {
                         const result = this.encrypt(encrypted[field], this.encryptionPassword);
@@ -194,19 +320,12 @@ class DataManager {
                     }
                 });
                 return encrypted;
-            });
-        } else {
-            const encrypted = { ...data };
-            fields.forEach(field => {
-                if (encrypted[field]) {
-                    const result = this.encrypt(encrypted[field], this.encryptionPassword);
-                    if (result.success) {
-                        encrypted[field] = result.data;
-                        encrypted[field + '_encrypted'] = true;
-                    }
-                }
-            });
-            return encrypted;
+            }
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', `Field encryption error: ${error.message}`, 'system');
+            }
+            return data;
         }
     }
 
@@ -214,10 +333,24 @@ class DataManager {
         if (!this.encryptionEnabled || !this.encryptionPassword) {
             return data;
         }
-
-        if (Array.isArray(data)) {
-            return data.map(item => {
-                const decrypted = { ...item };
+        
+        try {
+            if (Array.isArray(data)) {
+                return data.map(item => {
+                    const decrypted = { ...item };
+                    fields.forEach(field => {
+                        if (decrypted[field] && decrypted[field + '_encrypted']) {
+                            const result = this.decrypt(decrypted[field], this.encryptionPassword);
+                            if (result.success) {
+                                decrypted[field] = result.data;
+                                delete decrypted[field + '_encrypted'];
+                            }
+                        }
+                    });
+                    return decrypted;
+                });
+            } else {
+                const decrypted = { ...data };
                 fields.forEach(field => {
                     if (decrypted[field] && decrypted[field + '_encrypted']) {
                         const result = this.decrypt(decrypted[field], this.encryptionPassword);
@@ -228,24 +361,21 @@ class DataManager {
                     }
                 });
                 return decrypted;
-            });
-        } else {
-            const decrypted = { ...data };
-            fields.forEach(field => {
-                if (decrypted[field] && decrypted[field + '_encrypted']) {
-                    const result = this.decrypt(decrypted[field], this.encryptionPassword);
-                    if (result.success) {
-                        decrypted[field] = result.data;
-                        delete decrypted[field + '_encrypted'];
-                    }
-                }
-            });
-            return decrypted;
+            }
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('encryption', `Field decryption error: ${error.message}`, 'system');
+            }
+            return data;
         }
     }
 
     addStudent(ufid, name, email = '') {
         try {
+            if (this.logger) {
+                this.logger.info('student', `Adding student: ${name} (${ufid})`, 'admin');
+            }
+            
             const students = this.getStudents();
             let student = {
                 ufid,
@@ -257,6 +387,9 @@ class DataManager {
             
             const existingIndex = students.findIndex(s => s.ufid === ufid);
             if (existingIndex !== -1) {
+                if (this.logger) {
+                    this.logger.info('student', `Updating existing student: ${name} (${ufid})`, 'admin');
+                }
                 students[existingIndex] = student;
             } else {
                 students.push(student);
@@ -264,8 +397,16 @@ class DataManager {
             
             let dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
             fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('student', `Student ${existingIndex !== -1 ? 'updated' : 'added'} successfully: ${name} (${ufid})`, 'admin');
+            }
+            
             return { success: true, student };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('student', `Error adding student ${ufid}: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
@@ -274,58 +415,135 @@ class DataManager {
         try {
             const data = fs.readFileSync(this.studentsFile, 'utf8');
             let students = JSON.parse(data);
-            return this.decryptSensitiveFields(students, ['name', 'email']);
+            const decryptedStudents = this.decryptSensitiveFields(students, ['name', 'email']);
+            
+            if (this.logger) {
+                this.logger.info('student', `Retrieved ${decryptedStudents.length} students from database`, 'system');
+            }
+            
+            return decryptedStudents;
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('student', `Error retrieving students: ${error.message}`, 'system');
+            }
             return [];
         }
     }
 
     removeStudent(ufid) {
         try {
+            if (this.logger) {
+                this.logger.info('student', `Removing student with UFID: ${ufid}`, 'admin');
+            }
+            
             const students = this.getStudents();
+            const studentToRemove = students.find(s => s.ufid === ufid);
             const filteredStudents = students.filter(s => s.ufid !== ufid);
+            
+            if (students.length === filteredStudents.length) {
+                if (this.logger) {
+                    this.logger.warning('student', `Student not found for removal: ${ufid}`, 'admin');
+                }
+                return { success: false, error: 'Student not found' };
+            }
+            
             let dataToSave = this.encryptSensitiveFields(filteredStudents, ['name', 'email']);
             fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('student', `Student removed successfully: ${studentToRemove?.name || 'Unknown'} (${ufid})`, 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('student', `Error removing student ${ufid}: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     isStudentAuthorized(ufid) {
-        const students = this.getStudents();
-        const student = students.find(s => s.ufid === ufid && s.active);
-        return student || null;
+        try {
+            const students = this.getStudents();
+            const student = students.find(s => s.ufid === ufid && s.active);
+            
+            if (this.logger) {
+                if (student) {
+                    this.logger.info('auth', `Student authorization check passed: ${student.name} (${ufid})`, 'system');
+                } else {
+                    this.logger.warning('auth', `Student authorization check failed: ${ufid}`, 'system');
+                }
+            }
+            
+            return student || null;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('auth', `Error checking student authorization for ${ufid}: ${error.message}`, 'system');
+            }
+            return null;
+        }
     }
 
     getAttendance() {
         try {
             const data = fs.readFileSync(this.attendanceFile, 'utf8');
             let attendance = JSON.parse(data);
-            return this.decryptSensitiveFields(attendance, ['name']);
+            const decryptedAttendance = this.decryptSensitiveFields(attendance, ['name']);
+            
+            if (this.logger) {
+                this.logger.info('attendance', `Retrieved ${decryptedAttendance.length} attendance records`, 'system');
+            }
+            
+            return decryptedAttendance;
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error retrieving attendance: ${error.message}`, 'system');
+            }
             return [];
         }
     }
 
     getCurrentStatus(ufid) {
-        const attendance = this.getAttendance();
-        const userRecords = attendance.filter(record => record.ufid === ufid);
-        
-        if (userRecords.length === 0) {
+        try {
+            const attendance = this.getAttendance();
+            const userRecords = attendance.filter(record => record.ufid === ufid);
+            
+            if (userRecords.length === 0) {
+                if (this.logger) {
+                    this.logger.info('attendance', `No attendance records found for UFID: ${ufid}`, 'system');
+                }
+                return 'never_signed_in';
+            }
+            
+            const lastRecord = userRecords[userRecords.length - 1];
+            
+            if (this.logger) {
+                this.logger.info('attendance', `Current status for ${ufid}: ${lastRecord.action}`, 'system');
+            }
+            
+            return lastRecord.action;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error getting current status for ${ufid}: ${error.message}`, 'system');
+            }
             return 'never_signed_in';
         }
-        
-        const lastRecord = userRecords[userRecords.length - 1];
-        return lastRecord.action;
     }
 
     addAttendanceWithValidation(ufid, name, action) {
         try {
+            if (this.logger) {
+                this.logger.info('attendance', `Processing ${action} for UFID: ${ufid}`, 'system');
+            }
+            
             const authorizedStudent = this.isStudentAuthorized(ufid);
             if (!authorizedStudent) {
-                return { 
-                    success: false, 
+                if (this.logger) {
+                    this.logger.warning('attendance', `Unauthorized ${action} attempt for UFID: ${ufid}`, 'system');
+                }
+                return {
+                    success: false,
                     error: 'Student not authorized. Please contact admin to be added to the system.',
                     unauthorized: true
                 };
@@ -335,6 +553,9 @@ class DataManager {
             
             if (action === 'signin') {
                 if (currentStatus === 'signin') {
+                    if (this.logger) {
+                        this.logger.warning('attendance', `Duplicate sign-in attempt for ${authorizedStudent.name} (${ufid})`, 'system');
+                    }
                     return {
                         success: false,
                         error: `${authorizedStudent.name} is already signed in. Please sign out first.`,
@@ -343,12 +564,18 @@ class DataManager {
                 }
             } else if (action === 'signout') {
                 if (currentStatus === 'signout') {
+                    if (this.logger) {
+                        this.logger.warning('attendance', `Duplicate sign-out attempt for ${authorizedStudent.name} (${ufid})`, 'system');
+                    }
                     return {
                         success: false,
                         error: `${authorizedStudent.name} is already signed out. Please sign in first.`,
                         duplicate: true
                     };
                 } else if (currentStatus === 'never_signed_in') {
+                    if (this.logger) {
+                        this.logger.warning('attendance', `Sign-out attempt without sign-in for ${authorizedStudent.name} (${ufid})`, 'system');
+                    }
                     return {
                         success: false,
                         error: `${authorizedStudent.name} has never signed in today. Please sign in first.`,
@@ -365,227 +592,383 @@ class DataManager {
                 action: action,
                 timestamp: new Date().toISOString()
             };
-            
+
             attendance.push(record);
             let dataToSave = this.encryptSensitiveFields(attendance, ['name']);
             fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('attendance', `${action} successful for ${authorizedStudent.name} (${ufid})`, 'system');
+            }
+            
             return { success: true, record, studentName: authorizedStudent.name };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `${action} error for ${ufid}: ${error.message}`, 'system');
+            }
             return { success: false, error: error.message };
         }
     }
 
     deleteAttendanceRecord(recordId) {
         try {
+            if (this.logger) {
+                this.logger.info('attendance', `Deleting attendance record: ${recordId}`, 'admin');
+            }
+            
             const attendance = this.getAttendance();
+            const recordToDelete = attendance.find(record => record.id === recordId);
             const filteredAttendance = attendance.filter(record => record.id !== recordId);
             
             if (attendance.length === filteredAttendance.length) {
+                if (this.logger) {
+                    this.logger.warning('attendance', `Attendance record not found for deletion: ${recordId}`, 'admin');
+                }
                 return { success: false, error: 'Record not found' };
             }
             
             let dataToSave = this.encryptSensitiveFields(filteredAttendance, ['name']);
             fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+            
+            if (this.logger) {
+                const studentInfo = recordToDelete ? `${recordToDelete.name} (${recordToDelete.ufid})` : 'Unknown student';
+                this.logger.info('attendance', `Attendance record deleted: ${studentInfo} - ${recordToDelete?.action} at ${recordToDelete?.timestamp}`, 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error deleting attendance record ${recordId}: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     getCurrentlySignedIn() {
-        const students = this.getStudents();
-        const signedInStudents = [];
-        
-        students.forEach(student => {
-            const status = this.getCurrentStatus(student.ufid);
-            if (status === 'signin') {
-                const attendance = this.getAttendance();
-                const userRecords = attendance.filter(record => record.ufid === student.ufid);
-                const lastRecord = userRecords[userRecords.length - 1];
-                
-                signedInStudents.push({
-                    ...student,
-                    signInTime: lastRecord.timestamp
-                });
+        try {
+            if (this.logger) {
+                this.logger.info('attendance', 'Retrieving currently signed-in students', 'system');
             }
-        });
-        
-        return signedInStudents;
+            
+            const students = this.getStudents();
+            const signedInStudents = [];
+            
+            students.forEach(student => {
+                const status = this.getCurrentStatus(student.ufid);
+                if (status === 'signin') {
+                    const attendance = this.getAttendance();
+                    const userRecords = attendance.filter(record => record.ufid === student.ufid);
+                    const lastRecord = userRecords[userRecords.length - 1];
+                    signedInStudents.push({
+                        ...student,
+                        signInTime: lastRecord.timestamp
+                    });
+                }
+            });
+            
+            if (this.logger) {
+                this.logger.info('attendance', `Found ${signedInStudents.length} currently signed-in students`, 'system');
+            }
+            
+            return signedInStudents;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error getting currently signed-in students: ${error.message}`, 'system');
+            }
+            return [];
+        }
     }
 
     getTodaysAttendance() {
-        const attendance = this.getAttendance();
-        const today = new Date().toDateString();
-        
-        return attendance.filter(record => 
-            new Date(record.timestamp).toDateString() === today
-        );
+        try {
+            const attendance = this.getAttendance();
+            const today = new Date().toDateString();
+            const todaysAttendance = attendance.filter(record =>
+                new Date(record.timestamp).toDateString() === today
+            );
+            
+            if (this.logger) {
+                this.logger.info('attendance', `Retrieved ${todaysAttendance.length} attendance records for today`, 'system');
+            }
+            
+            return todaysAttendance;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error getting today's attendance: ${error.message}`, 'system');
+            }
+            return [];
+        }
     }
 
     getStats() {
-        const attendance = this.getAttendance();
-        const students = this.getStudents();
-        
-        const today = new Date().toDateString();
-        const todayAttendance = attendance.filter(record => 
-            new Date(record.timestamp).toDateString() === today
-        );
-
-        const signIns = todayAttendance.filter(r => r.action === 'signin').length;
-        const signOuts = todayAttendance.filter(r => r.action === 'signout').length;
-        
-        return {
-            totalStudents: students.length,
-            activeStudents: students.filter(s => s.active).length,
-            todaySignIns: signIns,
-            todaySignOuts: signOuts,
-            totalRecords: attendance.length,
-            lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null
-        };
+        try {
+            if (this.logger) {
+                this.logger.info('stats', 'Generating basic statistics', 'admin');
+            }
+            
+            const attendance = this.getAttendance();
+            const students = this.getStudents();
+            const today = new Date().toDateString();
+            const todayAttendance = attendance.filter(record =>
+                new Date(record.timestamp).toDateString() === today
+            );
+            
+            const signIns = todayAttendance.filter(r => r.action === 'signin').length;
+            const signOuts = todayAttendance.filter(r => r.action === 'signout').length;
+            
+            const stats = {
+                totalStudents: students.length,
+                activeStudents: students.filter(s => s.active).length,
+                todaySignIns: signIns,
+                todaySignOuts: signOuts,
+                totalRecords: attendance.length,
+                lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null
+            };
+            
+            if (this.logger) {
+                this.logger.info('stats', `Basic stats generated - Students: ${stats.totalStudents}, Today's records: ${todayAttendance.length}`, 'admin');
+            }
+            
+            return stats;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('stats', `Error generating basic stats: ${error.message}`, 'admin');
+            }
+            return {};
+        }
     }
 
     getEnhancedStats() {
-        const attendance = this.getAttendance();
-        const students = this.getStudents();
-        const currentlySignedIn = this.getCurrentlySignedIn();
-        const todaysAttendance = this.getTodaysAttendance();
-        
-        const signIns = todaysAttendance.filter(r => r.action === 'signin').length;
-        const signOuts = todaysAttendance.filter(r => r.action === 'signout').length;
-        
-        return {
-            totalStudents: students.length,
-            activeStudents: students.filter(s => s.active).length,
-            currentlySignedIn: currentlySignedIn.length,
-            todaySignIns: signIns,
-            todaySignOuts: signOuts,
-            totalRecords: attendance.length,
-            todaysRecords: todaysAttendance.length,
-            lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null,
-            signedInStudents: currentlySignedIn
-        };
+        try {
+            if (this.logger) {
+                this.logger.info('stats', 'Generating enhanced statistics', 'admin');
+            }
+            
+            const attendance = this.getAttendance();
+            const students = this.getStudents();
+            const currentlySignedIn = this.getCurrentlySignedIn();
+            const todaysAttendance = this.getTodaysAttendance();
+            
+            const signIns = todaysAttendance.filter(r => r.action === 'signin').length;
+            const signOuts = todaysAttendance.filter(r => r.action === 'signout').length;
+            
+            const stats = {
+                totalStudents: students.length,
+                activeStudents: students.filter(s => s.active).length,
+                currentlySignedIn: currentlySignedIn.length,
+                todaySignIns: signIns,
+                todaySignOuts: signOuts,
+                totalRecords: attendance.length,
+                todaysRecords: todaysAttendance.length,
+                lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null,
+                signedInStudents: currentlySignedIn
+            };
+            
+            if (this.logger) {
+                this.logger.info('stats', `Enhanced stats generated - Currently present: ${stats.currentlySignedIn}, Today's activity: ${stats.todaysRecords}`, 'admin');
+            }
+            
+            return stats;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('stats', `Error generating enhanced stats: ${error.message}`, 'admin');
+            }
+            return {};
+        }
     }
 
     getAttendanceByDateRange(startDate, endDate) {
-        const attendance = this.getAttendance();
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        
-        return attendance.filter(record => {
-            const recordDate = new Date(record.timestamp);
-            return recordDate >= start && recordDate <= end;
-        });
+        try {
+            if (this.logger) {
+                this.logger.info('attendance', `Retrieving attendance records from ${startDate} to ${endDate}`, 'admin');
+            }
+            
+            const attendance = this.getAttendance();
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            
+            const filteredAttendance = attendance.filter(record => {
+                const recordDate = new Date(record.timestamp);
+                return recordDate >= start && recordDate <= end;
+            });
+            
+            if (this.logger) {
+                this.logger.info('attendance', `Found ${filteredAttendance.length} records in date range`, 'admin');
+            }
+            
+            return filteredAttendance;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error getting attendance by date range: ${error.message}`, 'admin');
+            }
+            return [];
+        }
     }
 
     generateWeeklyReport() {
-        const endDate = new Date();
-        const startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 7);
-
-        const weeklyAttendance = this.getAttendanceByDateRange(startDate, endDate);
-        const students = this.getStudents();
-        
-        const studentReports = {};
-        students.forEach(student => {
-            studentReports[student.ufid] = {
-                name: student.name,
-                email: student.email,
-                signIns: 0,
-                signOuts: 0,
-                totalHours: 0,
-                sessions: []
-            };
-        });
-
-        weeklyAttendance.forEach(record => {
-            if (studentReports[record.ufid]) {
-                if (record.action === 'signin') {
-                    studentReports[record.ufid].signIns++;
-                } else {
-                    studentReports[record.ufid].signOuts++;
-                }
-                studentReports[record.ufid].sessions.push(record);
+        try {
+            if (this.logger) {
+                this.logger.info('report', 'Generating weekly report data', 'admin');
             }
-        });
-
-        Object.keys(studentReports).forEach(ufid => {
-            const sessions = studentReports[ufid].sessions.sort((a, b) => 
-                new Date(a.timestamp) - new Date(b.timestamp)
-            );
             
-            let totalMinutes = 0;
-            for (let i = 0; i < sessions.length - 1; i += 2) {
-                const signIn = sessions[i];
-                const signOut = sessions[i + 1];
+            const endDate = new Date();
+            const startDate = new Date(endDate);
+            startDate.setDate(startDate.getDate() - 7);
+            
+            const weeklyAttendance = this.getAttendanceByDateRange(startDate, endDate);
+            const students = this.getStudents();
+            
+            const studentReports = {};
+            students.forEach(student => {
+                studentReports[student.ufid] = {
+                    name: student.name,
+                    email: student.email,
+                    signIns: 0,
+                    signOuts: 0,
+                    totalHours: 0,
+                    sessions: []
+                };
+            });
+
+            weeklyAttendance.forEach(record => {
+                if (studentReports[record.ufid]) {
+                    if (record.action === 'signin') {
+                        studentReports[record.ufid].signIns++;
+                    } else {
+                        studentReports[record.ufid].signOuts++;
+                    }
+                    studentReports[record.ufid].sessions.push(record);
+                }
+            });
+
+            // Calculate total hours for each student
+            Object.keys(studentReports).forEach(ufid => {
+                const sessions = studentReports[ufid].sessions.sort((a, b) =>
+                    new Date(a.timestamp) - new Date(b.timestamp)
+                );
                 
-                if (signIn.action === 'signin' && signOut && signOut.action === 'signout') {
-                    const duration = new Date(signOut.timestamp) - new Date(signIn.timestamp);
-                    totalMinutes += duration / (1000 * 60);
+                let totalMinutes = 0;
+                for (let i = 0; i < sessions.length - 1; i += 2) {
+                    const signIn = sessions[i];
+                    const signOut = sessions[i + 1];
+                    if (signIn.action === 'signin' && signOut && signOut.action === 'signout') {
+                        const duration = new Date(signOut.timestamp) - new Date(signIn.timestamp);
+                        totalMinutes += duration / (1000 * 60);
+                    }
                 }
+                studentReports[ufid].totalHours = Math.round((totalMinutes / 60) * 100) / 100;
+            });
+            
+            const activeStudents = Object.values(studentReports).filter(s => s.signIns > 0).length;
+            
+            if (this.logger) {
+                this.logger.info('report', `Weekly report generated - ${weeklyAttendance.length} records, ${activeStudents} active students`, 'admin');
             }
             
-            studentReports[ufid].totalHours = Math.round((totalMinutes / 60) * 100) / 100;
-        });
-
-        return {
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString(),
-            totalRecords: weeklyAttendance.length,
-            studentsWithActivity: Object.values(studentReports).filter(s => s.signIns > 0).length,
-            studentReports: studentReports,
-            rawAttendance: weeklyAttendance
-        };
+            return {
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString(),
+                totalRecords: weeklyAttendance.length,
+                studentsWithActivity: activeStudents,
+                studentReports: studentReports,
+                rawAttendance: weeklyAttendance
+            };
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('report', `Error generating weekly report: ${error.message}`, 'admin');
+            }
+            return null;
+        }
     }
 
     generateCSVReport(reportData) {
-        const headers = ['UF ID', 'Name', 'Sign Ins', 'Sign Outs', 'Total Hours', 'Email'];
-        const rows = [headers];
-
-        Object.keys(reportData.studentReports).forEach(ufid => {
-            const student = reportData.studentReports[ufid];
-            if (student.signIns > 0 || student.signOuts > 0) {
-                rows.push([
-                    ufid,
-                    student.name,
-                    student.signIns,
-                    student.signOuts,
-                    student.totalHours,
-                    student.email || ''
-                ]);
+        try {
+            if (this.logger) {
+                this.logger.info('report', 'Converting report data to CSV format', 'admin');
             }
-        });
-
-        return rows.map(row => row.join(',')).join('\n');
+            
+            const headers = ['UF ID', 'Name', 'Sign Ins', 'Sign Outs', 'Total Hours', 'Email'];
+            const rows = [headers];
+            
+            let activeRecords = 0;
+            Object.keys(reportData.studentReports).forEach(ufid => {
+                const student = reportData.studentReports[ufid];
+                if (student.signIns > 0 || student.signOuts > 0) {
+                    rows.push([
+                        ufid,
+                        student.name,
+                        student.signIns,
+                        student.signOuts,
+                        student.totalHours,
+                        student.email || ''
+                    ]);
+                    activeRecords++;
+                }
+            });
+            
+            if (this.logger) {
+                this.logger.info('report', `CSV report generated with ${activeRecords} active student records`, 'admin');
+            }
+            
+            return rows.map(row => row.join(',')).join('\n');
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('report', `Error generating CSV report: ${error.message}`, 'admin');
+            }
+            return '';
+        }
     }
 
     saveWeeklyReportToFile() {
         try {
-            const reportData = this.generateWeeklyReport();
-            const csvContent = this.generateCSVReport(reportData);
+            if (this.logger) {
+                this.logger.info('report', 'Saving weekly report to file', 'admin');
+            }
             
+            const reportData = this.generateWeeklyReport();
+            if (!reportData) {
+                return { success: false, error: 'Failed to generate report data' };
+            }
+            
+            const csvContent = this.generateCSVReport(reportData);
             const reportsDir = path.join(this.dataDir, 'reports');
+            
             if (!fs.existsSync(reportsDir)) {
                 fs.mkdirSync(reportsDir);
+                if (this.logger) {
+                    this.logger.info('report', 'Created reports directory', 'admin');
+                }
             }
-
+            
             const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.csv`;
             const filePath = path.join(reportsDir, fileName);
             
             fs.writeFileSync(filePath, csvContent);
             
-            return { 
-                success: true, 
-                filePath, 
+            if (this.logger) {
+                this.logger.info('report', `Weekly report saved to file: ${fileName}`, 'admin');
+            }
+            
+            return {
+                success: true,
+                filePath,
                 reportData,
-                csvContent 
+                csvContent
             };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('report', `Error saving weekly report to file: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     updateEmailConfig(emailConfig) {
         try {
+            if (this.logger) {
+                this.logger.info('config', `Updating email configuration - SMTP: ${emailConfig.smtp}`, 'admin');
+            }
+            
             const config = this.getConfig();
             config.emailSettings = {
                 enabled: emailConfig.enabled || false,
@@ -597,15 +980,28 @@ class DataManager {
                 recipientEmail: emailConfig.recipientEmail || '',
                 recipientName: emailConfig.recipientName || ''
             };
+            
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('config', 'Email configuration updated successfully', 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('config', `Error updating email config: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     updateSheetsConfig(sheetsConfig) {
         try {
+            if (this.logger) {
+                this.logger.info('config', `Updating Google Sheets configuration - SpreadsheetID: ${sheetsConfig.spreadsheetId || 'not set'}`, 'admin');
+            }
+            
             const config = this.getConfig();
             config.googleSheets = {
                 enabled: sheetsConfig.enabled || false,
@@ -613,15 +1009,28 @@ class DataManager {
                 sheetName: sheetsConfig.sheetName || 'Attendance',
                 autoSync: sheetsConfig.autoSync || false
             };
+            
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('config', 'Google Sheets configuration updated successfully', 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('config', `Error updating Google Sheets config: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     updateDropboxConfig(dropboxConfig) {
         try {
+            if (this.logger) {
+                this.logger.info('config', `Updating Dropbox configuration - AutoBackup: ${dropboxConfig.autoBackup}, AutoReports: ${dropboxConfig.autoReports}`, 'admin');
+            }
+            
             const config = this.getConfig();
             config.dropbox = {
                 enabled: dropboxConfig.enabled || false,
@@ -629,15 +1038,28 @@ class DataManager {
                 autoBackup: dropboxConfig.autoBackup || false,
                 autoReports: dropboxConfig.autoReports || false
             };
+            
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('config', 'Dropbox configuration updated successfully', 'admin');
+            }
+            
             return { success: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('config', `Error updating Dropbox config: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     backupData() {
         try {
+            if (this.logger) {
+                this.logger.info('backup', 'Creating data backup', 'admin');
+            }
+            
             const backupData = {
                 attendance: this.getAttendance(),
                 students: this.getStudents(),
@@ -648,20 +1070,35 @@ class DataManager {
             const backupDir = path.join(this.dataDir, 'backups');
             if (!fs.existsSync(backupDir)) {
                 fs.mkdirSync(backupDir);
+                if (this.logger) {
+                    this.logger.info('backup', 'Created backups directory', 'admin');
+                }
             }
             
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupFile = path.join(backupDir, `backup-${timestamp}.json`);
             
             fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
+            
+            if (this.logger) {
+                this.logger.info('backup', `Data backup created successfully: ${path.basename(backupFile)}`, 'admin');
+            }
+            
             return { success: true, backupFile };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('backup', `Error creating data backup: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
         }
     }
 
     createEncryptedBackup(password) {
         try {
+            if (this.logger) {
+                this.logger.info('backup', 'Creating encrypted data backup', 'admin');
+            }
+            
             const backupData = {
                 attendance: this.getAttendance(),
                 students: this.getStudents(),
@@ -672,6 +1109,9 @@ class DataManager {
             
             const encrypted = this.encrypt(backupData, password);
             if (!encrypted.success) {
+                if (this.logger) {
+                    this.logger.error('backup', 'Failed to encrypt backup data', 'admin');
+                }
                 return encrypted;
             }
             
@@ -685,9 +1125,35 @@ class DataManager {
             
             fs.writeFileSync(backupFile, encrypted.data);
             
+            if (this.logger) {
+                this.logger.info('backup', `Encrypted backup created successfully: ${path.basename(backupFile)}`, 'admin');
+            }
+            
             return { success: true, backupFile, encrypted: true };
         } catch (error) {
+            if (this.logger) {
+                this.logger.error('backup', `Error creating encrypted backup: ${error.message}`, 'admin');
+            }
             return { success: false, error: error.message };
+        }
+    }
+
+    ensureDataDir() {
+        if (!fs.existsSync(this.dataDir)) {
+            fs.mkdirSync(this.dataDir, { recursive: true });
+        }
+    }
+
+    initializeFiles() {
+        // Initialize your data files here
+        if (!fs.existsSync(this.studentsFile)) {
+            fs.writeFileSync(this.studentsFile, JSON.stringify([], null, 2));
+        }
+        if (!fs.existsSync(this.attendanceFile)) {
+            fs.writeFileSync(this.attendanceFile, JSON.stringify([], null, 2));
+        }
+        if (!fs.existsSync(this.configFile)) {
+            fs.writeFileSync(this.configFile, JSON.stringify({}, null, 2));
         }
     }
 }
