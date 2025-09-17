@@ -1,32 +1,48 @@
 const fs = require('fs');
 const path = require('path');
+const workerId = process.env.JEST_WORKER_ID || '1';
+process.env.TEST_DATA_ROOT = path.join(__dirname, '../../test-data', `w${workerId}`);
 
-// Create test data directory
-const testDataDir = path.join(__dirname, '../../test-data');
-if (!fs.existsSync(testDataDir)) {
-  fs.mkdirSync(testDataDir, { recursive: true });
+
+// Always OK: create test-data directory (works in Node pretest and in Jest)
+const mockTestDataDir = path.join(__dirname, '../../test-data'); // <-- name starts with "mock"
+if (!fs.existsSync(mockTestDataDir)) {
+  fs.mkdirSync(mockTestDataDir, { recursive: true });
 }
 
-// Mock electron modules for testing
-jest.mock('electron', () => ({
-  app: {
-    getPath: jest.fn(() => testDataDir),
-    whenReady: jest.fn(() => Promise.resolve()),
-    quit: jest.fn(),
-    on: jest.fn()
-  },
-  BrowserWindow: jest.fn(() => ({
-    loadFile: jest.fn(),
-    show: jest.fn(),
-    webContents: { on: jest.fn() }
-  })),
-  ipcMain: {
-    handle: jest.fn(),
-    on: jest.fn()
-  }
-}));
+// Detect if we're running under Jest (so we can call jest.* APIs)
+const isJest =
+  typeof jest !== 'undefined' &&
+  typeof global !== 'undefined' &&
+  typeof global.expect === 'function' &&
+  typeof global.test === 'function';
 
-// Global test timeout
-jest.setTimeout(10000);
+if (isJest) {
+  // IMPORTANT: All non-globals required inside the factory;
+  // the only captured variable is mockTestDataDir (allowed).
+  jest.mock('electron', () => {
+    const { fn } = jest;
+    return {
+      app: {
+        getPath: fn(() => mockTestDataDir),
+        whenReady: fn(() => Promise.resolve()),
+        quit: fn(),
+        on: fn()
+      },
+      BrowserWindow: fn(() => ({
+        loadFile: fn(),
+        show: fn(),
+        webContents: { on: fn() }
+      })),
+      ipcMain: {
+        handle: fn(),
+        on: fn()
+      }
+    };
+  });
 
-console.log('Test environment setup complete');
+  jest.setTimeout(10000);
+} else {
+  // Running via "pretest": keep side effects minimal.
+  console.log('Pretest env setup complete (no Jest)');
+}

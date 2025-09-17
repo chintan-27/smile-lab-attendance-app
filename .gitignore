@@ -138,5 +138,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# Data folder
+# Data folders produced by the app and testing
+test-data/
 data/

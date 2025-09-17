@@ -3,7 +3,8 @@ const path = require('path');
 
 class TestUtils {
   constructor() {
-    this.testDataDir = path.join(__dirname, '../../test-data');
+    this.testDataDir =
+      process.env.TEST_DATA_ROOT || path.join(__dirname, '../../test-data');
   }
 
   // Setup clean test environment

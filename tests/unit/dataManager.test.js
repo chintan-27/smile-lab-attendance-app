@@ -21,9 +21,9 @@ describe('DataManager Unit Tests', () => {
     test('should add a new student successfully', () => {
       const student = testData.createTestStudent();
       const result = dataManager.addStudent(student.ufid, student.name, student.email);
-      
+
       expect(result.success).toBe(true);
-      
+
       const students = dataManager.getStudents();
       expect(students).toHaveLength(1);
       expect(students[0].ufid).toBe(student.ufid);
@@ -32,13 +32,13 @@ describe('DataManager Unit Tests', () => {
 
     test('should handle duplicate UFID', () => {
       const student = testData.createTestStudent();
-      
+
       // Add student twice
       dataManager.addStudent(student.ufid, student.name, student.email);
       const result = dataManager.addStudent(student.ufid, 'Different Name', student.email);
-      
+
       expect(result.success).toBe(true);
-      
+
       const students = dataManager.getStudents();
       expect(students).toHaveLength(1);
       expect(students[0].name).toBe('Different Name'); // Should update
@@ -47,10 +47,10 @@ describe('DataManager Unit Tests', () => {
     test('should remove student successfully', () => {
       const student = testData.createTestStudent();
       dataManager.addStudent(student.ufid, student.name, student.email);
-      
+
       const result = dataManager.removeStudent(student.ufid);
       expect(result.success).toBe(true);
-      
+
       const students = dataManager.getStudents();
       expect(students).toHaveLength(0);
     });
@@ -64,7 +64,7 @@ describe('DataManager Unit Tests', () => {
     test('should authorize valid student', () => {
       const student = testData.createTestStudent();
       dataManager.addStudent(student.ufid, student.name, student.email);
-      
+
       const authorized = dataManager.isStudentAuthorized(student.ufid);
       expect(authorized).not.toBeNull();
       expect(authorized.ufid).toBe(student.ufid);
@@ -86,14 +86,14 @@ describe('DataManager Unit Tests', () => {
 
     test('should handle first sign-in successfully', () => {
       const result = dataManager.addAttendanceWithValidation(
-        testStudent.ufid, 
-        testStudent.name, 
+        testStudent.ufid,
+        testStudent.name,
         'signin'
       );
-      
+
       expect(result.success).toBe(true);
       expect(result.studentName).toBe(testStudent.name);
-      
+
       const attendance = dataManager.getAttendance();
       expect(attendance).toHaveLength(1);
       expect(attendance[0].action).toBe('signin');
@@ -102,14 +102,14 @@ describe('DataManager Unit Tests', () => {
     test('should prevent duplicate sign-in', () => {
       // First sign-in
       dataManager.addAttendanceWithValidation(testStudent.ufid, testStudent.name, 'signin');
-      
+
       // Attempt duplicate sign-in
       const result = dataManager.addAttendanceWithValidation(
-        testStudent.ufid, 
-        testStudent.name, 
+        testStudent.ufid,
+        testStudent.name,
         'signin'
       );
-      
+
       expect(result.success).toBe(false);
       expect(result.duplicate).toBe(true);
       expect(result.error).toContain('already signed in');
@@ -118,16 +118,16 @@ describe('DataManager Unit Tests', () => {
     test('should handle sign-out after sign-in', () => {
       // Sign in first
       dataManager.addAttendanceWithValidation(testStudent.ufid, testStudent.name, 'signin');
-      
+
       // Then sign out
       const result = dataManager.addAttendanceWithValidation(
-        testStudent.ufid, 
-        testStudent.name, 
+        testStudent.ufid,
+        testStudent.name,
         'signout'
       );
-      
+
       expect(result.success).toBe(true);
-      
+
       const attendance = dataManager.getAttendance();
       expect(attendance).toHaveLength(2);
       expect(attendance[1].action).toBe('signout');
@@ -135,11 +135,11 @@ describe('DataManager Unit Tests', () => {
 
     test('should prevent sign-out without sign-in', () => {
       const result = dataManager.addAttendanceWithValidation(
-        testStudent.ufid, 
-        testStudent.name, 
+        testStudent.ufid,
+        testStudent.name,
         'signout'
       );
-      
+
       expect(result.success).toBe(false);
       expect(result.noSignIn).toBe(true);
       expect(result.error).toContain('never signed in');
@@ -148,11 +148,11 @@ describe('DataManager Unit Tests', () => {
     test('should get current status correctly', () => {
       // Initially never signed in
       expect(dataManager.getCurrentStatus(testStudent.ufid)).toBe('never_signed_in');
-      
+
       // After sign in
       dataManager.addAttendanceWithValidation(testStudent.ufid, testStudent.name, 'signin');
       expect(dataManager.getCurrentStatus(testStudent.ufid)).toBe('signin');
-      
+
       // After sign out
       dataManager.addAttendanceWithValidation(testStudent.ufid, testStudent.name, 'signout');
       expect(dataManager.getCurrentStatus(testStudent.ufid)).toBe('signout');
@@ -161,11 +161,13 @@ describe('DataManager Unit Tests', () => {
 
   describe('Statistics and Reports', () => {
     beforeEach(() => {
-      // Add test students
-      testData.sampleStudents.forEach(student => {
-        dataManager.addStudent(student.ufid, student.name, student.email);
-      });
-      
+      // Seed students from fixture so "active" flags are preserved
+      const fs = require('fs');
+      const path = require('path');
+      const studentsPath = dataManager.studentsFile;
+      const sampleStudents = require('../fixtures/sample-students.json');
+      fs.writeFileSync(studentsPath, JSON.stringify(sampleStudents, null, 2));
+
       // Add test attendance
       testData.sampleAttendance.forEach(record => {
         dataManager.addAttendanceWithValidation(record.ufid, record.name, record.action);
@@ -174,7 +176,7 @@ describe('DataManager Unit Tests', () => {
 
     test('should generate basic stats', () => {
       const stats = dataManager.getStats();
-      
+
       expect(stats.totalStudents).toBe(4);
       expect(stats.activeStudents).toBe(3); // One inactive in sample data
       expect(stats.totalRecords).toBeGreaterThan(0);
@@ -182,7 +184,7 @@ describe('DataManager Unit Tests', () => {
 
     test('should generate enhanced stats', () => {
       const stats = dataManager.getEnhancedStats();
-      
+
       expect(stats.totalStudents).toBe(4);
       expect(stats.currentlySignedIn).toBe(2); // From sample attendance
       expect(stats.signedInStudents).toHaveLength(2);
@@ -208,10 +210,10 @@ describe('DataManager Unit Tests', () => {
     test('should change admin password', () => {
       const result = dataManager.changeAdminPassword('newpassword123');
       expect(result.success).toBe(true);
-      
+
       // Old password should not work
       expect(dataManager.verifyAdmin('admin123')).toBe(false);
-      
+
       // New password should work
       expect(dataManager.verifyAdmin('newpassword123')).toBe(true);
     });
@@ -221,14 +223,14 @@ describe('DataManager Unit Tests', () => {
     test('should persist student data', () => {
       const student = testData.createTestStudent();
       dataManager.addStudent(student.ufid, student.name, student.email);
-      
+
       // Create new instance to test persistence
       const newDataManager = new DataManager();
       newDataManager.dataDir = testUtils.testDataDir;
       newDataManager.studentsFile = dataManager.studentsFile;
       newDataManager.attendanceFile = dataManager.attendanceFile;
       newDataManager.configFile = dataManager.configFile;
-      
+
       const students = newDataManager.getStudents();
       expect(students).toHaveLength(1);
       expect(students[0].ufid).toBe(student.ufid);
@@ -237,11 +239,11 @@ describe('DataManager Unit Tests', () => {
     test('should create backup successfully', () => {
       const student = testData.createTestStudent();
       dataManager.addStudent(student.ufid, student.name, student.email);
-      
+
       const result = dataManager.backupData();
       expect(result.success).toBe(true);
       expect(result.backupFile).toBeDefined();
-      
+
       // Verify backup file exists
       const fs = require('fs');
       expect(fs.existsSync(result.backupFile)).toBe(true);
