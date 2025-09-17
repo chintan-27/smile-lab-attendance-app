@@ -1,0 +1,30 @@
+[
+  {
+    "ufid": "12345678",
+    "name": "John Doe",
+    "email": "john.doe@ufl.edu",
+    "active": true,
+    "addedDate": "2024-01-15T10:00:00.000Z"
+  },
+  {
+    "ufid": "87654321",
+    "name": "Jane Smith",
+    "email": "jane.smith@ufl.edu",
+    "active": true,
+    "addedDate": "2024-01-15T10:05:00.000Z"
+  },
+  {
+    "ufid": "11111111",
+    "name": "Bob Johnson",
+    "email": "bob.johnson@ufl.edu",
+    "active": false,
+    "addedDate": "2024-01-14T15:30:00.000Z"
+  },
+  {
+    "ufid": "22222222",
+    "name": "Alice Brown",
+    "email": "alice.brown@ufl.edu",
+    "active": true,
+    "addedDate": "2024-01-16T09:15:00.000Z"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "ufid": "12345678",
+    "name": "John Doe",
+    "action": "signin",
+    "timestamp": "2024-05-10T09:00:00.000Z"
+  },
+  {
+    "id": 2,
+    "ufid": "87654321",
+    "name": "Jane Smith",
+    "action": "signout",
+    "timestamp": "2024-05-10T11:30:00.000Z"
+  }
+]
