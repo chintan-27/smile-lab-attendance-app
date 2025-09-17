@@ -141,3 +141,7 @@ vite.config.ts.timestamp-*
 # Data folders produced by the app and testing
 test-data/
 data/
+
+# Testing reports
+playwright-report/
+test-results/

@@ -9,7 +9,7 @@ test.describe('Student Interface (Electron E2E)', () => {
     });
     const page = await app.firstWindow();
 
-    await expect(page).toHaveTitle('UF Lab Attendance');
+    await expect(page).toHaveTitle('UF SMILE Lab Attendance');
     await expect(page.locator('.ufid-inputs')).toBeVisible();
     await expect(page.locator('#signInBtn')).toBeVisible();
     await expect(page.locator('#signOutBtn')).toBeVisible();

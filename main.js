@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, screen } = require('electron')
 const path = require('path')
 const DataManager = require('./data.js')
 const EmailService = require('./emailService.js')
@@ -14,9 +14,10 @@ let googleSheetsService;
 let dropboxService;
 
 const createWindow = () => {
+  const { height } = screen.getPrimaryDisplay().workAreaSize;
   mainWindow = new BrowserWindow({
-    width: 500,
-    height: 700,
+    width: height,
+    height: height,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
