@@ -3,11 +3,14 @@ const path = require('path')
 const DataManager = require('./data.js')
 const EmailService = require('./emailService.js')
 const GoogleSheetsService = require('./googleSheetsService.js')
+const DropboxService = require('./dropboxService.js')
+const cron = require('node-cron')
 
 let mainWindow;
 let dataManager;
 let emailService;
 let googleSheetsService;
+let dropboxService;
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -51,6 +54,30 @@ app.whenReady().then(() => {
   dataManager = new DataManager();
   emailService = new EmailService(dataManager);
   googleSheetsService = new GoogleSheetsService(dataManager);
+  dropboxService = new DropboxService(dataManager);
+  
+  console.log('Lab Attendance System initialized successfully');
+  
+  // Schedule daily backup to Dropbox at 2 AM
+  cron.schedule('0 2 * * *', async () => {
+    console.log('Running daily backup to Dropbox...');
+    try {
+      const config = dataManager.getConfig();
+      if (config.dropbox?.enabled && config.dropbox?.autoBackup) {
+        const result = await dropboxService.backupToDropbox();
+        if (result.success) {
+          console.log('Daily backup completed successfully');
+        } else {
+          console.error('Daily backup failed:', result.error);
+        }
+      }
+    } catch (error) {
+      console.error('Daily backup error:', error);
+    }
+  }, {
+    scheduled: true,
+    timezone: "America/New_York"
+  });
   
   createWindow();
 
@@ -367,15 +394,6 @@ ipcMain.handle('get-sheets-sync-status', async (event) => {
   }
 });
 
-ipcMain.handle('create-new-spreadsheet', async (event, title) => {
-  try {
-    return await googleSheetsService.createSpreadsheet(title);
-  } catch (error) {
-    console.error('Create spreadsheet error:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 ipcMain.handle('enable-auto-sync', async (event) => {
   try {
     return await googleSheetsService.enableAutoSync();
@@ -390,6 +408,115 @@ ipcMain.handle('disable-auto-sync', async (event) => {
     return await googleSheetsService.disableAutoSync();
   } catch (error) {
     console.error('Disable auto sync error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Dropbox service handlers
+ipcMain.handle('test-dropbox-connection', async (event) => {
+  try {
+    const config = dataManager.getConfig();
+    if (config.dropbox?.accessToken) {
+      dropboxService.initialize(config.dropbox.accessToken);
+      return await dropboxService.testConnection();
+    }
+    return { success: false, error: 'Dropbox not configured' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('upload-to-dropbox', async (event, type) => {
+  try {
+    if (type === 'report') {
+      return await dropboxService.uploadWeeklyReport();
+    } else if (type === 'backup') {
+      return await dropboxService.backupToDropbox();
+    }
+    return { success: false, error: 'Invalid upload type' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-dropbox-space', async (event) => {
+  try {
+    const config = dataManager.getConfig();
+    if (config.dropbox?.accessToken) {
+      dropboxService.initialize(config.dropbox.accessToken);
+      return await dropboxService.getSpaceUsage();
+    }
+    return { success: false, error: 'Dropbox not configured' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('list-dropbox-files', async (event, folderPath) => {
+  try {
+    const config = dataManager.getConfig();
+    if (config.dropbox?.accessToken) {
+      dropboxService.initialize(config.dropbox.accessToken);
+      return await dropboxService.listFiles(folderPath || '/UF_Lab_Reports');
+    }
+    return { success: false, error: 'Dropbox not configured' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Encryption handlers
+ipcMain.handle('enable-encryption', async (event, password) => {
+  try {
+    const result = dataManager.updateEncryptionSettings(true, password);
+    if (result.success) {
+      dataManager.encryptionPassword = password;
+      return { success: true, message: 'Encryption enabled successfully' };
+    }
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('disable-encryption', async (event, password) => {
+  try {
+    if (!dataManager.verifyEncryptionPassword(password)) {
+      return { success: false, error: 'Invalid password' };
+    }
+    
+    return dataManager.updateEncryptionSettings(false);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('verify-encryption-password', async (event, password) => {
+  try {
+    return { success: true, valid: dataManager.verifyEncryptionPassword(password) };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('create-encrypted-backup', async (event, password) => {
+  try {
+    return dataManager.createEncryptedBackup(password);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-encryption-status', async (event) => {
+  try {
+    const config = dataManager.getConfig();
+    return {
+      success: true,
+      enabled: config.encryption?.enabled || false,
+      algorithm: config.encryption?.algorithm || 'AES-256',
+      lastUpdated: config.encryption?.lastUpdated || null
+    };
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -413,6 +540,14 @@ ipcMain.handle('update-sheets-config', async (event, sheetsConfig) => {
   }
 });
 
+ipcMain.handle('update-dropbox-config', async (event, dropboxConfig) => {
+  try {
+    return dataManager.updateDropboxConfig(dropboxConfig);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-config', async (event) => {
   try {
     return dataManager.getConfig();
@@ -428,6 +563,50 @@ ipcMain.handle('backup-data', async (event) => {
     return dataManager.backupData();
   } catch (error) {
     console.error('Backup error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// System logs handlers (mock for now)
+ipcMain.handle('get-system-logs', async (event, options = {}) => {
+  try {
+    const { limit = 100 } = options;
+    
+    // Generate mock logs for demonstration
+    const logs = [];
+    const levels = ['info', 'warning', 'error'];
+    const categories = ['auth', 'attendance', 'system', 'email'];
+    const messages = [
+      'User admin logged in successfully',
+      'Student sign-in processed',
+      'Email report sent successfully',
+      'Database backup completed',
+      'Failed login attempt detected',
+      'System configuration updated',
+      'Weekly report generated',
+      'Student data synchronized'
+    ];
+    
+    for (let i = 0; i < limit; i++) {
+      const date = new Date();
+      date.setTime(date.getTime() - Math.random() * 7 * 24 * 60 * 60 * 1000);
+      
+      logs.push({
+        id: i,
+        timestamp: date.toISOString(),
+        level: levels[Math.floor(Math.random() * levels.length)],
+        category: categories[Math.floor(Math.random() * categories.length)],
+        message: messages[Math.floor(Math.random() * messages.length)],
+        user: 'admin',
+        metadata: {}
+      });
+    }
+    
+    return { 
+      success: true, 
+      logs: logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    };
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });

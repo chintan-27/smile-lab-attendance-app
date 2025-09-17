@@ -39,14 +39,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testSheetsConnection: () => ipcRenderer.invoke('test-sheets-connection'),
   saveGoogleCredentials: (credentials) => ipcRenderer.invoke('save-google-credentials', credentials),
   getSheetsSyncStatus: () => ipcRenderer.invoke('get-sheets-sync-status'),
-  createNewSpreadsheet: (title) => ipcRenderer.invoke('create-new-spreadsheet', title),
   enableAutoSync: () => ipcRenderer.invoke('enable-auto-sync'),
   disableAutoSync: () => ipcRenderer.invoke('disable-auto-sync'),
+  
+  // Dropbox Service
+  testDropboxConnection: () => ipcRenderer.invoke('test-dropbox-connection'),
+  uploadToDropbox: (type) => ipcRenderer.invoke('upload-to-dropbox', type),
+  getDropboxSpace: () => ipcRenderer.invoke('get-dropbox-space'),
+  listDropboxFiles: (folderPath) => ipcRenderer.invoke('list-dropbox-files', folderPath),
+  
+  // Encryption
+  enableEncryption: (password) => ipcRenderer.invoke('enable-encryption', password),
+  disableEncryption: (password) => ipcRenderer.invoke('disable-encryption', password),
+  verifyEncryptionPassword: (password) => ipcRenderer.invoke('verify-encryption-password', password),
+  createEncryptedBackup: (password) => ipcRenderer.invoke('create-encrypted-backup', password),
+  getEncryptionStatus: () => ipcRenderer.invoke('get-encryption-status'),
   
   // Configuration
   updateEmailConfig: (emailConfig) => ipcRenderer.invoke('update-email-config', emailConfig),
   updateSheetsConfig: (sheetsConfig) => ipcRenderer.invoke('update-sheets-config', sheetsConfig),
+  updateDropboxConfig: (config) => ipcRenderer.invoke('update-dropbox-config', config),
   getConfig: () => ipcRenderer.invoke('get-config'),
+  
+  // System Logs
+  getSystemLogs: (options) => ipcRenderer.invoke('get-system-logs', options),
+  clearSystemLogs: () => ipcRenderer.invoke('clear-system-logs'),
+  exportSystemLogs: (days) => ipcRenderer.invoke('export-system-logs', days),
   
   // Backup
   backupData: () => ipcRenderer.invoke('backup-data')

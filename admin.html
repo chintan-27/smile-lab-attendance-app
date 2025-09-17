@@ -4,9 +4,20 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
-    <title>Admin Dashboard - Lab Attendance</title>
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://cdn.jsdelivr.net;">
+    <title>Lab Attendance Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --uf-blue: #0021A5;
+            --uf-blue-dark: #001A85;
+            --uf-blue-light: #E6F3FF;
+            --uf-orange: #FA4616;
+            --uf-orange-light: #FFF4E6;
+            --uf-gray: #64748B;
+            --uf-gray-light: #F8FAFC;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -14,200 +25,677 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f7fafc;
-            padding: 2rem;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #334155;
+            overflow-x: hidden;
         }
 
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            width: 280px;
+            background: white;
+            border-right: 1px solid #e2e8f0;
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 2rem 1.5rem 1rem;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .nav-section {
+            padding: 0 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.25rem;
+            border-radius: 8px;
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .nav-item:hover {
+            background: #f1f5f9;
+            color: #334155;
+        }
+
+        .nav-item.active {
+            background: var(--uf-blue-light);
+            color: var(--uf-blue);
+            font-weight: 500;
+        }
+
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 20px;
+            background: var(--uf-blue);
+            border-radius: 0 2px 2px 0;
+        }
+
+        .nav-item i {
+            width: 20px;
+            text-align: center;
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 280px;
+            min-height: 100vh;
+        }
+
+        /* Header */
         .header {
             background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            margin-bottom: 2rem;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
 
-        .header h1 {
-            color: #2d3748;
-            margin-bottom: 0.5rem;
-        }
-
-        .tabs {
+        .header-content {
             display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
         }
 
-        .tab {
-            padding: 0.75rem 1.5rem;
+        .search-bar {
+            position: relative;
+            width: 400px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--uf-blue);
             background: white;
-            border: 2px solid #e2e8f0;
+            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+        }
+
+        .search-bar i {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .action-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: #f8fafc;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 1rem;
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.2s;
         }
 
-        .tab.active {
-            background: #667eea;
+        .user-profile:hover {
+            background: #f8fafc;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: white;
-            border-color: #667eea;
+            font-weight: 600;
         }
 
-        .tab-content {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        .user-info {
+            display: flex;
+            flex-direction: column;
         }
 
-        .student-form {
+        .user-name {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .user-role {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        /* Page Content */
+        .page-content {
+            padding: 2rem;
+        }
+
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: #64748b;
+            font-size: 1rem;
+        }
+
+        .page-actions {
             display: flex;
             gap: 1rem;
-            margin-bottom: 1.5rem;
-            align-items: end;
-            flex-wrap: wrap;
-        }
-
-        .form-group {
-            flex: 1;
-            min-width: 200px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 0.25rem;
-            color: #4a5568;
-            font-size: 0.9rem;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 0.5rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 6px;
+            margin-top: 1.5rem;
         }
 
         .btn {
-            padding: 0.5rem 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
             border: none;
-            border-radius: 6px;
-            cursor: pointer;
+            border-radius: 8px;
+            font-size: 0.875rem;
             font-weight: 500;
+            cursor: pointer;
             transition: all 0.2s;
+            text-decoration: none;
         }
 
         .btn-primary {
-            background: #48bb78;
+            background: var(--uf-blue);
             color: white;
         }
 
         .btn-primary:hover {
-            background: #38a169;
+            background: var(--uf-blue-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 33, 165, 0.4);
         }
 
         .btn-secondary {
-            background: #667eea;
-            color: white;
+            background: white;
+            color: #374151;
+            border: 1px solid #d1d5db;
         }
 
         .btn-secondary:hover {
-            background: #5a67d8;
+            background: #f9fafb;
+            border-color: #9ca3af;
         }
 
         .btn-danger {
-            background: #f56565;
+            background: #ef4444;
             color: white;
         }
 
         .btn-danger:hover {
-            background: #e53e3e;
+            background: #dc2626;
         }
 
-        .btn-warning {
-            background: #ed8936;
-            color: white;
-        }
-
-        .btn-warning:hover {
-            background: #dd6b20;
-        }
-
-        .student-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .student-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .student-info {
-            flex: 1;
-        }
-
+        /* Stats Cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
         }
 
         .stat-card {
-            background: #f7fafc;
+            background: white;
             padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card.primary {
+            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            color: white;
+            border: none;
+        }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .stat-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #64748b;
+        }
+
+        .stat-card.primary .stat-title {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .stat-icon {
+            width: 40px;
+            height: 40px;
             border-radius: 8px;
-            text-align: center;
+            background: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
         }
 
-        .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #667eea;
+        .stat-card.primary .stat-icon {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
         }
 
-        .back-btn {
+        .stat-value {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card.primary .stat-value {
+            color: white;
+        }
+
+        .stat-change {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+        }
+
+        .stat-change.positive {
+            color: var(--uf-orange);
+        }
+
+        .stat-change.neutral {
+            color: #64748b;
+        }
+
+        .stat-card.primary .stat-change {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        /* Content Cards */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th {
+            text-align: left;
+            padding: 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #f8fafc;
+            font-size: 0.875rem;
+        }
+
+        .table tbody tr:hover {
+            background: #f8fafc;
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .badge.success {
+            background: var(--uf-orange-light);
+            color: var(--uf-orange);
+        }
+
+        .badge.warning {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .badge.error {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .badge.info {
+            background: var(--uf-blue-light);
+            color: var(--uf-blue);
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--uf-blue);
+            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: #f8fafc;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+        }
+
+        .modal-close:hover {
+            background: #e2e8f0;
+        }
+
+        /* Notification */
+        .notification {
             position: fixed;
             top: 1rem;
             right: 1rem;
-            padding: 0.5rem 1rem;
-            background: #718096;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-
-        .back-btn:hover {
-            background: #4a5568;
-        }
-
-        .remove-btn {
-            margin-left: 1rem;
-        }
-
-        /* Settings specific styles */
-        .settings-section {
-            margin-bottom: 2rem;
-            padding: 1.5rem;
-            background: #f8f9fa;
+            padding: 1rem 1.5rem;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            color: white;
+            font-weight: 500;
+            transform: translateX(400px);
+            transition: transform 0.3s;
+            z-index: 1001;
         }
 
-        .settings-section h4 {
-            color: #2d3748;
-            margin-bottom: 1rem;
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: var(--uf-orange);
+        }
+
+        .notification.error {
+            background: #ef4444;
+        }
+
+        .notification.info {
+            background: var(--uf-blue);
+        }
+
+        /* Charts placeholder */
+        .chart-container {
+            height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8fafc;
+            border-radius: 8px;
+            color: #64748b;
+        }
+
+        /* Hide content initially */
+        .page-section {
+            display: none;
+        }
+
+        .page-section.active {
+            display: block;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .page-content {
+                padding: 1rem;
+            }
+
+            .page-actions {
+                flex-direction: column;
+            }
+        }
+
+        /* Special warning box */
+        .warning-box {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: #fef3c7;
+            border-radius: 6px;
+            border-left: 4px solid #f59e0b;
+        }
+
+        .warning-box h4 {
+            color: #92400e;
+            margin-bottom: 0.5rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
 
+        .warning-box ul {
+            color: #92400e;
+            margin-left: 1rem;
+            font-size: 0.875rem;
+        }
+
+        /* Settings grid */
+        .settings-grid {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        /* Toggle switch */
         .toggle-switch {
             position: relative;
             display: inline-block;
@@ -246,29 +734,14 @@
         }
 
         input:checked+.slider {
-            background-color: #48bb78;
+            background-color: var(--uf-blue);
         }
 
         input:checked+.slider:before {
             transform: translateX(26px);
         }
 
-        .status-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 0.5rem;
-        }
-
-        .status-indicator.connected {
-            background-color: #48bb78;
-        }
-
-        .status-indicator.disconnected {
-            background-color: #f56565;
-        }
-
+        /* File upload */
         .file-upload {
             position: relative;
             display: inline-block;
@@ -290,245 +763,1071 @@
             display: none;
         }
 
-        .notification {
-            padding: 1rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            display: none;
+        /* Dark Mode Styles */
+        body.dark-mode {
+            background: #1a202c;
+            color: #e2e8f0;
         }
 
-        .notification.success {
-            background: #c6f6d5;
-            color: #22543d;
-            border: 1px solid #9ae6b4;
+        body.dark-mode .sidebar {
+            background: #2d3748;
+            border-right-color: #4a5568;
         }
 
-        .notification.error {
-            background: #fed7d7;
-            color: #742a2a;
-            border: 1px solid #fc8181;
+        body.dark-mode .sidebar-header {
+            border-bottom-color: #4a5568;
         }
 
-        .notification.info {
-            background: #bee3f8;
-            color: #2c5282;
-            border: 1px solid #90cdf4;
+        body.dark-mode .logo {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .nav-item {
+            color: #a0aec0;
+        }
+
+        body.dark-mode .nav-item:hover {
+            background: #4a5568;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .nav-item.active {
+            background: var(--uf-blue);
+            color: var(--uf-blue-light);
+        }
+
+        body.dark-mode .nav-item.active::before {
+            background: var(--uf-orange);
+        }
+
+        body.dark-mode .header {
+            background: #2d3748;
+            border-bottom-color: #4a5568;
+        }
+
+        body.dark-mode .search-input {
+            background: #4a5568;
+            border-color: #718096;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .search-input:focus {
+            background: #2d3748;
+            border-color: var(--uf-blue);
+        }
+
+        body.dark-mode .action-btn {
+            background: #4a5568;
+            color: #a0aec0;
+        }
+
+        body.dark-mode .action-btn:hover {
+            background: #718096;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .user-profile:hover {
+            background: #4a5568;
+        }
+
+        body.dark-mode .user-name {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .page-title {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .page-subtitle {
+            color: #a0aec0;
+        }
+
+        body.dark-mode .card {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode .card-header {
+            border-bottom-color: #4a5568;
+        }
+
+        body.dark-mode .card-title {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .stat-card {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode .stat-card {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode .stat-title {
+            color: #a0aec0;
+        }
+
+        body.dark-mode .stat-value {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .stat-icon {
+            background: #4a5568;
+            color: #a0aec0;
+        }
+
+        body.dark-mode .table th {
+            color: #a0aec0;
+            border-bottom-color: #4a5568;
+        }
+
+        body.dark-mode .table td {
+            border-bottom-color: #4a5568;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .table tbody tr:hover {
+            background: #4a5568;
+        }
+
+        body.dark-mode .form-input {
+            background: #4a5568;
+            border-color: #718096;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .form-input:focus {
+            background: #2d3748;
+            border-color: var(--uf-blue);
+        }
+
+        body.dark-mode .form-label {
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .btn-secondary {
+            background: #4a5568;
+            color: #e2e8f0;
+            border-color: #718096;
+        }
+
+        body.dark-mode .btn-secondary:hover {
+            background: #718096;
+            border-color: #a0aec0;
+        }
+
+        body.dark-mode .btn-primary {
+            background: var(--uf-blue);
+        }
+
+        body.dark-mode .btn-primary:hover {
+            background: var(--uf-blue-dark);
+        }
+
+        body.dark-mode .modal-content {
+            background: #2d3748;
+        }
+
+        body.dark-mode .modal-title {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .modal-close {
+            background: #4a5568;
+            color: #a0aec0;
+        }
+
+        body.dark-mode .modal-close:hover {
+            background: #718096;
+        }
+
+        body.dark-mode .chart-container {
+            background: #4a5568;
+            color: #a0aec0;
+        }
+
+        body.dark-mode .warning-box {
+            background: #744210;
+            border-left-color: #d69e2e;
+        }
+
+        body.dark-mode .warning-box h4,
+        body.dark-mode .warning-box ul {
+            color: #fbb040;
+        }
+
+        body.dark-mode .badge.success {
+            background: rgba(250, 70, 22, 0.2);
+            color: var(--uf-orange);
+        }
+
+        body.dark-mode .badge.info {
+            background: rgba(0, 33, 165, 0.2);
+            color: var(--uf-blue-light);
+        }
+
+        body.dark-mode .badge.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        body.dark-mode .badge.warning {
+            background: rgba(217, 119, 6, 0.2);
+            color: #fcd34d;
+        }
+
+        body.dark-mode .file-upload {
+            background: #4a5568;
+            border-color: #718096;
+            color: #e2e8f0;
+        }
+
+        body.dark-mode .file-upload:hover {
+            background: #718096;
+            border-color: #a0aec0;
+        }
+
+        /* Dark mode icon change */
+        body.dark-mode #darkModeBtn i:before {
+            content: "\f185";
+            /* sun icon */
+        }
+
+        /* Dark mode stat changes */
+        body.dark-mode .stat-change.positive {
+            color: var(--uf-orange);
+        }
+
+        body.dark-mode .stat-change.neutral {
+            color: #a0aec0;
+        }
+
+        /* Dark mode search bar */
+        body.dark-mode .search-bar i {
+            color: #a0aec0;
+        }
+
+        /* Dark mode navigation section titles */
+        body.dark-mode .nav-section-title {
+            color: #a0aec0;
+        }
+
+        /* Dark mode user role */
+        body.dark-mode .user-role {
+            color: #a0aec0;
+        }
+
+        /* Dark mode notifications in dark theme */
+        body.dark-mode .notification.success {
+            background: var(--uf-orange);
+        }
+
+        body.dark-mode .notification.info {
+            background: var(--uf-blue);
+        }
+
+        body.dark-mode .notification.error {
+            background: #dc2626;
         }
     </style>
 </head>
 
 <body>
-    <button id="backBtn" class="back-btn">← Back to Attendance</button>
-
-    <div class="header">
-        <h1>🎓 Admin Dashboard</h1>
-        <p>Manage students, view reports, and configure system settings</p>
-    </div>
-
-    <div class="tabs">
-        <div id="studentsTabBtn" class="tab active">👥 Students</div>
-        <div id="statsTabBtn" class="tab">📊 Statistics</div>
-        <div id="reportsTabBtn" class="tab">📋 Reports</div>
-        <div id="settingsTabBtn" class="tab">⚙️ Settings</div>
-    </div>
-
-    <!-- Students Tab -->
-    <div id="studentsTab" class="tab-content">
-        <h3>Manage Authorized Students</h3>
-        <p style="margin-bottom: 1rem; color: #718096;">Add or remove students who can sign in/out</p>
-
-        <div class="student-form">
-            <div class="form-group">
-                <label>UF ID</label>
-                <input type="text" id="newUfid" placeholder="12345678" />
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <span>UF Lab</span>
             </div>
-            <div class="form-group">
-                <label>Name</label>
-                <input type="text" id="newName" placeholder="Student Name" />
+        </div>
+        <div class="nav-section">
+            <div class="nav-section-title">Main</div>
+            <div class="nav-item active" data-section="dashboard">
+                <i class="fas fa-chart-pie"></i>
+                <span>Dashboard</span>
             </div>
-            <div class="form-group">
-                <label>Email (optional)</label>
-                <input type="email" id="newEmail" placeholder="student@ufl.edu" />
+            <div class="nav-item" data-section="students">
+                <i class="fas fa-users"></i>
+                <span>Students</span>
+                <span class="badge success" id="studentCount" style="margin-left: auto;">0</span>
             </div>
-            <button id="addStudentBtn" class="btn btn-primary">Add Student</button>
+            <div class="nav-item" data-section="attendance">
+                <i class="fas fa-clock"></i>
+                <span>Attendance</span>
+            </div>
+            <div class="nav-item" data-section="reports">
+                <i class="fas fa-chart-bar"></i>
+                <span>Analytics</span>
+            </div>
         </div>
-
-        <div class="student-list" id="studentList">
-            <!-- Students will be loaded here -->
-        </div>
-    </div>
-
-    <!-- Stats Tab -->
-    <div id="statsTab" class="tab-content" style="display: none;">
-        <h3>Statistics</h3>
-        <div class="stats-grid" id="statsGrid">
-            <!-- Stats will be loaded here -->
-        </div>
-    </div>
-
-    <!-- Reports Tab -->
-    <div id="reportsTab" class="tab-content" style="display: none;">
-        <h3>Attendance Reports</h3>
-        <div id="attendanceReports">
-            <!-- Reports will be loaded here -->
+        <div class="nav-section">
+            <div class="nav-section-title">General</div>
+            <div class="nav-item" data-section="settings">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </div>
+            <div class="nav-item" data-section="logs">
+                <i class="fas fa-list-alt"></i>
+                <span>System Logs</span>
+            </div>
+            <div class="nav-item" id="backToAppBtn">
+                <i class="fas fa-arrow-left"></i>
+                <span>Back to App</span>
+            </div>
         </div>
     </div>
-
-    <!-- Settings Tab -->
-    <div id="settingsTab" class="tab-content" style="display: none;">
-        <div id="settingsNotification" class="notification"></div>
-
-        <!-- Email Configuration Section -->
-        <div class="settings-section">
-            <h4>📧 Email Configuration</h4>
-            <p style="color: #718096; margin-bottom: 1rem;">Configure automatic weekly email reports</p>
-
-            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                <label class="toggle-switch">
-                    <input type="checkbox" id="emailEnabled">
-                    <span class="slider"></span>
-                </label>
-                <span>Enable Email Reports</span>
-                <span id="emailStatus" class="status-indicator disconnected"></span>
-                <span id="emailStatusText">Disconnected</span>
-            </div>
-
-            <div id="emailConfigForm" style="display: none;">
-                <div
-                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
-                    <div class="form-group">
-                        <label>SMTP Server</label>
-                        <input type="text" id="smtpServer" placeholder="smtp.gmail.com" />
-                    </div>
-                    <div class="form-group">
-                        <label>Port</label>
-                        <input type="number" id="smtpPort" value="587" />
-                    </div>
-                    <div class="form-group">
-                        <label>Email Address</label>
-                        <input type="email" id="senderEmail" placeholder="your-email@gmail.com" />
-                    </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="senderPassword" placeholder="App Password" />
-                    </div>
-                    <div class="form-group">
-                        <label>Recipient Email</label>
-                        <input type="email" id="recipientEmail" placeholder="admin@ufl.edu" />
-                    </div>
-                    <div class="form-group">
-                        <label>Recipient Name</label>
-                        <input type="text" id="recipientName" placeholder="Lab Administrator" />
-                    </div>
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <div class="search-bar">
+                    <i class="fas fa-search"></i>
+                    <input type="text" class="search-input" placeholder="Search students, attendance..."
+                        id="globalSearch">
                 </div>
-
-                <div style="display: flex; gap: 1rem;">
-                    <button id="saveEmailConfig" class="btn btn-primary">Save Email Config</button>
-                    <button id="testEmail" class="btn btn-secondary">Test Email</button>
-                    <button id="sendWeeklyReport" class="btn btn-warning">Send Weekly Report Now</button>
+                <div class="header-actions">
+                    <button class="action-btn" id="notificationBtn">
+                        <i class="fas fa-bell"></i>
+                    </button>
+                    <button class="action-btn" id="darkModeBtn">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <div class="user-profile">
+                        <div class="user-avatar">A</div>
+                        <div class="user-info">
+                            <div class="user-name">Admin</div>
+                            <div class="user-role">administrator</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-
-        <!-- Google Sheets Configuration Section -->
-        <div class="settings-section">
-            <h4>📊 Google Sheets Integration</h4>
-            <p style="color: #718096; margin-bottom: 1rem;">Sync attendance data to Google Sheets</p>
-
-            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                <label class="toggle-switch">
-                    <input type="checkbox" id="sheetsEnabled">
-                    <span class="slider"></span>
-                </label>
-                <span>Enable Google Sheets Sync</span>
-                <span id="sheetsStatus" class="status-indicator disconnected"></span>
-                <span id="sheetsStatusText">Disconnected</span>
+        <!-- Page Content -->
+        <div class="page-content">
+            <!-- Dashboard Section -->
+            <div class="page-section active" id="dashboard-section">
+                <div class="page-header">
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">Monitor lab attendance and manage your system with ease.</p>
+                    <div class="page-actions">
+                        <button class="btn btn-primary" id="addStudentBtn">
+                            <i class="fas fa-plus"></i>
+                            Add Student
+                        </button>
+                        <button class="btn btn-secondary" id="exportDataBtn">
+                            <i class="fas fa-download"></i>
+                            Export Data
+                        </button>
+                    </div>
+                </div>
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card primary">
+                        <div class="stat-header">
+                            <span class="stat-title">Total Students</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="totalStudents">0</div>
+                        <div class="stat-change positive">
+                            <i class="fas fa-arrow-up"></i>
+                            <span>Active in system</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Currently Present</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-user-check"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="currentlyPresent">0</div>
+                        <div class="stat-change positive" id="presentChange">
+                            <i class="fas fa-arrow-up"></i>
+                            <span>Signed in now</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Today's Sign-ins</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-sign-in-alt"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="todaySignIns">0</div>
+                        <div class="stat-change positive" id="signInChange">
+                            <i class="fas fa-arrow-up"></i>
+                            <span>Since yesterday</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Today's Sign-outs</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="todaySignOuts">0</div>
+                        <div class="stat-change neutral" id="signOutChange">
+                            <i class="fas fa-minus"></i>
+                            <span>Total today</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Content Grid -->
+                <div class="content-grid">
+                    <!-- Recent Activity -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Recent Activity</h3>
+                            <button class="btn btn-secondary" id="refreshActivityBtn">
+                                <i class="fas fa-refresh"></i>
+                                Refresh
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Action</th>
+                                            <th>Time</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentActivityTable">
+                                        <!-- Dynamic content -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Currently Present -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Currently Present</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="currentlyPresentList">
+                                <!-- Dynamic content -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Analytics Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Weekly Analytics</h3>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" id="weekChartBtn">Week</button>
+                            <button class="btn btn-secondary" id="monthChartBtn">Month</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" id="attendanceChart">
+                            <canvas id="chart" width="800" height="300"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
-
-            <div id="sheetsConfigForm" style="display: none;">
-                <div
-                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
-                    <div class="form-group">
-                        <label>Spreadsheet ID</label>
-                        <input type="text" id="spreadsheetId"
-                            placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" />
-                        <small style="color: #718096;">From the Google Sheets URL</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Sheet Name</label>
-                        <input type="text" id="sheetName" value="Attendance" />
+            <!-- Students Section -->
+            <div class="page-section" id="students-section">
+                <div class="page-header">
+                    <h1 class="page-title">Students Management</h1>
+                    <p class="page-subtitle">Manage authorized students and their access permissions.</p>
+                    <div class="page-actions">
+                        <button class="btn btn-primary" id="addStudentBtn2">
+                            <i class="fas fa-plus"></i>
+                            Add Student
+                        </button>
+                        <button class="btn btn-secondary" id="bulkImportBtn">
+                            <i class="fas fa-upload"></i>
+                            Bulk Import
+                        </button>
+                        <button class="btn btn-secondary" id="exportStudentsBtn">
+                            <i class="fas fa-download"></i>
+                            Export CSV
+                        </button>
                     </div>
                 </div>
-
-                <div class="form-group" style="margin-bottom: 1rem;">
-                    <label>Google Service Account Credentials</label>
-                    <div class="file-upload" onclick="document.getElementById('credentialsFile').click()">
-                        <input type="file" id="credentialsFile" accept=".json">
-                        <div id="credentialsUploadText">📁 Click to upload credentials.json file</div>
+                <!-- Search and Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-body">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 300px;">
+                                <input type="text" class="form-input" placeholder="Search students..."
+                                    id="studentSearch">
+                            </div>
+                            <select class="form-input" style="width: auto;" id="statusFilter">
+                                <option value="">All Status</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                            <button class="btn btn-secondary" id="clearFiltersBtn">
+                                <i class="fas fa-times"></i>
+                                Clear
+                            </button>
+                        </div>
                     </div>
-                    <small style="color: #718096;">Upload your Google Service Account credentials JSON file</small>
                 </div>
-
-                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="autoSyncEnabled">
-                        <span class="slider"></span>
-                    </label>
-                    <span>Auto-sync on sign in/out</span>
+                <!-- Students Table -->
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <input type="checkbox" id="selectAll">
+                                        </th>
+                                        <th>UF ID</th>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Status</th>
+                                        <th>Added Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentsTable">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-
-                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                    <button id="saveSheetsConfig" class="btn btn-primary">Save Sheets Config</button>
-                    <button id="testSheetsConnection" class="btn btn-secondary">Test Connection</button>
-                    <button id="syncAllData" class="btn btn-warning">Sync All Data</button>
-                    <button id="syncTodaysData" class="btn btn-warning">Sync Today's Data</button>
+            </div>
+            <!-- Attendance Section -->
+            <div class="page-section" id="attendance-section">
+                <div class="page-header">
+                    <h1 class="page-title">Attendance Records</h1>
+                    <p class="page-subtitle">View and manage attendance records with advanced filtering.</p>
+                    <div class="page-actions">
+                        <button class="btn btn-primary" id="syncToSheetsBtn">
+                            <i class="fas fa-sync"></i>
+                            Sync to Sheets
+                        </button>
+                        <button class="btn btn-secondary" id="generateReportBtn">
+                            <i class="fas fa-file-pdf"></i>
+                            Generate Report
+                        </button>
+                    </div>
+                </div>
+                <!-- Date Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-body">
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                            <div>
+                                <label class="form-label">From Date</label>
+                                <input type="date" class="form-input" id="fromDate">
+                            </div>
+                            <div>
+                                <label class="form-label">To Date</label>
+                                <input type="date" class="form-input" id="toDate">
+                            </div>
+                            <div>
+                                <label class="form-label">Student</label>
+                                <select class="form-input" id="studentFilter">
+                                    <option value="">All Students</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label">Action</label>
+                                <select class="form-input" id="actionFilter">
+                                    <option value="">All Actions</option>
+                                    <option value="signin">Sign In</option>
+                                    <option value="signout">Sign Out</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <button class="btn btn-primary" id="applyFiltersBtn">
+                                <i class="fas fa-filter"></i>
+                                Apply Filters
+                            </button>
+                            <button class="btn btn-secondary" id="clearAttendanceFiltersBtn">
+                                <i class="fas fa-times"></i>
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Attendance Table -->
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Student</th>
+                                        <th>UF ID</th>
+                                        <th>Action</th>
+                                        <th>Duration</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendanceTable">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Reports Section -->
+            <div class="page-section" id="reports-section">
+                <div class="page-header">
+                    <h1 class="page-title">Analytics & Reports</h1>
+                    <p class="page-subtitle">Advanced analytics and automated reporting system.</p>
+                </div>
+                <!-- Report Cards -->
+                <div class="stats-grid" style="margin-bottom: 2rem;">
+                    <div class="card">
+                        <div class="card-body" style="text-align: center;">
+                            <div class="stat-icon" style="margin: 0 auto 1rem;">
+                                <i class="fas fa-file-alt"></i>
+                            </div>
+                            <h3>Weekly Report</h3>
+                            <p style="color: #64748b; margin: 0.5rem 0;">Generate comprehensive weekly attendance report
+                            </p>
+                            <button class="btn btn-primary" id="generateWeeklyReportBtn">Generate</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body" style="text-align: center;">
+                            <div class="stat-icon" style="margin: 0 auto 1rem;">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                            </div>
+                            <h3>Cloud Backup</h3>
+                            <p style="color: #64748b; margin: 0.5rem 0;">Backup data to cloud storage</p>
+                            <button class="btn btn-primary" id="cloudBackupBtn">Backup Now</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body" style="text-align: center;">
+                            <div class="stat-icon" style="margin: 0 auto 1rem;">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <h3>Analytics Dashboard</h3>
+                            <p style="color: #64748b; margin: 0.5rem 0;">View detailed analytics and trends</p>
+                            <button class="btn btn-primary" id="openAnalyticsBtn">View Analytics</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Charts -->
+                <div class="content-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Attendance Trends</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="trendsChart" width="600" height="300"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Peak Hours</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="hoursChart" width="400" height="300"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Settings Section -->
+            <div class="page-section" id="settings-section">
+                <div class="page-header">
+                    <h1 class="page-title">System Settings</h1>
+                    <p class="page-subtitle">Configure email, cloud sync, security, and system preferences.</p>
+                </div>
+                <!-- Settings Cards -->
+                <div class="settings-grid">
+                    <!-- Email Settings -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-envelope"></i>
+                                Email Configuration
+                            </h3>
+                            <div class="badge success" id="emailStatus">Disconnected</div>
+                        </div>
+                        <div class="card-body">
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">SMTP Server</label>
+                                    <input type="text" class="form-input" id="smtpServer" placeholder="smtp.gmail.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Email Address</label>
+                                    <input type="email" class="form-input" id="emailAddress"
+                                        placeholder="admin@ufl.edu">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Recipient Email</label>
+                                    <input type="email" class="form-input" id="recipientEmail"
+                                        placeholder="recipient@ufl.edu">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                                <button class="btn btn-primary" id="saveEmailBtn">Save Settings</button>
+                                <button class="btn btn-secondary" id="testEmailBtn">Test Email</button>
+                                <button class="btn btn-secondary" id="sendReportBtn">Send Report Now</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Dropbox Integration -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-cloud"></i>
+                                Dropbox Integration
+                            </h3>
+                            <div class="badge error" id="dropboxStatus">Disconnected</div>
+                        </div>
+                        <div class="card-body">
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Access Token</label>
+                                    <input type="password" class="form-input" id="dropboxToken"
+                                        placeholder="Enter Dropbox access token">
+                                    <small style="color: #64748b; margin-top: 0.5rem; display: block;">
+                                        <a href="https://www.dropbox.com/developers/apps" target="_blank"
+                                            style="color: #10b981;">Get access token from Dropbox App Console</a>
+                                    </small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Storage Usage</label>
+                                    <div id="dropboxUsage"
+                                        style="padding: 0.75rem; background: #f8fafc; border-radius: 6px; font-family: monospace;">
+                                        Not connected
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin: 1rem 0;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="autoBackupDropbox">
+                                    <span>Automatically backup data to Dropbox daily</span>
+                                </label>
+                            </div>
+                            <div style="margin: 1rem 0;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="autoReportsDropbox">
+                                    <span>Automatically upload weekly reports to Dropbox</span>
+                                </label>
+                            </div>
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                                <button class="btn btn-primary" id="saveDropboxBtn">Save Settings</button>
+                                <button class="btn btn-secondary" id="testDropboxBtn">Test Connection</button>
+                                <button class="btn btn-secondary" id="backupToDropboxBtn">Backup Now</button>
+                                <button class="btn btn-secondary" id="uploadReportBtn">Upload Report</button>
+                                <button class="btn btn-secondary" id="viewDropboxFilesBtn">View Files</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Data Encryption -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-lock"></i>
+                                Data Encryption
+                            </h3>
+                            <div class="badge error" id="encryptionStatus">Disabled</div>
+                        </div>
+                        <div class="card-body">
+                            <div style="margin-bottom: 1rem;">
+                                <p style="color: #64748b;">
+                                    Encrypt sensitive student data (names, emails) using AES-256 encryption.
+                                    <strong>Warning:</strong> If you forget the encryption password, your data cannot be
+                                    recovered.
+                                </p>
+                            </div>
+                            <div id="encryptionDisabled" style="display: block;">
+                                <div class="form-group">
+                                    <label class="form-label">Encryption Password</label>
+                                    <input type="password" class="form-input" id="encryptionPassword"
+                                        placeholder="Enter strong password (min 8 characters)">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Confirm Password</label>
+                                    <input type="password" class="form-input" id="confirmEncryptionPassword"
+                                        placeholder="Confirm password">
+                                </div>
+                                <button class="btn btn-primary" id="enableEncryptionBtn">
+                                    <i class="fas fa-lock"></i>
+                                    Enable Encryption
+                                </button>
+                            </div>
+                            <div id="encryptionEnabled" style="display: none;">
+                                <div class="form-group">
+                                    <label class="form-label">Current Password</label>
+                                    <input type="password" class="form-input" id="currentEncryptionPassword"
+                                        placeholder="Enter current password">
+                                </div>
+                                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                    <button class="btn btn-danger" id="disableEncryptionBtn">
+                                        <i class="fas fa-unlock"></i>
+                                        Disable Encryption
+                                    </button>
+                                    <button class="btn btn-secondary" id="createEncryptedBackupBtn">
+                                        <i class="fas fa-shield-alt"></i>
+                                        Create Encrypted Backup
+                                    </button>
+                                    <button class="btn btn-secondary" id="testEncryptionBtn">
+                                        <i class="fas fa-key"></i>
+                                        Test Password
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="warning-box">
+                                <h4>
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    Important Security Notes
+                                </h4>
+                                <ul>
+                                    <li>Choose a strong password with at least 8 characters</li>
+                                    <li>Store your password securely - it cannot be recovered</li>
+                                    <li>Encryption will be applied to future data immediately</li>
+                                    <li>Existing data will be encrypted on next save operation</li>
+                                    <li>Create encrypted backups regularly</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Security Settings -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-shield-alt"></i>
+                                System Security
+                            </h3>
+                        </div>
+                        <div class="card-body">
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Change Admin Password</label>
+                                    <input type="password" class="form-input" id="newPassword"
+                                        placeholder="New password">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Lab Name</label>
+                                    <input type="text" class="form-input" id="labName"
+                                        placeholder="University of Florida Lab">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                <button class="btn btn-primary" id="saveSystemBtn">Save Settings</button>
+                                <button class="btn btn-danger" id="changePasswordBtn">Change Password</button>
+                                <button class="btn btn-secondary" id="backupDataBtn">Backup Data</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Scheduler Status -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-clock"></i>
+                                Email Scheduler
+                            </h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="schedulerInfo" style="margin-bottom: 1rem;">
+                                <p>Status: <span id="schedulerStatus">Checking...</span></p>
+                                <p>Next run: <span id="nextRunTime">Every Saturday at 8:00 AM</span></p>
+                            </div>
+                            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                <button class="btn btn-primary" id="startSchedulerBtn">Start Scheduler</button>
+                                <button class="btn btn-danger" id="stopSchedulerBtn">Stop Scheduler</button>
+                                <button class="btn btn-secondary" id="testSchedulerBtn">Test Scheduler (10s)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- System Logs Section -->
+            <div class="page-section" id="logs-section">
+                <div class="page-header">
+                    <h1 class="page-title">System Logs</h1>
+                    <p class="page-subtitle">Monitor system activity, errors, and security events.</p>
+                    <div class="page-actions">
+                        <button class="btn btn-secondary" id="refreshLogsBtn">
+                            <i class="fas fa-refresh"></i>
+                            Refresh
+                        </button>
+                        <button class="btn btn-secondary" id="exportLogsBtn">
+                            <i class="fas fa-download"></i>
+                            Export Logs
+                        </button>
+                        <button class="btn btn-danger" id="clearLogsBtn">
+                            <i class="fas fa-trash"></i>
+                            Clear Logs
+                        </button>
+                    </div>
+                </div>
+                <!-- Log Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-body">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <select class="form-input" style="width: auto;" id="logLevel">
+                                <option value="">All Levels</option>
+                                <option value="info">Info</option>
+                                <option value="warning">Warning</option>
+                                <option value="error">Error</option>
+                            </select>
+                            <select class="form-input" style="width: auto;" id="logCategory">
+                                <option value="">All Categories</option>
+                                <option value="auth">Authentication</option>
+                                <option value="attendance">Attendance</option>
+                                <option value="system">System</option>
+                                <option value="email">Email</option>
+                            </select>
+                            <input type="date" class="form-input" id="logDate" style="width: auto;">
+                            <button class="btn btn-primary" id="filterLogsBtn">Filter</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Logs Table -->
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Level</th>
+                                        <th>Category</th>
+                                        <th>Message</th>
+                                        <th>User</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logsTable">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-
-        <!-- System Settings Section -->
-        <div class="settings-section">
-            <h4>🔐 System Settings</h4>
-            <p style="color: #718096; margin-bottom: 1rem;">Manage system configuration and security</p>
-
-            <div
-                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+    </div>
+    <!-- Modals -->
+    <!-- Add Student Modal -->
+    <div class="modal" id="addStudentModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Student</h3>
+                <button class="modal-close" id="closeAddStudentModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="addStudentForm">
+                    <div class="form-group">
+                        <label class="form-label">UF ID (8 digits)</label>
+                        <input type="text" class="form-input" id="modalUfid" placeholder="12345678" maxlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Full Name</label>
+                        <input type="text" class="form-input" id="modalName" placeholder="Student Name">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" class="form-input" id="modalEmail" placeholder="student@ufl.edu">
+                    </div>
+                    <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                        <button type="button" class="btn btn-secondary" id="cancelAddStudentBtn">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add Student</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- Bulk Import Modal -->
+    <div class="modal" id="bulkImportModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Bulk Import Students</h3>
+                <button class="modal-close" id="closeBulkImportModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
                 <div class="form-group">
-                    <label>Lab Name</label>
-                    <input type="text" id="labName" placeholder="University of Florida Lab" />
+                    <label class="form-label">CSV File</label>
+                    <input type="file" class="form-input" id="csvFile" accept=".csv">
+                    <small style="color: #64748b; margin-top: 0.5rem; display: block;">
+                        Upload a CSV file with columns: UF_ID, Name, Email
+                    </small>
                 </div>
                 <div class="form-group">
-                    <label>New Admin Password</label>
-                    <input type="password" id="newAdminPassword" placeholder="Enter new password" />
+                    <label class="form-label">Preview</label>
+                    <div id="csvPreview"
+                        style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1rem;">
+                        Select a CSV file to preview
+                    </div>
                 </div>
-            </div>
-
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                <button id="saveSystemSettings" class="btn btn-primary">Save Settings</button>
-                <button id="changePassword" class="btn btn-danger">Change Password</button>
-                <button id="backupData" class="btn btn-secondary">Backup Data</button>
-            </div>
-        </div>
-
-        <!-- Scheduler Status Section -->
-        <div class="settings-section">
-            <h4>⏰ Scheduler Status</h4>
-            <p style="color: #718096; margin-bottom: 1rem;">Weekly email report scheduler</p>
-
-            <div id="schedulerInfo" style="margin-bottom: 1rem;">
-                <p>Status: <span id="schedulerStatus">Checking...</span></p>
-                <p>Next run: <span id="nextRunTime">Every Saturday at 8:00 AM</span></p>
-            </div>
-
-            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                <button id="startScheduler" class="btn btn-primary">Start Scheduler</button>
-                <button id="stopScheduler" class="btn btn-danger">Stop Scheduler</button>
-                <button id="testScheduler" class="btn btn-secondary">Test Scheduler (10s)</button>
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                    <button type="button" class="btn btn-secondary" id="cancelBulkImportBtn">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="importStudentsBtn">Import Students</button>
+                </div>
             </div>
         </div>
     </div>
-
-    <script src="./admin.js"></script>
+    <!-- Dropbox Files Modal -->
+    <div class="modal" id="dropboxFilesModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Dropbox Files</h3>
+                <button class="modal-close" id="closeDropboxFilesModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 1rem;">
+                    <button class="btn btn-secondary" id="refreshDropboxFilesBtn">
+                        <i class="fas fa-refresh"></i>
+                        Refresh
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Size</th>
+                                <th>Modified</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dropboxFilesTable">
+                            <!-- Dynamic content -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Notification -->
+    <div class="notification" id="notification"></div>
+    <script src="./admin-new.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>
 
 </html>

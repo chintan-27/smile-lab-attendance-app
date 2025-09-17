@@ -10,7 +10,6 @@ class EmailService {
         this.initializeScheduler();
     }
 
-    // Create email transporter
     createTransporter(emailConfig) {
         return nodemailer.createTransporter({
             host: emailConfig.smtp,
@@ -23,11 +22,10 @@ class EmailService {
         });
     }
 
-    // Generate HTML email template
     generateEmailHTML(reportData) {
         const startDate = new Date(reportData.startDate).toLocaleDateString();
         const endDate = new Date(reportData.endDate).toLocaleDateString();
-        
+
         let studentRows = '';
         Object.keys(reportData.studentReports).forEach(ufid => {
             const student = reportData.studentReports[ufid];
@@ -103,11 +101,10 @@ class EmailService {
         `;
     }
 
-    // Send weekly report email
     async sendWeeklyReport() {
         try {
             const config = this.dataManager.getConfig();
-            
+
             if (!config.emailSettings || !config.emailSettings.enabled) {
                 return { success: false, error: 'Email not configured or disabled' };
             }
@@ -135,9 +132,21 @@ class EmailService {
             };
 
             const info = await transporter.sendMail(mailOptions);
-            
-            return { 
-                success: true, 
+
+            // Also upload to Dropbox if enabled
+            const dropboxConfig = config.dropbox;
+            if (dropboxConfig?.enabled && dropboxConfig?.autoReports) {
+                try {
+                    const DropboxService = require('./dropboxService.js');
+                    const dropboxService = new DropboxService(this.dataManager);
+                    await dropboxService.uploadWeeklyReport();
+                } catch (dropboxError) {
+                    console.log('Dropbox upload failed, but email sent successfully');
+                }
+            }
+
+            return {
+                success: true,
                 messageId: info.messageId,
                 filePath: reportResult.filePath
             };
@@ -146,17 +155,16 @@ class EmailService {
         }
     }
 
-    // Test email configuration
     async testEmailConfig(emailConfig) {
         try {
             const transporter = this.createTransporter(emailConfig);
-            
+
             const mailOptions = {
                 from: {
                     name: 'UF Lab Attendance System',
                     address: emailConfig.email
                 },
-                to: emailConfig.recipientEmail,
+                to: emailConfig.recipientEmail || emailConfig.email,
                 subject: 'Test Email - Lab Attendance System',
                 html: `
                     <h2>Email Configuration Test</h2>
@@ -173,7 +181,6 @@ class EmailService {
         }
     }
 
-    // Initialize weekly scheduler
     initializeScheduler() {
         this.scheduledTask = cron.schedule('0 8 * * 6', async () => {
             console.log('Running weekly attendance report...');
@@ -187,17 +194,16 @@ class EmailService {
             scheduled: false,
             timezone: "America/New_York"
         });
-        
+
         console.log('Email scheduler initialized');
     }
 
-    // Start the scheduler
     startScheduler() {
         try {
             if (!this.scheduledTask) {
                 this.initializeScheduler();
             }
-            
+
             if (this.scheduledTask) {
                 this.scheduledTask.start();
                 console.log('Email scheduler started successfully');
@@ -210,7 +216,6 @@ class EmailService {
         }
     }
 
-    // Stop the scheduler
     stopScheduler() {
         try {
             if (this.scheduledTask) {
@@ -225,13 +230,12 @@ class EmailService {
         }
     }
 
-    // Get scheduler status
     getSchedulerStatus() {
         const isRunning = this.scheduledTask ? this.scheduledTask.running : false;
         const nextRun = isRunning ? 'Every Saturday at 8:00 AM (EST)' : 'Not scheduled';
-        
+
         console.log('Scheduler status:', isRunning ? 'Running' : 'Stopped');
-        
+
         return {
             running: isRunning,
             nextRun: nextRun,
@@ -239,13 +243,12 @@ class EmailService {
         };
     }
 
-    // Test scheduler (runs in 10 seconds)
     startTestScheduler() {
         try {
             if (this.testTask) {
                 this.testTask.destroy();
             }
-            
+
             this.testTask = cron.schedule('*/10 * * * * *', async () => {
                 console.log('Test scheduler running...');
                 const result = await this.sendWeeklyReport();
@@ -258,7 +261,7 @@ class EmailService {
             }, {
                 scheduled: true
             });
-            
+
             return { success: true, message: 'Test scheduler will run in 10 seconds' };
         } catch (error) {
             return { success: false, message: 'Error starting test scheduler: ' + error.message };
