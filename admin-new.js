@@ -801,17 +801,29 @@ async function loadDropboxSettings() {
         const folderEl = document.getElementById('dropboxFolder');
         if (folderEl) folderEl.value = '/UF_Lab_Reports';
 
-        const status = document.getElementById('dropboxStatus');
-        if (status) {
-            const ok = !!(d.enabled && (d.refreshToken || d.accessToken));
-            status.textContent = ok ? 'Configured' : 'Disconnected';
-            status.className = 'badge ' + (ok ? 'success' : 'error');
-        }
+        const autoBackupEl = document.getElementById('dropboxAutoBackup');
+        if (autoBackupEl) autoBackupEl.checked = !!d.autoBackup;
+
+        const autoReportsEl = document.getElementById('dropboxAutoReports');
+        if (autoReportsEl) autoReportsEl.checked = !!d.autoReports;
+
+        const masterEl = document.getElementById('dropboxMasterMode');
+        if (masterEl) masterEl.checked = !!d.masterMode;
+
+        const intervalEl = document.getElementById('dropboxSyncInterval');
+        if (intervalEl) intervalEl.value = (typeof d.syncIntervalMinutes === 'number' ? d.syncIntervalMinutes : 10);
+
+        // NEW: load simple sync status from main (optional)
+        try {
+            const status = await window.electronAPI.getDropboxSyncStatus?.();
+            const statusEl = document.getElementById('dropboxSyncStatus');
+            const nextRunEl = document.getElementById('dropboxNextRun');
+            if (statusEl) statusEl.textContent = status?.lastSyncAt ? `Last sync: ${new Date(status.lastSyncAt).toLocaleTimeString()}` : 'Status: —';
+            if (nextRunEl) nextRunEl.textContent = status?.nextRun ? `Next pull: ${status.nextRun}` : 'Next pull: —';
+        } catch { }
     } catch (error) {
         console.error('Error loading Dropbox settings:', error);
-        if (typeof setDropboxMsg === 'function') {
-            setDropboxMsg('Error loading Dropbox settings: ' + (error?.message || error));
-        }
+        setDropboxMsg?.('Error loading Dropbox settings: ' + (error?.message || error));
     }
 }
 async function connectDropbox() {
@@ -822,6 +834,7 @@ async function connectDropbox() {
             setDropboxMsg && setDropboxMsg('Connected! Refresh token saved.');
             setDropboxStatus && setDropboxStatus('Connected', true);
             await loadDropboxSettings();        // <-- refresh fields from config.json
+            try { await window.electronAPI.getDropboxSyncStatus?.(); } catch { }
         } else {
             setDropboxMsg && setDropboxMsg('Connect failed: ' + (res?.error || 'Unknown error'));
             setDropboxStatus && setDropboxStatus('Disconnected', false);
@@ -891,6 +904,9 @@ async function saveDropboxSettings() {
     const APP_KEY_IDS = ['dropboxAppKey', 'dbxAppKey', 'appKey'];
     const APP_SECRET_IDS = ['dropboxAppSecret', 'dbxAppSecret', 'appSecret'];
     const REFRESH_IDS = ['dropboxRefreshToken', 'dbxRefreshToken', 'refreshToken'];
+    const AUTO_BACKUP_IDS = ['dropboxAutoBackup', 'dbxAutoBackup'];
+    const AUTO_REPORTS_IDS = ['dropboxAutoReports', 'dbxAutoReports'];
+
 
     const appKeyEl = getFirstEl(APP_KEY_IDS);
     const appSecretEl = getFirstEl(APP_SECRET_IDS);
@@ -899,6 +915,15 @@ async function saveDropboxSettings() {
     const appKey = getFirstVal(APP_KEY_IDS);
     const appSecret = getFirstVal(APP_SECRET_IDS);
     const refreshToken = getFirstVal(REFRESH_IDS); // may be empty the first time
+
+    const getFirstChecked = (ids) => {
+        const el = getFirstEl(ids);
+        return el ? !!el.checked : false;
+    };
+
+    const autoBackup = getFirstChecked(AUTO_BACKUP_IDS);
+    const autoReports = getFirstChecked(AUTO_REPORTS_IDS);
+
 
     // If inputs are missing, don't crash—tell the user exactly what's missing.
     const missing = [];
@@ -925,7 +950,9 @@ async function saveDropboxSettings() {
         const partial = {
             enabled: true,
             appKey,
-            appSecret
+            appSecret,
+            autoBackup,     // <— new
+            autoReports
         };
         if (refreshToken) partial.refreshToken = refreshToken; // if user already pasted one
 
@@ -1069,6 +1096,50 @@ function displayDropboxFiles(files) {
 async function refreshDropboxFiles() {
     await viewDropboxFiles();
 }
+
+// Live Syncing
+async function saveDropboxMasterSettings() {
+    try {
+        const masterMode = !!document.getElementById('dropboxMasterMode')?.checked;
+        const syncIntervalMinutes = Math.max(2, parseInt(document.getElementById('dropboxSyncInterval')?.value || '10', 10));
+
+        // Persist new values
+        const res = await window.electronAPI.updateDropboxConfig({ masterMode, syncIntervalMinutes });
+        if (!res?.success) throw new Error(res?.error || 'Save failed');
+
+        // Ask main to immediately (re)apply timers & do one reconcile
+        await window.electronAPI.applyDropboxSyncConfig?.();
+
+        showNotification('Dropbox sync settings saved', 'success');
+        await loadDropboxSettings(); // refresh badges/values
+    } catch (err) {
+        showNotification('Error saving Dropbox sync settings: ' + err.message, 'error');
+    }
+}
+
+async function dropboxSyncNowAction() {
+    const btn = document.getElementById('syncNowBtn');
+    const statusEl = document.getElementById('dropboxSyncStatus');
+    try {
+        if (btn) btn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Status: syncing…';
+
+        const res = await window.electronAPI.dropboxSyncNow?.();
+        if (res?.success) {
+            const ts = new Date().toLocaleTimeString();
+            if (statusEl) statusEl.textContent = `Last sync: ${ts}`;
+            showNotification('Sync completed', 'success');
+        } else {
+            throw new Error(res?.error || 'Unknown error');
+        }
+    } catch (err) {
+        showNotification('Sync failed: ' + err.message, 'error');
+        if (statusEl) statusEl.textContent = 'Status: error';
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 
 // Encryption Functions
 async function loadEncryptionSettings() {
@@ -1818,6 +1889,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const listDropboxBtn = document.getElementById('listDropboxBtn');
     const uploadReportDropboxBtn = document.getElementById('uploadReportDropboxBtn');
     const backupDropboxBtn = document.getElementById('backupDropboxBtn');
+    const saveDropboxMasterBtn = document.getElementById('saveDropboxMasterBtn');
+    const syncNowBtn = document.getElementById('syncNowBtn');
 
     if (saveDropboxBtn) saveDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); saveDropboxSettings(); });
     if (testDropboxBtn) testDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); testDropboxConnection(); });
@@ -1827,6 +1900,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (listDropboxBtn) listDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); listDropboxFiles(); });
     if (uploadReportDropboxBtn) uploadReportDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('report'); });
     if (backupDropboxBtn) backupDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('backup'); });
+    if (saveDropboxMasterBtn) { saveDropboxMasterBtn.addEventListener('click', (e) => { e.preventDefault(); saveDropboxMasterSettings(); }); }
+    if (syncNowBtn) { syncNowBtn.addEventListener('click', (e) => { e.preventDefault(); dropboxSyncNowAction(); }); }
 
     // Settings buttons - Encryption
     const enableEncryptionBtn = document.getElementById('enableEncryptionBtn');

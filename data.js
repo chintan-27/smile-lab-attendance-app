@@ -72,7 +72,9 @@ class DataManager {
                     accessToken: '',
 
                     autoBackup: false,
-                    autoReports: false
+                    autoReports: false,
+                    masterMode: false,
+                    syncIntervalMinutes: 10
                 },
 
                 encryption: {

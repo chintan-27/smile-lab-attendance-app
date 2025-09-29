@@ -763,6 +763,126 @@
             display: none;
         }
 
+        /* Dropbox layout helpers */
+        .dropbox-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        @media (min-width: 980px) {
+            .dropbox-grid {
+                grid-template-columns: 1.1fr 1fr;
+            }
+        }
+
+        .section {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #fff;
+            padding: 1rem;
+        }
+
+        .section h4 {
+            margin: 0 0 .25rem 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .section p.help {
+            margin: 0 0 .75rem 0;
+            color: var(--uf-gray);
+            font-size: .85rem;
+        }
+
+        .row {
+            display: grid;
+            gap: .75rem;
+        }
+
+        @media (min-width: 700px) {
+            .row.two {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .row.three {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+        }
+
+        .kv {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            flex-wrap: wrap;
+        }
+
+        .kv .badge {
+            margin-left: auto;
+        }
+
+        .card-help {
+            margin-top: .5rem;
+            color: var(--uf-gray);
+            font-size: .85rem;
+        }
+
+        .disclosure {
+            border: 1px dashed #e5e7eb;
+            border-radius: 10px;
+            background: #ffffff;
+        }
+
+        .disclosure summary {
+            list-style: none;
+            cursor: pointer;
+            padding: .875rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+        }
+
+        .disclosure summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .disclosure .chev {
+            transition: transform .2s ease;
+        }
+
+        .disclosure[open] .chev {
+            transform: rotate(180deg);
+        }
+
+        .disclosure .content {
+            padding: .5rem 1rem 1rem;
+        }
+
+        /* Dark mode support */
+        body.dark-mode .section {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode .section h4 {
+            color: #f7fafc;
+        }
+
+        body.dark-mode .section p.help {
+            color: #a0aec0;
+        }
+
+        body.dark-mode .disclosure {
+            background: #2d3748;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode .disclosure summary {
+            color: #f7fafc;
+        }
+
+
         /* Dark Mode Styles */
         body.dark-mode {
             background: #1a202c;
@@ -1500,78 +1620,152 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fab fa-dropbox"></i>
-                                Dropbox Configuration
+                                <i class="fab fa-dropbox"></i> Dropbox
                             </h3>
                             <div class="badge" id="dropboxStatus">Disconnected</div>
                         </div>
+
                         <div class="card-body">
-                            <div
-                                style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;">
-                                <div class="form-group">
-                                    <label class="form-label">App Key</label>
-                                    <input type="text" class="form-input" id="dropboxAppKey" placeholder="APP_KEY">
+                            <div class="dropbox-grid">
+                                <!-- Left: Connection -->
+                                <div class="section">
+                                    <h4>Connection</h4>
+                                    <p class="help">Connect the app to your Dropbox account and set the base folder.</p>
+
+                                    <div class="row two">
+                                        <div class="form-group">
+                                            <label class="form-label">App Key</label>
+                                            <input type="text" class="form-input" id="dropboxAppKey"
+                                                placeholder="APP_KEY">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">App Secret</label>
+                                            <input type="password" class="form-input" id="dropboxAppSecret"
+                                                placeholder="APP_SECRET">
+                                        </div>
+                                    </div>
+
+                                    <div class="row two">
+                                        <div class="form-group">
+                                            <label class="form-label">Refresh Token</label>
+                                            <input type="password" class="form-input" id="dropboxRefreshToken"
+                                                placeholder="REFRESH_TOKEN">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Default Folder</label>
+                                            <input type="text" class="form-input" id="dropboxFolder"
+                                                value="/UF_Lab_Reports" placeholder="/UF_Lab_Reports">
+                                        </div>
+                                    </div>
+
+                                    <div class="toolbar"
+                                        style="margin-top:.25rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+                                        <button class="btn btn-primary" id="saveDropboxBtn">Save Settings</button>
+                                        <button class="btn btn-secondary" id="testDropboxBtn">Test Connection</button>
+                                        <button class="btn btn-primary" id="connectDropboxBtn">Connect Dropbox</button>
+                                    </div>
+
+                                    <div id="dropboxMsg" class="card-help"></div>
                                 </div>
-                                <div class="form-group">
-                                    <label class="form-label">App Secret</label>
-                                    <input type="password" class="form-input" id="dropboxAppSecret"
-                                        placeholder="APP_SECRET">
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">Refresh Token</label>
-                                    <input type="password" class="form-input" id="dropboxRefreshToken"
-                                        placeholder="REFRESH_TOKEN">
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">Default Folder</label>
-                                    <input type="text" class="form-input" id="dropboxFolder" value="/UF_Lab_Reports"
-                                        placeholder="/UF_Lab_Reports">
+
+                                <!-- Right: Team Sync -->
+                                <div class="section">
+                                    <h4>Team Sync</h4>
+                                    <p class="help">Use Dropbox as the team’s shared source of truth. Safer,
+                                        minutes-scale sync — not real time.</p>
+
+                                    <div class="form-group">
+                                        <label class="form-label" for="dropboxMasterMode">Dropbox Master Mode</label>
+                                        <div class="kv">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="dropboxMasterMode">
+                                                <span class="slider"></span>
+                                            </label>
+                                            <span id="dropboxMasterHint" class="badge info">Source of truth when
+                                                enabled</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="row two">
+                                        <div class="form-group">
+                                            <label class="form-label" for="dropboxSyncInterval">Sync Interval
+                                                (minutes)</label>
+                                            <input id="dropboxSyncInterval" class="form-input" type="number" min="2"
+                                                step="1" placeholder="10">
+                                            <div class="card-help">Reconciling while the app is open. No background
+                                                real-time sync.</div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label class="form-label">Status</label>
+                                            <div class="kv">
+                                                <span id="dropboxSyncStatus" class="badge info">Status: Unknown</span>
+                                                <span id="dropboxNextRun" class="badge">Next pull: —</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="toolbar"
+                                        style="margin-top:.25rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+                                        <button id="syncNowBtn" class="btn btn-secondary">
+                                            <i class="fas fa-sync"></i> Sync Now
+                                        </button>
+                                        <button id="saveDropboxMasterBtn" class="btn btn-primary">
+                                            <i class="fas fa-save"></i> Save Sync Settings
+                                        </button>
+                                    </div>
+
+                                    <div class="warning-box" style="margin-top:1rem;">
+                                        <h4><i class="fas fa-info-circle"></i> Notes</h4>
+                                        <ul>
+                                            <li>Only <strong>students.json</strong> and <strong>attendance.json</strong>
+                                                sync.</li>
+                                            <li><strong>config.json</strong> stays local (machine-specific secrets).
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div style="display:flex;gap:0.75rem;margin-top:1rem;flex-wrap:wrap;">
-                                <button class="btn btn-primary" id="saveDropboxBtn">Save Settings</button>
-                                <button class="btn btn-secondary" id="testDropboxBtn">Test Connection</button>
-                                <button class="btn btn-primary" id="connectDropboxBtn">Connect Dropbox</button>
-                                <button class="btn btn-secondary" id="createDropboxFoldersBtn">Create Default
-                                    Folders</button>
-                                <button class="btn" id="spaceDropboxBtn">Space Usage</button>
-                                <button class="btn" id="listDropboxBtn">List Files</button>
-                                <button class="btn" id="uploadReportDropboxBtn">Upload Report</button>
-                                <button class="btn" id="backupDropboxBtn">Backup Now</button>
-                            </div>
+                            <!-- Advanced Tools (collapsible) -->
+                            <details class="disclosure" style="margin-top:1rem;">
+                                <summary>
+                                    <span>Advanced Tools</span>
+                                    <i class="fas fa-chevron-down chev"></i>
+                                </summary>
+                                <div class="content">
+                                    <div class="toolbar" style="margin-bottom:.5rem;">
+                                        <button class="btn btn-secondary" id="createDropboxFoldersBtn">Create Default
+                                            Folders</button>
+                                        <button class="btn" id="spaceDropboxBtn">Space Usage</button>
+                                        <button class="btn" id="listDropboxBtn">List Files</button>
+                                        <button class="btn" id="uploadReportDropboxBtn">Upload Report</button>
+                                        <button class="btn" id="backupDropboxBtn">Backup Now</button>
+                                    </div>
 
-                            <div id="dropboxMsg" class="ufid-status" style="margin-top:10px;"></div>
-
-                            <div id="dropboxFilesWrap" style="margin-top:12px;display:none;">
-                                <h4 style="margin:0 0 8px 0;">Files</h4>
-                                <div style="overflow:auto;max-height:240px;border:1px solid #e5e7eb;border-radius:6px;">
-                                    <table id="dropboxFilesTable" style="width:100%;border-collapse:collapse;">
-                                        <thead>
-                                            <tr style="background:#f8fafc;">
-                                                <th
-                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
-                                                    Name</th>
-                                                <th
-                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
-                                                    Path</th>
-                                                <th
-                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
-                                                    Type</th>
-                                                <th
-                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
-                                                    Modified</th>
-                                                <th
-                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">
-                                                    Size</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="dropboxFilesBody"></tbody>
-                                    </table>
+                                    <div id="dropboxFilesWrap" style="display:none;">
+                                        <h4 style="margin:0 0 8px 0;">Files</h4>
+                                        <div
+                                            style="overflow:auto;max-height:240px;border:1px solid #e5e7eb;border-radius:6px;">
+                                            <table id="dropboxFilesTable" class="table">
+                                                <thead>
+                                                    <tr style="background:#f8fafc;">
+                                                        <th>Name</th>
+                                                        <th>Path</th>
+                                                        <th>Type</th>
+                                                        <th>Modified</th>
+                                                        <th style="text-align:right;">Size</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="dropboxFilesBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+                            </details>
                         </div>
                     </div>
+
 
                     <!-- Data Encryption -->
                     <div class="card">

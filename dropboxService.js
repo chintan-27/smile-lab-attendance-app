@@ -5,12 +5,38 @@ const path = require('path');
 const http = require('http');
 const { URL } = require('url');
 const querystring = require('querystring');
+const crypto = require('crypto');
 
 let shellOpenExternal = null;
 try {
     // If running inside Electron main, prefer shell.openExternal
     shellOpenExternal = require('electron').shell.openExternal;
 } catch { }
+
+function sha256(buf) {
+    const h = crypto.createHash('sha256');
+    h.update(buf);
+    return h.digest('hex');
+}
+
+function readJsonSafe(p) {
+    if (!fs.existsSync(p)) return null;
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+    catch { return null; }
+}
+
+function writeJsonAtomic(p, obj) {
+    const tmp = p + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+    fs.renameSync(tmp, p); // atomic on most platforms
+}
+
+const DPX_ROOT = '/UF-Lab-Attendance';
+const DPX_DATA = `${DPX_ROOT}/data`;
+const DPX_BACKUPS = `${DPX_ROOT}/backups`;
+
+// Only these files are team-shared (skip config.json)
+const SYNC_FILES = ['students.json', 'attendance.json'];
 
 class DropboxService {
     constructor(dataManager) {
@@ -334,7 +360,7 @@ class DropboxService {
                 } catch (e) {
                     // Fallback logging; but normally this is available from electron
                     // User can manually paste the URL if needed
-                    // console.log('Open this URL:', authUrl.toString());
+                    console.log('Open this URL:', authUrl.toString());
                 }
             });
         });
@@ -574,6 +600,171 @@ class DropboxService {
             const summary = error?.error?.error_summary || error?.message || JSON.stringify(error);
             return { success: false, error: summary };
         }
+    }
+
+    // -------------
+    // Live Syncing
+    // -------------
+    async ensureDefaultFolders() {
+        if (!this.dropbox) return { success: false, error: 'not initialized' };
+        const mk = async (path) => {
+            try { await this.dropbox.filesCreateFolderV2({ path }); }
+            catch (e) {
+                if (String(e?.error?.error_summary || '').includes('conflict/folder')) return;
+                throw e;
+            }
+        };
+        await mk(DPX_ROOT); await mk(DPX_DATA); await mk(DPX_BACKUPS);
+        return { success: true };
+    }
+
+    async getMeta(pathLower) {
+        try { return await this.dropbox.filesGetMetadata({ path: pathLower }); }
+        catch (e) {
+            if (String(e?.error)?.includes('path/not_found')) return null;
+            throw e;
+        }
+    }
+
+    async downloadBuffer(dropboxPath) {
+        const r = await this.dropbox.filesDownload({ path: dropboxPath });
+        const file = r.result;
+        // SDKs vary; normalize to Buffer
+        const buf =
+            file.fileBinary ?? file.fileBlob ?? file.fileBuffer ?? Buffer.from(file.fileBinary ?? '');
+        return { buf: Buffer.isBuffer(buf) ? buf : Buffer.from(buf), serverModified: file.server_modified, meta: file };
+    }
+
+    async uploadBuffer(dropboxPath, buf) {
+        await this.dropbox.filesUpload({
+            path: dropboxPath,
+            contents: buf,
+            mode: { '.tag': 'overwrite' },
+            mute: true
+        });
+    }
+
+    async backupRemoteBeforeOverwrite(fileName, remoteMeta) {
+        try {
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupPath = `${DPX_BACKUPS}/${fileName}.${ts}.json`;
+            const { buf } = await this.downloadBuffer(`${DPX_DATA}/${fileName}`);
+            await this.uploadBuffer(backupPath, buf);
+        } catch {
+            // best-effort; do not fail sync because backup failed
+        }
+    }
+
+    // Merge attendance: append-safe dedupe
+    mergeAttendance(localArr, remoteArr) {
+        const key = (r) => (r.id != null ? `id:${r.id}` : `k:${r.ufid}|${r.timestamp}|${r.action}`);
+        const map = new Map();
+        (remoteArr || []).forEach(r => map.set(key(r), r));
+        (localArr || []).forEach(r => map.set(key(r), r)); // local wins on same key
+        // Stable-ish order by timestamp
+        return Array.from(map.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    }
+
+    // Students: newest file wins (mtime), simple replace
+    chooseStudents(localArr, remoteArr, newerSide) {
+        return newerSide === 'remote' ? (remoteArr || []) : (localArr || []);
+    }
+
+    async syncOne(fileName, localPath) {
+        const dropboxPath = `${DPX_DATA}/${fileName}`;
+        const remoteMeta = await this.getMeta(dropboxPath);
+        const localExists = fs.existsSync(localPath);
+        const remoteExists = !!remoteMeta;
+
+        if (!localExists && !remoteExists) return { file: fileName, action: 'skip-none' };
+
+        if (remoteExists && !localExists) {
+            // pull
+            const { buf } = await this.downloadBuffer(dropboxPath);
+            writeJsonAtomic(localPath, JSON.parse(buf.toString('utf8')));
+            return { file: fileName, action: 'pull-new' };
+        }
+
+        if (!remoteExists && localExists) {
+            // push
+            const buf = fs.readFileSync(localPath);
+            await this.uploadBuffer(dropboxPath, buf);
+            return { file: fileName, action: 'push-new' };
+        }
+
+        // both exist: decide by mtime/hash; attendance gets merge
+        const localBuf = fs.readFileSync(localPath);
+        const localHash = sha256(localBuf);
+        const { buf: remoteBuf, serverModified } = await this.downloadBuffer(dropboxPath);
+        const remoteHash = sha256(remoteBuf);
+
+        if (localHash === remoteHash) return { file: fileName, action: 'noop' };
+
+        const localMtime = fs.statSync(localPath).mtimeMs;
+        const remoteMtime = new Date(serverModified).getTime();
+        const newer = remoteMtime >= localMtime ? 'remote' : 'local';
+
+        if (fileName === 'attendance.json') {
+            // merge arrays
+            const merged = this.mergeAttendance(
+                JSON.parse(localBuf.toString('utf8') || '[]'),
+                JSON.parse(remoteBuf.toString('utf8') || '[]')
+            );
+            // backup remote copy (optional safety) before overwriting either side
+            if (newer === 'remote') await this.backupRemoteBeforeOverwrite(fileName, remoteMeta);
+            writeJsonAtomic(localPath, merged);
+            await this.uploadBuffer(dropboxPath, Buffer.from(JSON.stringify(merged, null, 2)));
+            return { file: fileName, action: 'merge-attendance' };
+        } else if (fileName === 'students.json') {
+            const localArr = JSON.parse(localBuf.toString('utf8') || '[]');
+            const remoteArr = JSON.parse(remoteBuf.toString('utf8') || '[]');
+            const chosen = this.chooseStudents(localArr, remoteArr, newer);
+            if (newer === 'remote') await this.backupRemoteBeforeOverwrite(fileName, remoteMeta);
+            writeJsonAtomic(localPath, chosen);
+            await this.uploadBuffer(dropboxPath, Buffer.from(JSON.stringify(chosen, null, 2)));
+            return { file: fileName, action: `replace-students-${newer}` };
+        } else {
+            return { file: fileName, action: 'skip-unknown' };
+        }
+    }
+
+    // Public: full reconcile for shared files
+    async syncAll(dataDir) {
+        if (!this.dropbox && !this.initializeFromConfig().success) {
+            return { success: false, error: 'Dropbox not configured' };
+        }
+        await this.ensureDefaultFolders();
+        const results = [];
+        for (const f of SYNC_FILES) {
+            try {
+                const local = path.join(dataDir, f);
+                results.push(await this.syncOne(f, local));
+            } catch (e) {
+                results.push({ file: f, action: 'error', error: e.message });
+            }
+        }
+        return { success: true, results };
+    }
+
+    // For app-close: push local copies up (no pulling/merging)
+    async pushAll(dataDir) {
+        if (!this.dropbox && !this.initializeFromConfig().success) {
+            return { success: false, error: 'Dropbox not configured' };
+        }
+        await this.ensureDefaultFolders();
+        const results = [];
+        for (const f of SYNC_FILES) {
+            const local = path.join(dataDir, f);
+            if (!fs.existsSync(local)) { results.push({ file: f, action: 'skip-missing' }); continue; }
+            const buf = fs.readFileSync(local);
+            try {
+                await this.uploadBuffer(`${DPX_DATA}/${f}`, buf);
+                results.push({ file: f, action: 'push' });
+            } catch (e) {
+                results.push({ file: f, action: 'error', error: e.message });
+            }
+        }
+        return { success: true, results };
     }
 }
 

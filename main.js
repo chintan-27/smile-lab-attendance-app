@@ -13,6 +13,23 @@ let emailService;
 let googleSheetsService;
 let dropboxService;
 
+let syncTimer = null;
+let syncing = false;
+
+async function safeSyncAll(tag) {
+  if (syncing) return; // single-flight
+  syncing = true;
+  try {
+    const res = await dropboxService.syncAll(dataManager.dataDir);
+    dataManager.logger.info('sync', `${tag}: ${JSON.stringify(res)}`, 'system');
+  } catch (e) {
+    dataManager.logger.error('sync', `${tag} failed: ${e.message}`, 'system');
+  } finally {
+    syncing = false;
+  }
+}
+
+
 const createWindow = () => {
   const { height } = screen.getPrimaryDisplay().workAreaSize;
   mainWindow = new BrowserWindow({
@@ -55,7 +72,7 @@ if (process.platform === 'darwin') {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Initialize services
   dataManager = new DataManager();
   emailService = new EmailService(dataManager);
@@ -98,6 +115,15 @@ app.whenReady().then(() => {
     scheduled: true,
     timezone: "America/New_York"
   });
+  const cfg = dataManager.getConfig();
+  if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
+    // 1) Pull latest on startup (with merge)
+    await safeSyncAll('startup-sync');
+
+    // 2) Periodic reconcile (minutes, not seconds)
+    const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10)); // min 2 mins
+    syncTimer = setInterval(() => safeSyncAll('interval-sync'), mins * 60 * 1000);
+  }
 
   createWindow();
 
@@ -108,6 +134,18 @@ app.whenReady().then(() => {
     }
   })
 })
+
+app.on('before-quit', async (e) => {
+  try {
+    const cfg = dataManager.getConfig();
+    if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
+      await dropboxService.pushAll(dataManager.dataDir);
+      dataManager.logger.info('sync', 'push-on-close completed', 'system');
+    }
+  } catch (err) {
+    dataManager.logger.warning('sync', `push-on-close error: ${err.message}`, 'system');
+  }
+});
 
 // Attendance handlers
 ipcMain.handle('sign-in', async (event, data) => {
@@ -658,20 +696,22 @@ ipcMain.handle('disable-auto-sync', async (event) => {
 
 ipcMain.handle('update-dropbox-config', async (event, partial) => {
   try {
-    // use the DataManager method that merges + writes to data/config.json
+    // Let DataManager perform a proper merge + normalization + write
     const result = dataManager.updateDropboxConfig(partial);
     if (result?.success) {
-      dataManager.logger.info('dropbox', 'Dropbox config updated (persisted)', 'admin');
+      dataManager.logger.info('dropbox', 'Dropbox config updated via DataManager', 'admin');
       return { success: true };
+    } else {
+      const err = result?.error || 'Unknown error from updateDropboxConfig';
+      dataManager.logger.error('dropbox', `Failed to update config: ${err}`, 'admin');
+      return { success: false, error: err };
     }
-    const msg = result?.error || 'Unknown error';
-    dataManager.logger.error('dropbox', `Failed to update config: ${msg}`, 'admin');
-    return { success: false, error: msg };
   } catch (e) {
     dataManager.logger.error('dropbox', `Failed to update config: ${e.message}`, 'admin');
     return { success: false, error: e.message };
   }
 });
+
 
 ipcMain.handle('dropbox-oauth-connect', async () => {
   try {
@@ -756,6 +796,53 @@ ipcMain.handle('list-dropbox-files', async (event, folderPath) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// Live Syncing Handlers
+function scheduleSyncTimer() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  const cfg = dataManager.getConfig();
+  if (!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode)) return;
+
+  const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10));
+  syncTimer = setInterval(() => safeSyncAll('interval-sync'), mins * 60 * 1000);
+}
+
+// Manual “Sync Now”
+ipcMain.handle('dropbox-sync-now', async () => {
+  const cfg = dataManager.getConfig();
+  if (!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode)) {
+    return { success: false, error: 'Dropbox master mode is not enabled' };
+  }
+  try {
+    await safeSyncAll('manual-sync');
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Status for Admin UI
+ipcMain.handle('get-dropbox-sync-status', async () => {
+  const cfg = dataManager.getConfig();
+  const running = !!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode && syncTimer);
+  const nextRun = running
+    ? `Every ${Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10))} minutes`
+    : null;
+  // You already log last runs in safeSyncAll; if you want a timestamp, store one there and read it here.
+  return { running, lastSyncAt: null, nextRun };
+});
+
+// Re-apply after settings saved (and do one immediate sync)
+ipcMain.handle('apply-dropbox-sync-config', async () => {
+  const cfg = dataManager.getConfig();
+  if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
+    await safeSyncAll('apply-config-sync');
+    scheduleSyncTimer();
+  } else {
+    if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  }
+  return { success: true };
 });
 
 
