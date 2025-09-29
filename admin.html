@@ -1478,6 +1478,12 @@
                                         placeholder="admin@ufl.edu">
                                 </div>
                                 <div class="form-group">
+                                    <label class="form-label">SMTP Password (App Password)</label>
+                                    <input type="password" class="form-input" id="smtpPassword"
+                                        placeholder="App password">
+                                </div>
+
+                                <div class="form-group">
                                     <label class="form-label">Recipient Email</label>
                                     <input type="email" class="form-input" id="recipientEmail"
                                         placeholder="recipient@ufl.edu">
@@ -1490,56 +1496,83 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Dropbox Integration -->
+                    <!-- Dropbox Settings -->
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fas fa-cloud"></i>
-                                Dropbox Integration
+                                <i class="fab fa-dropbox"></i>
+                                Dropbox Configuration
                             </h3>
-                            <div class="badge error" id="dropboxStatus">Disconnected</div>
+                            <div class="badge" id="dropboxStatus">Disconnected</div>
                         </div>
                         <div class="card-body">
                             <div
-                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                                style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem;">
                                 <div class="form-group">
-                                    <label class="form-label">Access Token</label>
-                                    <input type="password" class="form-input" id="dropboxToken"
-                                        placeholder="Enter Dropbox access token">
-                                    <small style="color: #64748b; margin-top: 0.5rem; display: block;">
-                                        <a href="https://www.dropbox.com/developers/apps" target="_blank"
-                                            style="color: #10b981;">Get access token from Dropbox App Console</a>
-                                    </small>
+                                    <label class="form-label">App Key</label>
+                                    <input type="text" class="form-input" id="dropboxAppKey" placeholder="APP_KEY">
                                 </div>
                                 <div class="form-group">
-                                    <label class="form-label">Storage Usage</label>
-                                    <div id="dropboxUsage"
-                                        style="padding: 0.75rem; background: #f8fafc; border-radius: 6px; font-family: monospace;">
-                                        Not connected
-                                    </div>
+                                    <label class="form-label">App Secret</label>
+                                    <input type="password" class="form-input" id="dropboxAppSecret"
+                                        placeholder="APP_SECRET">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Refresh Token</label>
+                                    <input type="password" class="form-input" id="dropboxRefreshToken"
+                                        placeholder="REFRESH_TOKEN">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Default Folder</label>
+                                    <input type="text" class="form-input" id="dropboxFolder" value="/UF_Lab_Reports"
+                                        placeholder="/UF_Lab_Reports">
                                 </div>
                             </div>
-                            <div style="margin: 1rem 0;">
-                                <label style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <input type="checkbox" id="autoBackupDropbox">
-                                    <span>Automatically backup data to Dropbox daily</span>
-                                </label>
-                            </div>
-                            <div style="margin: 1rem 0;">
-                                <label style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <input type="checkbox" id="autoReportsDropbox">
-                                    <span>Automatically upload weekly reports to Dropbox</span>
-                                </label>
-                            </div>
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+
+                            <div style="display:flex;gap:0.75rem;margin-top:1rem;flex-wrap:wrap;">
                                 <button class="btn btn-primary" id="saveDropboxBtn">Save Settings</button>
                                 <button class="btn btn-secondary" id="testDropboxBtn">Test Connection</button>
-                                <button class="btn btn-secondary" id="backupToDropboxBtn">Backup Now</button>
-                                <button class="btn btn-secondary" id="uploadReportBtn">Upload Report</button>
-                                <button class="btn btn-secondary" id="viewDropboxFilesBtn">View Files</button>
+                                <button class="btn btn-primary" id="connectDropboxBtn">Connect Dropbox</button>
+                                <button class="btn btn-secondary" id="createDropboxFoldersBtn">Create Default
+                                    Folders</button>
+                                <button class="btn" id="spaceDropboxBtn">Space Usage</button>
+                                <button class="btn" id="listDropboxBtn">List Files</button>
+                                <button class="btn" id="uploadReportDropboxBtn">Upload Report</button>
+                                <button class="btn" id="backupDropboxBtn">Backup Now</button>
+                            </div>
+
+                            <div id="dropboxMsg" class="ufid-status" style="margin-top:10px;"></div>
+
+                            <div id="dropboxFilesWrap" style="margin-top:12px;display:none;">
+                                <h4 style="margin:0 0 8px 0;">Files</h4>
+                                <div style="overflow:auto;max-height:240px;border:1px solid #e5e7eb;border-radius:6px;">
+                                    <table id="dropboxFilesTable" style="width:100%;border-collapse:collapse;">
+                                        <thead>
+                                            <tr style="background:#f8fafc;">
+                                                <th
+                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
+                                                    Name</th>
+                                                <th
+                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
+                                                    Path</th>
+                                                <th
+                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
+                                                    Type</th>
+                                                <th
+                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;">
+                                                    Modified</th>
+                                                <th
+                                                    style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">
+                                                    Size</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="dropboxFilesBody"></tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
+
                     <!-- Data Encryption -->
                     <div class="card">
                         <div class="card-header">

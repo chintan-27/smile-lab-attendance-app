@@ -43,11 +43,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableAutoSync: () => ipcRenderer.invoke('disable-auto-sync'),
   
   // Dropbox Service
+  updateDropboxConfig: (config) => ipcRenderer.invoke('update-dropbox-config', config),
+  dropboxOAuthConnect: () => ipcRenderer.invoke('dropbox-oauth-connect'),
   testDropboxConnection: () => ipcRenderer.invoke('test-dropbox-connection'),
+  createDropboxDefaultFolders: () => ipcRenderer.invoke('create-dropbox-default-folders'),
   uploadToDropbox: (type) => ipcRenderer.invoke('upload-to-dropbox', type),
   getDropboxSpace: () => ipcRenderer.invoke('get-dropbox-space'),
-  listDropboxFiles: (folderPath) => ipcRenderer.invoke('list-dropbox-files', folderPath),
-  
+  listDropboxFiles: (folder) => ipcRenderer.invoke('list-dropbox-files', folder),
+
   // Encryption
   enableEncryption: (password) => ipcRenderer.invoke('enable-encryption', password),
   disableEncryption: (password) => ipcRenderer.invoke('disable-encryption', password),

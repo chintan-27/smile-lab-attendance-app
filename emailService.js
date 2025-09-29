@@ -11,7 +11,7 @@ class EmailService {
     }
 
     createTransporter(emailConfig) {
-        return nodemailer.createTransporter({
+        return nodemailer.createTransport({
             host: emailConfig.smtp,
             port: emailConfig.port,
             secure: emailConfig.secure,

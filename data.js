@@ -11,14 +11,14 @@ class DataManager {
         this.configFile = path.join(this.dataDir, 'config.json');
         this.encryptionEnabled = false;
         this.encryptionPassword = null;
-        
+
         // Initialize data directory and files first
         this.initializeData();
         this.loadEncryptionSettings();
-        
+
         // Initialize logger after data directory exists
         this.logger = new Logger(this);
-        
+
         // Log initialization
         this.logger.info('system', 'DataManager initialized successfully', 'system');
         console.log('DataManager initialized with logger');
@@ -29,17 +29,17 @@ class DataManager {
             fs.mkdirSync(this.dataDir);
             console.log('Created data directory:', this.dataDir);
         }
-        
+
         if (!fs.existsSync(this.attendanceFile)) {
             fs.writeFileSync(this.attendanceFile, JSON.stringify([], null, 2));
             console.log('Created attendance.json file');
         }
-        
+
         if (!fs.existsSync(this.studentsFile)) {
             fs.writeFileSync(this.studentsFile, JSON.stringify([], null, 2));
             console.log('Created students.json file');
         }
-        
+
         if (!fs.existsSync(this.configFile)) {
             const defaultConfig = {
                 adminPassword: this.hashPassword('admin123'),
@@ -62,10 +62,19 @@ class DataManager {
                 },
                 dropbox: {
                     enabled: false,
+
+                    // NEW OAuth fields
+                    appKey: '',
+                    appSecret: '',
+                    refreshToken: '',
+
+                    // Legacy (keep for backward-compat)
                     accessToken: '',
+
                     autoBackup: false,
                     autoReports: false
                 },
+
                 encryption: {
                     enabled: false,
                     algorithm: 'AES-256'
@@ -80,7 +89,7 @@ class DataManager {
         try {
             const config = this.getConfig();
             this.encryptionEnabled = config.encryption?.enabled || false;
-            
+
             if (this.logger) {
                 this.logger.info('encryption', `Encryption settings loaded: ${this.encryptionEnabled ? 'enabled' : 'disabled'}`, 'system');
             }
@@ -91,6 +100,24 @@ class DataManager {
             }
         }
     }
+    normalizeConfigShape(cfg) {
+        cfg = cfg || {};
+        cfg.dropbox = cfg.dropbox || {};
+
+        // Booleans
+        if (typeof cfg.dropbox.enabled !== 'boolean') cfg.dropbox.enabled = false;
+        if (typeof cfg.dropbox.autoBackup !== 'boolean') cfg.dropbox.autoBackup = false;
+        if (typeof cfg.dropbox.autoReports !== 'boolean') cfg.dropbox.autoReports = false;
+
+        // Strings (OAuth + legacy token)
+        if (typeof cfg.dropbox.appKey !== 'string') cfg.dropbox.appKey = '';
+        if (typeof cfg.dropbox.appSecret !== 'string') cfg.dropbox.appSecret = '';
+        if (typeof cfg.dropbox.refreshToken !== 'string') cfg.dropbox.refreshToken = '';
+        if (typeof cfg.dropbox.accessToken !== 'string') cfg.dropbox.accessToken = '';
+
+        return cfg;
+    }
+
 
     hashPassword(password) {
         return crypto.createHash('sha256').update(password).digest('hex');
@@ -101,10 +128,10 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('auth', 'Admin password verification attempt', 'system');
             }
-            
+
             const config = this.getConfig();
             const storedHash = config.adminPassword;
-            
+
             if (!storedHash) {
                 console.log('No admin password set, using default');
                 if (this.logger) {
@@ -112,16 +139,16 @@ class DataManager {
                 }
                 return this.hashPassword(password) === this.hashPassword('admin123');
             }
-            
+
             const inputHash = this.hashPassword(password);
             const isValid = inputHash === storedHash;
-            
+
             console.log('Password verification:', {
                 inputHash: inputHash.substring(0, 10) + '...',
                 storedHash: storedHash.substring(0, 10) + '...',
                 isValid
             });
-            
+
             if (this.logger) {
                 if (isValid) {
                     this.logger.info('auth', 'Admin password verification successful', 'admin');
@@ -129,7 +156,7 @@ class DataManager {
                     this.logger.warning('auth', 'Admin password verification failed', 'system');
                 }
             }
-            
+
             return isValid;
         } catch (error) {
             console.error('Error verifying admin password:', error);
@@ -145,15 +172,15 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('admin', 'Admin password change initiated', 'admin');
             }
-            
+
             const config = this.getConfig();
             config.adminPassword = this.hashPassword(newPassword);
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('admin', 'Admin password changed successfully', 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -166,12 +193,13 @@ class DataManager {
     getConfig() {
         try {
             const data = fs.readFileSync(this.configFile, 'utf8');
-            return JSON.parse(data);
+            const cfg = JSON.parse(data);
+            return this.normalizeConfigShape(cfg);  // ensure shape on read
         } catch (error) {
             if (this.logger) {
                 this.logger.error('config', `Error reading config: ${error.message}`, 'system');
             }
-            return {};
+            return this.normalizeConfigShape({});   // always return normalized shape
         }
     }
 
@@ -184,11 +212,11 @@ class DataManager {
             const cipher = crypto.createCipher(algorithm, key);
             let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
             encrypted += cipher.final('hex');
-            
+
             if (this.logger) {
                 this.logger.info('encryption', 'Data encrypted successfully', 'system');
             }
-            
+
             return { success: true, data: iv.toString('hex') + ':' + encrypted };
         } catch (error) {
             if (this.logger) {
@@ -208,11 +236,11 @@ class DataManager {
             const decipher = crypto.createDecipher(algorithm, key);
             let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
             decrypted += decipher.final('utf8');
-            
+
             if (this.logger) {
                 this.logger.info('encryption', 'Data decrypted successfully', 'system');
             }
-            
+
             return { success: true, data: JSON.parse(decrypted) };
         } catch (error) {
             if (this.logger) {
@@ -227,14 +255,14 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('encryption', `Updating encryption settings: ${enabled ? 'enabling' : 'disabling'}`, 'admin');
             }
-            
+
             const config = this.getConfig();
             config.encryption = {
                 enabled: enabled,
                 algorithm: 'AES-256',
                 lastUpdated: new Date().toISOString()
             };
-            
+
             if (enabled && password) {
                 config.encryption.passwordHash = this.hashPassword(password);
                 this.encryptionPassword = password;
@@ -242,14 +270,14 @@ class DataManager {
                     this.logger.info('encryption', 'Encryption password set and stored', 'admin');
                 }
             }
-            
+
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
             this.encryptionEnabled = enabled;
-            
+
             if (this.logger) {
                 this.logger.info('encryption', `Encryption settings updated successfully: ${enabled ? 'enabled' : 'disabled'}`, 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -268,9 +296,9 @@ class DataManager {
                 }
                 return false;
             }
-            
+
             const isValid = this.hashPassword(password) === config.encryption.passwordHash;
-            
+
             if (this.logger) {
                 if (isValid) {
                     this.logger.info('encryption', 'Encryption password verification successful', 'admin');
@@ -278,7 +306,7 @@ class DataManager {
                     this.logger.warning('encryption', 'Encryption password verification failed', 'admin');
                 }
             }
-            
+
             return isValid;
         } catch (error) {
             if (this.logger) {
@@ -292,7 +320,7 @@ class DataManager {
         if (!this.encryptionEnabled || !this.encryptionPassword) {
             return data;
         }
-        
+
         try {
             if (Array.isArray(data)) {
                 return data.map(item => {
@@ -333,7 +361,7 @@ class DataManager {
         if (!this.encryptionEnabled || !this.encryptionPassword) {
             return data;
         }
-        
+
         try {
             if (Array.isArray(data)) {
                 return data.map(item => {
@@ -375,7 +403,7 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('student', `Adding student: ${name} (${ufid})`, 'admin');
             }
-            
+
             const students = this.getStudents();
             let student = {
                 ufid,
@@ -384,7 +412,7 @@ class DataManager {
                 active: true,
                 addedDate: new Date().toISOString()
             };
-            
+
             const existingIndex = students.findIndex(s => s.ufid === ufid);
             if (existingIndex !== -1) {
                 if (this.logger) {
@@ -394,14 +422,14 @@ class DataManager {
             } else {
                 students.push(student);
             }
-            
+
             let dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
             fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('student', `Student ${existingIndex !== -1 ? 'updated' : 'added'} successfully: ${name} (${ufid})`, 'admin');
             }
-            
+
             return { success: true, student };
         } catch (error) {
             if (this.logger) {
@@ -416,11 +444,11 @@ class DataManager {
             const data = fs.readFileSync(this.studentsFile, 'utf8');
             let students = JSON.parse(data);
             const decryptedStudents = this.decryptSensitiveFields(students, ['name', 'email']);
-            
+
             if (this.logger) {
                 this.logger.info('student', `Retrieved ${decryptedStudents.length} students from database`, 'system');
             }
-            
+
             return decryptedStudents;
         } catch (error) {
             if (this.logger) {
@@ -435,25 +463,25 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('student', `Removing student with UFID: ${ufid}`, 'admin');
             }
-            
+
             const students = this.getStudents();
             const studentToRemove = students.find(s => s.ufid === ufid);
             const filteredStudents = students.filter(s => s.ufid !== ufid);
-            
+
             if (students.length === filteredStudents.length) {
                 if (this.logger) {
                     this.logger.warning('student', `Student not found for removal: ${ufid}`, 'admin');
                 }
                 return { success: false, error: 'Student not found' };
             }
-            
+
             let dataToSave = this.encryptSensitiveFields(filteredStudents, ['name', 'email']);
             fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('student', `Student removed successfully: ${studentToRemove?.name || 'Unknown'} (${ufid})`, 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -467,7 +495,7 @@ class DataManager {
         try {
             const students = this.getStudents();
             const student = students.find(s => s.ufid === ufid && s.active);
-            
+
             if (this.logger) {
                 if (student) {
                     this.logger.info('auth', `Student authorization check passed: ${student.name} (${ufid})`, 'system');
@@ -475,7 +503,7 @@ class DataManager {
                     this.logger.warning('auth', `Student authorization check failed: ${ufid}`, 'system');
                 }
             }
-            
+
             return student || null;
         } catch (error) {
             if (this.logger) {
@@ -490,11 +518,11 @@ class DataManager {
             const data = fs.readFileSync(this.attendanceFile, 'utf8');
             let attendance = JSON.parse(data);
             const decryptedAttendance = this.decryptSensitiveFields(attendance, ['name']);
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `Retrieved ${decryptedAttendance.length} attendance records`, 'system');
             }
-            
+
             return decryptedAttendance;
         } catch (error) {
             if (this.logger) {
@@ -508,20 +536,20 @@ class DataManager {
         try {
             const attendance = this.getAttendance();
             const userRecords = attendance.filter(record => record.ufid === ufid);
-            
+
             if (userRecords.length === 0) {
                 if (this.logger) {
                     this.logger.info('attendance', `No attendance records found for UFID: ${ufid}`, 'system');
                 }
                 return 'never_signed_in';
             }
-            
+
             const lastRecord = userRecords[userRecords.length - 1];
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `Current status for ${ufid}: ${lastRecord.action}`, 'system');
             }
-            
+
             return lastRecord.action;
         } catch (error) {
             if (this.logger) {
@@ -536,7 +564,7 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('attendance', `Processing ${action} for UFID: ${ufid}`, 'system');
             }
-            
+
             const authorizedStudent = this.isStudentAuthorized(ufid);
             if (!authorizedStudent) {
                 if (this.logger) {
@@ -550,7 +578,7 @@ class DataManager {
             }
 
             const currentStatus = this.getCurrentStatus(ufid);
-            
+
             if (action === 'signin') {
                 if (currentStatus === 'signin') {
                     if (this.logger) {
@@ -596,11 +624,11 @@ class DataManager {
             attendance.push(record);
             let dataToSave = this.encryptSensitiveFields(attendance, ['name']);
             fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `${action} successful for ${authorizedStudent.name} (${ufid})`, 'system');
             }
-            
+
             return { success: true, record, studentName: authorizedStudent.name };
         } catch (error) {
             if (this.logger) {
@@ -615,26 +643,26 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('attendance', `Deleting attendance record: ${recordId}`, 'admin');
             }
-            
+
             const attendance = this.getAttendance();
             const recordToDelete = attendance.find(record => record.id === recordId);
             const filteredAttendance = attendance.filter(record => record.id !== recordId);
-            
+
             if (attendance.length === filteredAttendance.length) {
                 if (this.logger) {
                     this.logger.warning('attendance', `Attendance record not found for deletion: ${recordId}`, 'admin');
                 }
                 return { success: false, error: 'Record not found' };
             }
-            
+
             let dataToSave = this.encryptSensitiveFields(filteredAttendance, ['name']);
             fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
-            
+
             if (this.logger) {
                 const studentInfo = recordToDelete ? `${recordToDelete.name} (${recordToDelete.ufid})` : 'Unknown student';
                 this.logger.info('attendance', `Attendance record deleted: ${studentInfo} - ${recordToDelete?.action} at ${recordToDelete?.timestamp}`, 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -649,10 +677,10 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('attendance', 'Retrieving currently signed-in students', 'system');
             }
-            
+
             const students = this.getStudents();
             const signedInStudents = [];
-            
+
             students.forEach(student => {
                 const status = this.getCurrentStatus(student.ufid);
                 if (status === 'signin') {
@@ -665,11 +693,11 @@ class DataManager {
                     });
                 }
             });
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `Found ${signedInStudents.length} currently signed-in students`, 'system');
             }
-            
+
             return signedInStudents;
         } catch (error) {
             if (this.logger) {
@@ -686,11 +714,11 @@ class DataManager {
             const todaysAttendance = attendance.filter(record =>
                 new Date(record.timestamp).toDateString() === today
             );
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `Retrieved ${todaysAttendance.length} attendance records for today`, 'system');
             }
-            
+
             return todaysAttendance;
         } catch (error) {
             if (this.logger) {
@@ -705,17 +733,17 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('stats', 'Generating basic statistics', 'admin');
             }
-            
+
             const attendance = this.getAttendance();
             const students = this.getStudents();
             const today = new Date().toDateString();
             const todayAttendance = attendance.filter(record =>
                 new Date(record.timestamp).toDateString() === today
             );
-            
+
             const signIns = todayAttendance.filter(r => r.action === 'signin').length;
             const signOuts = todayAttendance.filter(r => r.action === 'signout').length;
-            
+
             const stats = {
                 totalStudents: students.length,
                 activeStudents: students.filter(s => s.active).length,
@@ -724,11 +752,11 @@ class DataManager {
                 totalRecords: attendance.length,
                 lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null
             };
-            
+
             if (this.logger) {
                 this.logger.info('stats', `Basic stats generated - Students: ${stats.totalStudents}, Today's records: ${todayAttendance.length}`, 'admin');
             }
-            
+
             return stats;
         } catch (error) {
             if (this.logger) {
@@ -743,15 +771,15 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('stats', 'Generating enhanced statistics', 'admin');
             }
-            
+
             const attendance = this.getAttendance();
             const students = this.getStudents();
             const currentlySignedIn = this.getCurrentlySignedIn();
             const todaysAttendance = this.getTodaysAttendance();
-            
+
             const signIns = todaysAttendance.filter(r => r.action === 'signin').length;
             const signOuts = todaysAttendance.filter(r => r.action === 'signout').length;
-            
+
             const stats = {
                 totalStudents: students.length,
                 activeStudents: students.filter(s => s.active).length,
@@ -763,11 +791,11 @@ class DataManager {
                 lastActivity: attendance.length > 0 ? attendance[attendance.length - 1].timestamp : null,
                 signedInStudents: currentlySignedIn
             };
-            
+
             if (this.logger) {
                 this.logger.info('stats', `Enhanced stats generated - Currently present: ${stats.currentlySignedIn}, Today's activity: ${stats.todaysRecords}`, 'admin');
             }
-            
+
             return stats;
         } catch (error) {
             if (this.logger) {
@@ -782,20 +810,20 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('attendance', `Retrieving attendance records from ${startDate} to ${endDate}`, 'admin');
             }
-            
+
             const attendance = this.getAttendance();
             const start = new Date(startDate);
             const end = new Date(endDate);
-            
+
             const filteredAttendance = attendance.filter(record => {
                 const recordDate = new Date(record.timestamp);
                 return recordDate >= start && recordDate <= end;
             });
-            
+
             if (this.logger) {
                 this.logger.info('attendance', `Found ${filteredAttendance.length} records in date range`, 'admin');
             }
-            
+
             return filteredAttendance;
         } catch (error) {
             if (this.logger) {
@@ -810,14 +838,14 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('report', 'Generating weekly report data', 'admin');
             }
-            
+
             const endDate = new Date();
             const startDate = new Date(endDate);
             startDate.setDate(startDate.getDate() - 7);
-            
+
             const weeklyAttendance = this.getAttendanceByDateRange(startDate, endDate);
             const students = this.getStudents();
-            
+
             const studentReports = {};
             students.forEach(student => {
                 studentReports[student.ufid] = {
@@ -846,7 +874,7 @@ class DataManager {
                 const sessions = studentReports[ufid].sessions.sort((a, b) =>
                     new Date(a.timestamp) - new Date(b.timestamp)
                 );
-                
+
                 let totalMinutes = 0;
                 for (let i = 0; i < sessions.length - 1; i += 2) {
                     const signIn = sessions[i];
@@ -858,13 +886,13 @@ class DataManager {
                 }
                 studentReports[ufid].totalHours = Math.round((totalMinutes / 60) * 100) / 100;
             });
-            
+
             const activeStudents = Object.values(studentReports).filter(s => s.signIns > 0).length;
-            
+
             if (this.logger) {
                 this.logger.info('report', `Weekly report generated - ${weeklyAttendance.length} records, ${activeStudents} active students`, 'admin');
             }
-            
+
             return {
                 startDate: startDate.toISOString(),
                 endDate: endDate.toISOString(),
@@ -886,10 +914,10 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('report', 'Converting report data to CSV format', 'admin');
             }
-            
+
             const headers = ['UF ID', 'Name', 'Sign Ins', 'Sign Outs', 'Total Hours', 'Email'];
             const rows = [headers];
-            
+
             let activeRecords = 0;
             Object.keys(reportData.studentReports).forEach(ufid => {
                 const student = reportData.studentReports[ufid];
@@ -905,11 +933,11 @@ class DataManager {
                     activeRecords++;
                 }
             });
-            
+
             if (this.logger) {
                 this.logger.info('report', `CSV report generated with ${activeRecords} active student records`, 'admin');
             }
-            
+
             return rows.map(row => row.join(',')).join('\n');
         } catch (error) {
             if (this.logger) {
@@ -924,31 +952,31 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('report', 'Saving weekly report to file', 'admin');
             }
-            
+
             const reportData = this.generateWeeklyReport();
             if (!reportData) {
                 return { success: false, error: 'Failed to generate report data' };
             }
-            
+
             const csvContent = this.generateCSVReport(reportData);
             const reportsDir = path.join(this.dataDir, 'reports');
-            
+
             if (!fs.existsSync(reportsDir)) {
                 fs.mkdirSync(reportsDir);
                 if (this.logger) {
                     this.logger.info('report', 'Created reports directory', 'admin');
                 }
             }
-            
+
             const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.csv`;
             const filePath = path.join(reportsDir, fileName);
-            
+
             fs.writeFileSync(filePath, csvContent);
-            
+
             if (this.logger) {
                 this.logger.info('report', `Weekly report saved to file: ${fileName}`, 'admin');
             }
-            
+
             return {
                 success: true,
                 filePath,
@@ -968,7 +996,7 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('config', `Updating email configuration - SMTP: ${emailConfig.smtp}`, 'admin');
             }
-            
+
             const config = this.getConfig();
             config.emailSettings = {
                 enabled: emailConfig.enabled || false,
@@ -980,13 +1008,13 @@ class DataManager {
                 recipientEmail: emailConfig.recipientEmail || '',
                 recipientName: emailConfig.recipientName || ''
             };
-            
+
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('config', 'Email configuration updated successfully', 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -1001,7 +1029,7 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('config', `Updating Google Sheets configuration - SpreadsheetID: ${sheetsConfig.spreadsheetId || 'not set'}`, 'admin');
             }
-            
+
             const config = this.getConfig();
             config.googleSheets = {
                 enabled: sheetsConfig.enabled || false,
@@ -1009,13 +1037,13 @@ class DataManager {
                 sheetName: sheetsConfig.sheetName || 'Attendance',
                 autoSync: sheetsConfig.autoSync || false
             };
-            
+
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('config', 'Google Sheets configuration updated successfully', 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -1025,26 +1053,49 @@ class DataManager {
         }
     }
 
+    getConfigPath() {
+        return this.configFile;
+    }
+
+
     updateDropboxConfig(dropboxConfig) {
         try {
             if (this.logger) {
-                this.logger.info('config', `Updating Dropbox configuration - AutoBackup: ${dropboxConfig.autoBackup}, AutoReports: ${dropboxConfig.autoReports}`, 'admin');
+                this.logger.info(
+                    'config',
+                    `Updating Dropbox configuration (merge)`,
+                    'admin'
+                );
             }
-            
-            const config = this.getConfig();
-            config.dropbox = {
-                enabled: dropboxConfig.enabled || false,
-                accessToken: dropboxConfig.accessToken || '',
-                autoBackup: dropboxConfig.autoBackup || false,
-                autoReports: dropboxConfig.autoReports || false
+
+            const config = this.getConfig(); // already normalized
+            const prev = config.dropbox || {};
+
+            // Merge new fields into existing dropbox block
+            const merged = {
+                ...prev,
+                ...dropboxConfig
             };
-            
+
+            // Auto-enable when user provides credentials unless explicitly disabled
+            const hasCreds =
+                (merged.appKey && merged.appSecret && (merged.refreshToken || prev.refreshToken)) ||
+                merged.accessToken; // legacy
+
+            if (dropboxConfig.enabled === undefined && hasCreds) {
+                merged.enabled = true;
+            } else if (dropboxConfig.enabled !== undefined) {
+                merged.enabled = !!dropboxConfig.enabled;
+            }
+
+            // Write back
+            config.dropbox = this.normalizeConfigShape({ dropbox: merged }).dropbox;
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('config', 'Dropbox configuration updated successfully', 'admin');
             }
-            
+
             return { success: true };
         } catch (error) {
             if (this.logger) {
@@ -1054,19 +1105,20 @@ class DataManager {
         }
     }
 
+
     backupData() {
         try {
             if (this.logger) {
                 this.logger.info('backup', 'Creating data backup', 'admin');
             }
-            
+
             const backupData = {
                 attendance: this.getAttendance(),
                 students: this.getStudents(),
                 config: this.getConfig(),
                 backupDate: new Date().toISOString()
             };
-            
+
             const backupDir = path.join(this.dataDir, 'backups');
             if (!fs.existsSync(backupDir)) {
                 fs.mkdirSync(backupDir);
@@ -1074,16 +1126,16 @@ class DataManager {
                     this.logger.info('backup', 'Created backups directory', 'admin');
                 }
             }
-            
+
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupFile = path.join(backupDir, `backup-${timestamp}.json`);
-            
+
             fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-            
+
             if (this.logger) {
                 this.logger.info('backup', `Data backup created successfully: ${path.basename(backupFile)}`, 'admin');
             }
-            
+
             return { success: true, backupFile };
         } catch (error) {
             if (this.logger) {
@@ -1098,7 +1150,7 @@ class DataManager {
             if (this.logger) {
                 this.logger.info('backup', 'Creating encrypted data backup', 'admin');
             }
-            
+
             const backupData = {
                 attendance: this.getAttendance(),
                 students: this.getStudents(),
@@ -1106,7 +1158,7 @@ class DataManager {
                 backupDate: new Date().toISOString(),
                 encrypted: true
             };
-            
+
             const encrypted = this.encrypt(backupData, password);
             if (!encrypted.success) {
                 if (this.logger) {
@@ -1114,21 +1166,21 @@ class DataManager {
                 }
                 return encrypted;
             }
-            
+
             const backupDir = path.join(this.dataDir, 'backups');
             if (!fs.existsSync(backupDir)) {
                 fs.mkdirSync(backupDir);
             }
-            
+
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupFile = path.join(backupDir, `encrypted-backup-${timestamp}.enc`);
-            
+
             fs.writeFileSync(backupFile, encrypted.data);
-            
+
             if (this.logger) {
                 this.logger.info('backup', `Encrypted backup created successfully: ${path.basename(backupFile)}`, 'admin');
             }
-            
+
             return { success: true, backupFile, encrypted: true };
         } catch (error) {
             if (this.logger) {

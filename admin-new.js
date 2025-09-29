@@ -4,6 +4,10 @@ let attendanceData = [];
 let logsData = [];
 let charts = {};
 
+// --- tiny DOM helpers ---
+const $ = (id) => document.getElementById(id);
+const setVal = (id, v) => { const el = $(id); if (el) el.value = v ?? ''; };
+
 // Navigation
 function showSection(sectionName) {
     document.querySelectorAll('.page-section').forEach(section => {
@@ -762,19 +766,69 @@ async function updateSchedulerStatus() {
 }
 
 // Dropbox Functions
+if (typeof window.setDropboxMsg !== 'function') {
+    window.setDropboxMsg = function (text) {
+        const el = document.getElementById('dropboxMsg');
+        if (el) el.textContent = text || '';
+    };
+}
+
+if (typeof window.setDropboxStatus !== 'function') {
+    window.setDropboxStatus = function (text, ok = null) {
+        const el = document.getElementById('dropboxStatus');
+        if (!el) return;
+        el.textContent = text || '';
+        el.classList.remove('success', 'warning', 'error');
+        if (ok === true) el.classList.add('success');
+        if (ok === false) el.classList.add('warning');
+    };
+}
+
 async function loadDropboxSettings() {
     try {
         const config = await window.electronAPI.getConfig();
-        const dropboxSettings = config.dropbox || {};
+        const d = (config && config.dropbox) ? config.dropbox : {};
 
-        document.getElementById('dropboxToken').value = dropboxSettings.accessToken || '';
-        document.getElementById('autoBackupDropbox').checked = dropboxSettings.autoBackup || false;
-        document.getElementById('autoReportsDropbox').checked = dropboxSettings.autoReports || false;
+        const keyEl = document.getElementById('dropboxAppKey');
+        if (keyEl) keyEl.value = d.appKey || '';
 
-        await updateDropboxStatus();
-        await updateDropboxUsage();
+        const secretEl = document.getElementById('dropboxAppSecret');
+        if (secretEl) secretEl.value = d.appSecret || '';
+
+        const tokenEl = document.getElementById('dropboxRefreshToken');
+        if (tokenEl) tokenEl.value = d.refreshToken || '';
+
+        const folderEl = document.getElementById('dropboxFolder');
+        if (folderEl) folderEl.value = '/UF_Lab_Reports';
+
+        const status = document.getElementById('dropboxStatus');
+        if (status) {
+            const ok = !!(d.enabled && (d.refreshToken || d.accessToken));
+            status.textContent = ok ? 'Configured' : 'Disconnected';
+            status.className = 'badge ' + (ok ? 'success' : 'error');
+        }
     } catch (error) {
         console.error('Error loading Dropbox settings:', error);
+        if (typeof setDropboxMsg === 'function') {
+            setDropboxMsg('Error loading Dropbox settings: ' + (error?.message || error));
+        }
+    }
+}
+async function connectDropbox() {
+    try {
+        setDropboxMsg && setDropboxMsg('Opening Dropbox authorization...');
+        const res = await window.electronAPI.dropboxOAuthConnect();
+        if (res?.success) {
+            setDropboxMsg && setDropboxMsg('Connected! Refresh token saved.');
+            setDropboxStatus && setDropboxStatus('Connected', true);
+            await loadDropboxSettings();        // <-- refresh fields from config.json
+        } else {
+            setDropboxMsg && setDropboxMsg('Connect failed: ' + (res?.error || 'Unknown error'));
+            setDropboxStatus && setDropboxStatus('Disconnected', false);
+        }
+    } catch (e) {
+        setDropboxMsg && setDropboxMsg('Connect error: ' + e.message);
+        setDropboxStatus && setDropboxStatus('Disconnected', false);
     }
 }
 
@@ -818,47 +872,98 @@ async function updateDropboxUsage() {
     }
 }
 
+// Safe Dropbox settings save (no-crash, friendly messages, fallback IDs)
 async function saveDropboxSettings() {
-    const dropboxConfig = {
-        enabled: true,
-        accessToken: document.getElementById('dropboxToken').value.trim(),
-        autoBackup: document.getElementById('autoBackupDropbox').checked,
-        autoReports: document.getElementById('autoReportsDropbox').checked
+    // Try multiple possible IDs for each field so small HTML mismatches don't break things
+    const getFirstEl = (ids) => {
+        for (const id of ids) {
+            const el = document.getElementById(id);
+            if (el) return el;
+        }
+        return null;
+    };
+    const getFirstVal = (ids) => {
+        const el = getFirstEl(ids);
+        return el ? (el.value || '').trim() : null;
     };
 
-    if (!dropboxConfig.accessToken) {
-        showNotification('Please enter Dropbox access token', 'error');
+    // Known/fallback IDs
+    const APP_KEY_IDS = ['dropboxAppKey', 'dbxAppKey', 'appKey'];
+    const APP_SECRET_IDS = ['dropboxAppSecret', 'dbxAppSecret', 'appSecret'];
+    const REFRESH_IDS = ['dropboxRefreshToken', 'dbxRefreshToken', 'refreshToken'];
+
+    const appKeyEl = getFirstEl(APP_KEY_IDS);
+    const appSecretEl = getFirstEl(APP_SECRET_IDS);
+    const refreshEl = getFirstEl(REFRESH_IDS);
+
+    const appKey = getFirstVal(APP_KEY_IDS);
+    const appSecret = getFirstVal(APP_SECRET_IDS);
+    const refreshToken = getFirstVal(REFRESH_IDS); // may be empty the first time
+
+    // If inputs are missing, don't crash—tell the user exactly what's missing.
+    const missing = [];
+    if (!appKeyEl) missing.push(`#${APP_KEY_IDS[0]}`);
+    if (!appSecretEl) missing.push(`#${APP_SECRET_IDS[0]}`);
+    // refresh token field is optional to render, so we don't mark as missing
+
+    if (missing.length) {
+        const msg = `Dropbox inputs not found: ${missing.join(', ')}. Please add these elements in admin.html or adjust IDs.`;
+        if (typeof setDropboxMsg === 'function') setDropboxMsg(msg);
+        if (typeof showNotification === 'function') showNotification(msg, 'error');
+        return;
+    }
+
+    if (!appKey || !appSecret) {
+        const msg = 'Please enter both App Key and App Secret.';
+        if (typeof setDropboxMsg === 'function') setDropboxMsg(msg);
+        if (typeof showNotification === 'function') showNotification(msg, 'error');
         return;
     }
 
     try {
-        const result = await window.electronAPI.updateDropboxConfig(dropboxConfig);
-        if (result.success) {
-            showNotification('Dropbox settings saved successfully!', 'success');
-            await updateDropboxStatus();
-            await updateDropboxUsage();
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Saving Dropbox settings...');
+        const partial = {
+            enabled: true,
+            appKey,
+            appSecret
+        };
+        if (refreshToken) partial.refreshToken = refreshToken; // if user already pasted one
+
+        const res = await window.electronAPI.updateDropboxConfig(partial);
+        if (res?.success) {
+            if (typeof setDropboxMsg === 'function') setDropboxMsg('Dropbox settings saved.');
+            if (typeof setDropboxStatus === 'function') setDropboxStatus('Saved', true);
         } else {
-            showNotification('Error saving Dropbox settings: ' + result.error, 'error');
+            const msg = 'Save failed: ' + (res?.error || 'Unknown error');
+            if (typeof setDropboxMsg === 'function') setDropboxMsg(msg);
+            if (typeof setDropboxStatus === 'function') setDropboxStatus('Error', false);
+            if (typeof showNotification === 'function') showNotification(msg, 'error');
         }
-    } catch (error) {
-        showNotification('Error saving Dropbox settings: ' + error.message, 'error');
+    } catch (e) {
+        const msg = 'Save error: ' + e.message;
+        if (typeof setDropboxMsg === 'function') setDropboxMsg(msg);
+        if (typeof setDropboxStatus === 'function') setDropboxStatus('Error', false);
+        if (typeof showNotification === 'function') showNotification(msg, 'error');
     }
 }
 
 async function testDropboxConnection() {
-    showNotification('Testing Dropbox connection...', 'info');
     try {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Testing Dropbox connection...');
         const result = await window.electronAPI.testDropboxConnection();
         if (result.success) {
-            showNotification(`Connected to Dropbox as ${result.user}`, 'success');
-            await updateDropboxStatus();
+            if (typeof showNotification === 'function') showNotification(`Connected to Dropbox as ${result.user}`, 'success');
+            if (typeof setDropboxStatus === 'function') setDropboxStatus(`Connected (${result.user})`, true);
         } else {
-            showNotification('Dropbox connection failed: ' + result.error, 'error');
+            if (typeof showNotification === 'function') showNotification('Dropbox connection failed: ' + result.error, 'error');
+            if (typeof setDropboxStatus === 'function') setDropboxStatus('Disconnected', false);
         }
     } catch (error) {
-        showNotification('Connection test failed: ' + error.message, 'error');
+        if (typeof showNotification === 'function') showNotification('Connection test failed: ' + error.message, 'error');
+        if (typeof setDropboxStatus === 'function') setDropboxStatus('Error', false);
     }
 }
+
 
 async function uploadToDropbox(type) {
     const typeText = type === 'backup' ? 'backup' : 'weekly report';
@@ -889,41 +994,82 @@ async function viewDropboxFiles() {
         showNotification('Error loading files: ' + error.message, 'error');
     }
 }
+function getDropboxFolderOrDefault() {
+    const el = document.getElementById('dropboxFolder');
+    const v = (el && el.value && el.value.trim()) ? el.value.trim() : '/UF_Lab_Reports';
+    return v;
+}
 
+async function listDropboxFiles() {
+    try {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Loading files...');
+        const folder = getDropboxFolderOrDefault();
+        const res = await window.electronAPI.listDropboxFiles(folder);
+        if (res?.success) {
+            displayDropboxFiles(res.files);
+            document.getElementById('dropboxFilesWrap').style.display = 'block';
+            if (typeof setDropboxMsg === 'function') setDropboxMsg(`Loaded ${res.files?.length || 0} item(s).`);
+        } else {
+            if (typeof setDropboxMsg === 'function') setDropboxMsg('Error loading files: ' + (res?.error || 'Unknown error'));
+        }
+    } catch (e) {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('List error: ' + e.message);
+    }
+}
+
+async function createDropboxDefaultFolders() {
+    try {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Ensuring default folders...');
+        const res = await window.electronAPI.createDropboxDefaultFolders();
+        if (res?.success) {
+            if (typeof setDropboxMsg === 'function') setDropboxMsg(res.created ? 'Folders created.' : 'Folders already existed.');
+        } else {
+            if (typeof setDropboxMsg === 'function') setDropboxMsg('Ensure folders failed: ' + (res?.error || 'Unknown error'));
+        }
+    } catch (e) {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Ensure folders error: ' + e.message);
+    }
+}
+
+async function showDropboxSpace() {
+    try {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Fetching space usage...');
+        const res = await window.electronAPI.getDropboxSpace();
+        if (res?.success) {
+            const usedGB = (res.used / (1024 * 1024 * 1024)).toFixed(2);
+            const totalGB = (res.allocated / (1024 * 1024 * 1024)).toFixed(2);
+            if (typeof setDropboxMsg === 'function') setDropboxMsg(`Used ${usedGB} GB / ${totalGB} GB (${res.usedPercent}%).`);
+        } else {
+            if (typeof setDropboxMsg === 'function') setDropboxMsg('Space usage failed: ' + (res?.error || 'Unknown error'));
+        }
+    } catch (e) {
+        if (typeof setDropboxMsg === 'function') setDropboxMsg('Space usage error: ' + e.message);
+    }
+}
 function displayDropboxFiles(files) {
-    const tbody = document.getElementById('dropboxFilesTable');
+    const tbody = document.getElementById('dropboxFilesBody'); // <-- correct tbody ID
+    if (!tbody) return;
+
     if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b;">No files found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748b;">No files found</td></tr>';
         return;
     }
 
-    tbody.innerHTML = files.map(file => `
-        <tr>
-            <td>
-                <i class="fas fa-file"></i>
-                ${file.name}
-            </td>
-            <td>${file.size ? (file.size / 1024).toFixed(1) + ' KB' : '-'}</td>
-            <td>${file.modified ? new Date(file.modified).toLocaleDateString() : '-'}</td>
-            <td>
-                <span class="badge ${file.type === 'file' ? 'success' : 'info'}">
-                    ${file.type}
-                </span>
-            </td>
-            <td>
-                <button class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
-                    <i class="fas fa-download"></i>
-                </button>
-            </td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = files.map(f => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${f.name}</td>
+      <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${f.path || '-'}</td>
+      <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${f.type || '-'}</td>
+      <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${f.modified ? new Date(f.modified).toLocaleString() : '-'}</td>
+      <td style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">${typeof f.size === 'number' ? (f.size / 1024).toFixed(1) + ' KB' : '-'}</td>
+    </tr>
+  `).join('');
 }
 
 async function refreshDropboxFiles() {
     await viewDropboxFiles();
 }
 
-// Encryption Functions
 // Encryption Functions
 async function loadEncryptionSettings() {
     try {
@@ -1666,25 +1812,21 @@ document.addEventListener('DOMContentLoaded', function () {
     // Settings buttons - Dropbox
     const saveDropboxBtn = document.getElementById('saveDropboxBtn');
     const testDropboxBtn = document.getElementById('testDropboxBtn');
-    const backupToDropboxBtn = document.getElementById('backupToDropboxBtn');
-    const uploadReportBtn = document.getElementById('uploadReportBtn');
-    const viewDropboxFilesBtn = document.getElementById('viewDropboxFilesBtn');
+    const connectDropboxBtn = document.getElementById('connectDropboxBtn');
+    const createDropboxFoldersBtn = document.getElementById('createDropboxFoldersBtn');
+    const spaceDropboxBtn = document.getElementById('spaceDropboxBtn');
+    const listDropboxBtn = document.getElementById('listDropboxBtn');
+    const uploadReportDropboxBtn = document.getElementById('uploadReportDropboxBtn');
+    const backupDropboxBtn = document.getElementById('backupDropboxBtn');
 
-    if (saveDropboxBtn) {
-        saveDropboxBtn.addEventListener('click', saveDropboxSettings);
-    }
-    if (testDropboxBtn) {
-        testDropboxBtn.addEventListener('click', testDropboxConnection);
-    }
-    if (backupToDropboxBtn) {
-        backupToDropboxBtn.addEventListener('click', () => uploadToDropbox('backup'));
-    }
-    if (uploadReportBtn) {
-        uploadReportBtn.addEventListener('click', () => uploadToDropbox('report'));
-    }
-    if (viewDropboxFilesBtn) {
-        viewDropboxFilesBtn.addEventListener('click', viewDropboxFiles);
-    }
+    if (saveDropboxBtn) saveDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); saveDropboxSettings(); });
+    if (testDropboxBtn) testDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); testDropboxConnection(); });
+    if (connectDropboxBtn) connectDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); connectDropbox(); });
+    if (createDropboxFoldersBtn) createDropboxFoldersBtn.addEventListener('click', (e) => { e.preventDefault(); createDropboxDefaultFolders(); });
+    if (spaceDropboxBtn) spaceDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); showDropboxSpace(); });
+    if (listDropboxBtn) listDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); listDropboxFiles(); });
+    if (uploadReportDropboxBtn) uploadReportDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('report'); });
+    if (backupDropboxBtn) backupDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('backup'); });
 
     // Settings buttons - Encryption
     const enableEncryptionBtn = document.getElementById('enableEncryptionBtn');
