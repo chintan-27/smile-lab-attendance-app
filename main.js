@@ -30,6 +30,21 @@ async function safeSyncAll(tag) {
   }
 }
 
+function getNYDate(d = new Date()) {
+  return new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+}
+function ymd(date) {
+  const d = getNYDate(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
 
 const createWindow = () => {
   const { height } = screen.getPrimaryDisplay().workAreaSize;
@@ -89,33 +104,171 @@ app.whenReady().then(async () => {
   dataManager.logger.info('system', 'All services initialized successfully', 'system');
   console.log('Lab Attendance System initialized successfully');
 
-  // Schedule daily backup to Dropbox at 2 AM
-  cron.schedule('0 2 * * *', async () => {
-    dataManager.logger.info('backup', 'Starting scheduled daily backup to Dropbox', 'system');
-    console.log('Running daily backup to Dropbox...');
+  let backupJobStarted = false;
+  let dailySummaryJobStarted = false;
 
-    try {
-      const config = dataManager.getConfig();
-      if (config.dropbox?.enabled && config.dropbox?.autoBackup) {
-        const result = await dropboxService.backupToDropbox();
-        if (result.success) {
-          dataManager.logger.info('backup', 'Daily backup completed successfully', 'system');
-          console.log('Daily backup completed successfully');
-        } else {
-          dataManager.logger.error('backup', `Daily backup failed: ${result.error}`, 'system');
-          console.error('Daily backup failed:', result.error);
+  function getNYDateIso(when = new Date()) {
+    // Convert "now" to America/New_York calendar date (midnight) in ISO
+    const ny = new Date(
+      when.toLocaleString('en-US', { timeZone: 'America/New_York' })
+    );
+    ny.setHours(0, 0, 0, 0);
+    return ny.toISOString();
+  }
+  // --- Catch up missed jobs at startup ---
+  try {
+    const fs = require('fs');
+    const cfg = dataManager.getConfig();
+    cfg.jobMeta = cfg.jobMeta || {};
+    const saveCfg = () => fs.writeFileSync(dataManager.configFile, JSON.stringify(cfg, null, 2));
+
+    // ===== Daily Summary Catch-up (only full past days) =====
+    const todayNY = getNYDate();
+    const yesterdayNY = addDays(todayNY, -1);
+    const yesterdayYMD = ymd(yesterdayNY);
+
+    // If never summarized, start two days ago so we pick up at least yesterday.
+    let lastSummarized = cfg.jobMeta.lastDailySummaryDate || ymd(addDays(todayNY, -2));
+
+    let cur = addDays(new Date(lastSummarized + 'T00:00:00'), 1);
+    while (ymd(cur) <= yesterdayYMD) {
+      const dateIso = new Date(ymd(cur) + 'T00:00:00Z').toISOString();
+
+      // Choose ONE policy:
+      // A) Cap open sessions at 5 PM (no mutation)
+      const res = dataManager.saveDailySummaryCSV(dateIso, {
+        closeOpenAtHour: 17,
+        autoWriteSignOutAtHour: null
+      });
+
+      // // B) Or actually auto-signout at 5 PM (writes synthetic records)
+      // const res = dataManager.saveDailySummaryCSV(dateIso, {
+      //   closeOpenAtHour: null,
+      //   autoWriteSignOutAtHour: 17
+      // });
+
+      if (res.success) {
+        dataManager.logger.info('report', `Catch-up daily summary generated for ${ymd(cur)}: ${res.filePath}`, 'system');
+        cfg.jobMeta.lastDailySummaryDate = ymd(cur);
+        saveCfg();
+
+        // Push the hours/A to the "Daily Summary" tab
+        try {
+          const { summaries } = dataManager.computeDailySummary(
+            new Date(ymd(cur) + 'T00:00:00Z'),   // same day as CSV
+            { closeOpenAtHour: 17, autoWriteSignOutAtHour: null }
+          );
+          if (cfg.googleSheets?.enabled) {
+            await googleSheetsService.upsertDailyHours({
+              dateLike: new Date(ymd(cur) + 'T00:00:00Z'),
+              summaries,
+              summarySheetName: 'Daily Summary'
+            });
+          }
+        } catch (e) {
+          dataManager.logger.warning('report', `Catch-up: upsertDailyHours failed for ${ymd(cur)}: ${e.message}`, 'system');
+        }
+
+        // Append that day's raw attendance rows to the main Attendance tab
+        try {
+          if (cfg.googleSheets?.enabled) {
+            const r = await googleSheetsService.syncAttendanceForDate(new Date(ymd(cur) + 'T00:00:00Z'));
+            if (!r.success) {
+              dataManager.logger.warning('sync', `Catch-up: per-day Sheets sync failed for ${ymd(cur)}: ${r.error}`, 'system');
+            }
+          }
+        } catch (e) {
+          dataManager.logger.warning('sync', `Catch-up: per-day Sheets sync error for ${ymd(cur)}: ${e.message}`, 'system');
         }
       } else {
-        dataManager.logger.info('backup', 'Skipping daily backup - Dropbox not enabled or configured', 'system');
+        // ...
       }
-    } catch (error) {
-      dataManager.logger.error('backup', `Daily backup error: ${error.message}`, 'system');
-      console.error('Daily backup error:', error);
+
+
+      cur = addDays(cur, 1);
     }
-  }, {
-    scheduled: true,
-    timezone: "America/New_York"
-  });
+
+    // ===== Backup Catch-up (if >24h since last backup) =====
+    const lastBackupAt = cfg.jobMeta.lastBackupAt ? new Date(cfg.jobMeta.lastBackupAt) : null;
+    const hoursSince = lastBackupAt ? (Date.now() - lastBackupAt.getTime()) / 36e5 : Infinity;
+    const dbx = cfg.dropbox || {};
+    if (dbx.enabled && dbx.autoBackup && hoursSince > 24) {
+      try {
+        const r = await dropboxService.backupToDropbox();
+        if (r.success) {
+          cfg.jobMeta.lastBackupAt = new Date().toISOString();
+          saveCfg();
+          dataManager.logger.info('backup', 'Catch-up backup completed', 'system');
+        } else {
+          dataManager.logger.error('backup', `Catch-up backup failed: ${r.error}`, 'system');
+        }
+      } catch (e) {
+        dataManager.logger.error('backup', `Catch-up backup error: ${e.message}`, 'system');
+      }
+    }
+  } catch (e) {
+    dataManager.logger.error('system', `Startup catch-up error: ${e.message}`, 'system');
+  }
+
+  // Schedule daily backup to Dropbox at 2 AM ET
+  if (!backupJobStarted) {
+    cron.schedule('0 2 * * *', async () => {
+      try {
+        dataManager.logger.info('backup', 'Starting scheduled daily backup to Dropbox', 'system');
+        const config = dataManager.getConfig();
+        if (config.dropbox?.enabled && config.dropbox?.autoBackup) {
+          const result = await dropboxService.backupToDropbox();
+          if (result.success) {
+            dataManager.logger.info('backup', 'Daily backup completed successfully', 'system');
+          } else {
+            dataManager.logger.error('backup', `Daily backup failed: ${result.error}`, 'system');
+          }
+        } else {
+          dataManager.logger.info('backup', 'Skipping daily backup - Dropbox not enabled or configured', 'system');
+        }
+      } catch (error) {
+        dataManager.logger.error('backup', `Daily backup error: ${error.message}`, 'system');
+      }
+    }, { scheduled: true, timezone: 'America/New_York' });
+    backupJobStarted = true;
+  }
+
+  // Daily summary at 10:00 PM ET
+  if (!dailySummaryJobStarted) {
+    cron.schedule('0 22 * * *', async () => {
+      try {
+        // Use the ET calendar date for the summary
+        const dateIso = getNYDateIso(new Date());
+
+        // Choose ONE policy:
+        const res = dataManager.saveDailySummaryCSV(dateIso, {
+          // A) Cap open sessions at 5 PM (no mutation):
+          closeOpenAtHour: 17,
+          autoWriteSignOutAtHour: null,
+
+          // // B) Or actually auto-signout at 5 PM (writes synthetic records):
+          // closeOpenAtHour: null,
+          // autoWriteSignOutAtHour: 17,
+        });
+
+        if (res.success) {
+          dataManager.logger.info('report', `Daily attendance summary generated: ${res.filePath}`, 'system');
+        } else {
+          dataManager.logger.error('report', `Daily summary failed: ${res.error}`, 'system');
+        }
+
+        // (Optional) also push the hour/Absent column to a "Daily Summary" sheet:
+        const { summaries } = dataManager.computeDailySummary(dateIso, { closeOpenAtHour: 17, autoWriteSignOutAtHour: null });
+        await googleSheetsService.upsertDailyHours({ dateLike: dateIso, summaries, summarySheetName: 'Daily Summary' });
+
+      } catch (err) {
+        dataManager.logger.error('report', `Daily summary job error: ${err.message}`, 'system');
+      }
+    }, { scheduled: true, timezone: 'America/New_York' });
+    dailySummaryJobStarted = true;
+  }
+
+
   const cfg = dataManager.getConfig();
   if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
     // 1) Pull latest on startup (with merge)
@@ -706,6 +859,42 @@ ipcMain.handle('disable-auto-sync', async (event) => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('generate-daily-summary', async (event, isoDateOrNull, policy = { capAtHour: 17, autosignoutHour: null }) => {
+  try {
+    const date = isoDateOrNull ? new Date(isoDateOrNull) : new Date();
+    const res = dataManager.saveDailySummaryCSV(date, {
+      closeOpenAtHour: policy.capAtHour ?? 17,
+      autoWriteSignOutAtHour: policy.autosignoutHour ?? null
+    });
+    return res;
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('push-daily-summary-to-sheets', async (event, { dateLike, summarySheetName }) => {
+  try {
+    // Hybrid rule: auto sign-out at 5 PM only if they never signed out
+    const { summaries } = dataManager.computeDailySummary(dateLike, {
+      closeOpenAtHour: 17,
+      autoWriteSignOutAtHour: null
+    });
+
+    const res = await googleSheetsService.upsertDailyHours({
+      dateLike,
+      summaries,
+      summarySheetName: summarySheetName || 'Daily Summary'
+    });
+
+    dataManager.logger.info('sync', `Daily summary pushed to Google Sheets for ${dateLike}`, 'admin');
+    return res;
+  } catch (e) {
+    dataManager.logger.error('sync', `Daily summary push failed: ${e.message}`, 'admin');
+    return { success: false, error: e.message };
+  }
+});
+
 
 // Dropbox service handlers
 

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSheetsSyncStatus: () => ipcRenderer.invoke('get-sheets-sync-status'),
   enableAutoSync: () => ipcRenderer.invoke('enable-auto-sync'),
   disableAutoSync: () => ipcRenderer.invoke('disable-auto-sync'),
+  generateDailySummary: (dateISO, policy) => ipcRenderer.invoke('generate-daily-summary', dateISO, policy),
+  pushDailySummaryToSheets: (dateLike, summarySheetName) => ipcRenderer.invoke('push-daily-summary-to-sheets', { dateLike, summarySheetName }),
 
   // Dropbox Service
   updateDropboxConfig: (config) => ipcRenderer.invoke('update-dropbox-config', config),

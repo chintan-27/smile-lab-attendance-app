@@ -83,6 +83,8 @@ class GoogleSheetsService {
     }
 
 
+
+
     // Create or update the header row
     async setupSheetHeaders(spreadsheetId, sheetName) {
         try {
@@ -90,10 +92,10 @@ class GoogleSheetsService {
             const sheetId = await this.ensureSheetExists(spreadsheetId, sheetName);
 
             // write headers
-            const headers = ['Timestamp', 'UF ID', 'Name', 'Action', 'Date', 'Time'];
+            const headers = ['Timestamp', 'UF ID', 'Name', 'Action', 'Date', 'Time', 'Source'];
             await this.sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `${sheetName}!A1:F1`,
+                range: `${sheetName}!A1:G1`,
                 valueInputOption: 'RAW',
                 resource: { values: [headers] }
             });
@@ -107,7 +109,7 @@ class GoogleSheetsService {
                             range: {
                                 sheetId,
                                 startRowIndex: 0, endRowIndex: 1,
-                                startColumnIndex: 0, endColumnIndex: 6
+                                startColumnIndex: 0, endColumnIndex: 7
                             },
                             cell: {
                                 userEnteredFormat: {
@@ -148,13 +150,15 @@ class GoogleSheetsService {
             // Prepare data for sheets
             const rows = attendance.map(record => {
                 const date = new Date(record.timestamp);
+                const source = record.synthetic ? 'auto' : 'manual';
                 return [
                     record.timestamp,
                     record.ufid,
                     record.name,
                     record.action,
                     date.toDateString(),
-                    date.toLocaleTimeString()
+                    date.toLocaleTimeString(),
+                    source
                 ];
             });
 
@@ -212,13 +216,16 @@ class GoogleSheetsService {
             // Prepare today's data
             const rows = todaysAttendance.map(record => {
                 const date = new Date(record.timestamp);
+                const source = record.synthetic ? 'auto' : 'manual';
+
                 return [
                     record.timestamp,
                     record.ufid,
                     record.name,
                     record.action,
                     date.toDateString(),
-                    date.toLocaleTimeString()
+                    date.toLocaleTimeString(),
+                    source
                 ];
             });
 
@@ -255,13 +262,15 @@ class GoogleSheetsService {
             const { spreadsheetId, sheetName } = config.googleSheets;
 
             const date = new Date(record.timestamp);
+            const source = record.synthetic ? 'auto' : 'manual';
             const row = [
                 record.timestamp,
                 record.ufid,
                 record.name,
                 record.action,
                 date.toDateString(),
-                date.toLocaleTimeString()
+                date.toLocaleTimeString(),
+                source
             ];
 
             // Append single row
@@ -448,6 +457,224 @@ class GoogleSheetsService {
             sheetName: config.googleSheets?.sheetName || 'Attendance'
         };
     }
+
+    // helper: 0 -> A, 1 -> B, ...
+    colLetterFromIndex(idx) {
+        let s = '';
+        while (idx >= 0) {
+            s = String.fromCharCode((idx % 26) + 65) + s;
+            idx = Math.floor(idx / 26) - 1;
+        }
+        return s;
+    }
+
+
+    // Generate daily summary data
+    async upsertDailyHours({ dateLike, summaries, summarySheetName = 'Daily Summary', colorAbsences = true }) {
+        const init = await this.initialize();
+        if (!init.success) return init;
+
+        const { spreadsheetId } = this.dataManager.getConfig().googleSheets;
+        const sheets = this.sheets;
+
+        // 1) Ensure the summary sheet exists (headers in A1:B1)
+        const meta = await sheets.spreadsheets.get({ spreadsheetId });
+        let sheet = meta.data.sheets.find(s => s.properties.title === summarySheetName);
+        let sheetId;
+        if (!sheet) {
+            const addRes = await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [{ addSheet: { properties: { title: summarySheetName } } }]
+                }
+            });
+            sheetId = addRes.data.replies[0].addSheet.properties.sheetId;
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${summarySheetName}!A1:B1`,
+                valueInputOption: 'RAW',
+                resource: { values: [['UF ID', 'Name']] }
+            });
+        } else {
+            sheetId = sheet.properties.sheetId;
+        }
+
+        // 2) Column header "MM/DD" for this date
+        const d = new Date(dateLike);
+        const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+
+        // 3) Read header row, add date column if missing
+        const headerResp = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${summarySheetName}!1:1`
+        });
+        const header = headerResp.data.values?.[0] || [];
+        let dateColIdx = header.indexOf(label);
+        if (dateColIdx === -1) {
+            const newIdx = header.length; // zero-based
+            const colLetter = this.colLetterFromIndex(newIdx);
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${summarySheetName}!${colLetter}1:${colLetter}1`,
+                valueInputOption: 'RAW',
+                resource: { values: [[label]] }
+            });
+            dateColIdx = newIdx;
+        }
+
+        // 4) Map UFID -> existing row
+        const tableResp = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${summarySheetName}!A:B`
+        });
+        const rows = tableResp.data.values || []; // includes header at [0]
+        const mapUFIDtoRow = new Map();
+        for (let r = 1; r < rows.length; r++) {
+            const ufid = rows[r][0];
+            if (ufid) mapUFIDtoRow.set(String(ufid), r + 1); // 1-based row
+        }
+
+        // 5) Ensure rows exist for each student; collect values for the date column
+        const appendRows = [];
+        for (const s of summaries) {
+            const ufid = String(s.ufid || '');
+            const name = s.name || 'Unknown';
+            if (!mapUFIDtoRow.get(ufid)) appendRows.push([ufid, name]);
+        }
+        if (appendRows.length) {
+            await sheets.spreadsheets.values.append({
+                spreadsheetId,
+                range: `${summarySheetName}!A:B`,
+                valueInputOption: 'RAW',
+                insertDataOption: 'INSERT_ROWS',
+                resource: { values: appendRows }
+            });
+            // refresh mapping
+            const refresh = await sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: `${summarySheetName}!A:B`
+            });
+            const refreshed = refresh.data.values || [];
+            mapUFIDtoRow.clear();
+            for (let r = 1; r < refreshed.length; r++) {
+                const ufid = refreshed[r][0];
+                if (ufid) mapUFIDtoRow.set(String(ufid), r + 1);
+            }
+        }
+
+        // Build values for this date column
+        const valuesByRow = [];
+        for (const s of summaries) {
+            const ufid = String(s.ufid || '');
+            const rowNumber = mapUFIDtoRow.get(ufid);
+            if (!rowNumber) continue;
+
+            const hadAuto = s.sessions?.some(x => x.syntheticOut);
+            const isAbsent = !!s.absent;
+            // hours text with [auto] only when there was a synthetic sign-out
+            const cellVal = isAbsent ? 'A' : (hadAuto ? `${s.totalHours} [auto]` : String(s.totalHours ?? 0));
+            valuesByRow.push({ rowNumber, val: cellVal });
+        }
+
+        // 6) Write contiguous block (Caution: sparse -> fill blanks with '')
+        const colLetter = this.colLetterFromIndex(dateColIdx);
+        const maxRow = Math.max(...valuesByRow.map(v => v.rowNumber), 2);
+        const bucket = Array.from({ length: maxRow - 1 }, () => ['']); // rows 2..maxRow
+        for (const { rowNumber, val } of valuesByRow) {
+            const zero = rowNumber - 2;
+            if (zero >= 0 && zero < bucket.length) bucket[zero] = [val];
+        }
+
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${summarySheetName}!${colLetter}2:${colLetter}${maxRow}`,
+            valueInputOption: 'RAW',
+            resource: { values: bucket }
+        });
+
+        // 7) (Optional) Color all "A" in THIS date column red with white text
+        if (colorAbsences) {
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                resource: {
+                    requests: [{
+                        addConditionalFormatRule: {
+                            rule: {
+                                ranges: [{
+                                    sheetId,
+                                    startRowIndex: 1,                // from row 2
+                                    endRowIndex: maxRow,
+                                    startColumnIndex: dateColIdx,    // this date column only
+                                    endColumnIndex: dateColIdx + 1
+                                }],
+                                booleanRule: {
+                                    condition: {
+                                        type: 'TEXT_EQ',
+                                        values: [{ userEnteredValue: 'A' }]
+                                    },
+                                    format: {
+                                        backgroundColor: { red: 0.94, green: 0.26, blue: 0.26 }, // ~#ef4444
+                                        textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true }
+                                    }
+                                }
+                            },
+                            index: 0
+                        }
+                    }]
+                }
+            });
+        }
+
+        return { success: true, sheet: summarySheetName, date: label, rowsUpdated: valuesByRow.length };
+    }
+
+    // Append ALL rows for a specific calendar day
+    async syncAttendanceForDate(dateLike, sheetNameOpt) {
+        const init = await this.initialize();
+        if (!init.success) return init;
+
+        const cfg = this.dataManager.getConfig();
+        const spreadsheetId = cfg.googleSheets.spreadsheetId;
+        const sheetName = sheetNameOpt || (cfg.googleSheets.sheetName || 'Attendance');
+
+        // Pull just that day’s records
+        const dayRecords = this.dataManager.getAttendanceForDate(dateLike);
+        if (!dayRecords.length) {
+            return { success: true, message: 'No attendance data for that date' };
+        }
+
+        // Find where to append by checking current height of column A
+        const resp = await this.sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `${sheetName}!A:A`
+        });
+        const existingRows = resp.data.values ? resp.data.values.length : 1;
+
+        // Convert to rows
+        const rows = dayRecords.map(r => {
+            const d = new Date(r.timestamp);
+            return [
+                r.timestamp,
+                r.ufid,
+                r.name,
+                r.action,
+                d.toDateString(),
+                d.toLocaleTimeString()
+            ];
+        });
+
+        // Append
+        await this.sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `${sheetName}!A${existingRows + 1}`,
+            valueInputOption: 'RAW',
+            insertDataOption: 'INSERT_ROWS',
+            resource: { values: rows }
+        });
+
+        return { success: true, appended: rows.length };
+    }
+
 }
 
 module.exports = GoogleSheetsService;

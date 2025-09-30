@@ -746,6 +746,176 @@ class DataManager {
         }
     }
 
+    getAttendanceForDate(dateLike) {
+        const target = new Date(dateLike);
+        const dayStart = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 0, 0, 0, 0);
+        const dayEnd = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59, 999);
+
+        return this.getAttendance().filter(r => {
+            const t = new Date(r.timestamp);
+            return t >= dayStart && t <= dayEnd;
+        });
+    }
+
+    computeDailySummary(dateLike, options = {}) {
+        const { cutoffHour = 17 } = options; // default 5 PM cutoff
+        const attendance = this.getAttendanceForDate(dateLike);
+        const students = this.getStudents();
+        const byStudent = {};
+
+        const nameOf = (ufid) => (students.find(s => s.ufid === ufid)?.name || 'Unknown');
+
+        // Group by student
+        attendance
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+            .forEach(r => {
+                byStudent[r.ufid] = byStudent[r.ufid] || { ufid: r.ufid, name: nameOf(r.ufid), events: [] };
+                byStudent[r.ufid].events.push(r);
+            });
+
+        const target = new Date(dateLike);
+        const cutoffISO = (h) => {
+            const dt = new Date(target.getFullYear(), target.getMonth(), target.getDate(), h, 0, 0, 0);
+            return dt.toISOString();
+        };
+
+        const summaries = [];
+
+        for (const ufid of Object.keys(byStudent)) {
+            const entry = byStudent[ufid];
+            const evs = entry.events;
+
+            const sessions = [];
+            let openSignIn = null;
+            let autoclosed = false;
+
+            evs.forEach(ev => {
+                if (ev.action === 'signin') {
+                    openSignIn = ev; // start session
+                } else if (ev.action === 'signout') {
+                    if (openSignIn) {
+                        sessions.push({ in: openSignIn.timestamp, out: ev.timestamp, closed: true });
+                        openSignIn = null;
+                    }
+                }
+            });
+
+            // Handle still-open session (never signed out)
+            if (openSignIn) {
+                const syntheticOut = {
+                    id: Date.now() + Math.floor(Math.random() * 1000),
+                    ufid: entry.ufid,
+                    name: entry.name,
+                    action: 'signout',
+                    timestamp: cutoffISO(cutoffHour),
+                    synthetic: true
+                };
+                const all = this.getAttendance();
+                all.push(syntheticOut);
+                let dataToSave = this.encryptSensitiveFields(all, ['name']);
+                fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+                sessions.push({
+                    in: openSignIn.timestamp,
+                    out: syntheticOut.timestamp,
+                    closed: true,
+                    syntheticOut: true
+                });
+                autoclosed = true;
+            }
+
+            // Compute minutes
+            let totalMin = 0;
+            sessions.forEach(s => {
+                if (s.in && s.out) {
+                    totalMin += (new Date(s.out) - new Date(s.in)) / (1000 * 60);
+                }
+            });
+
+            summaries.push({
+                ufid,
+                name: entry.name,
+                sessions,
+                totalMinutes: Math.round(totalMin),
+                totalHours: Math.round((totalMin / 60) * 100) / 100,
+                autoclosed
+            });
+        }
+
+        // Include absent students
+        students.forEach(s => {
+            if (!summaries.find(x => x.ufid === s.ufid)) {
+                summaries.push({
+                    ufid: s.ufid,
+                    name: s.name,
+                    sessions: [],
+                    totalMinutes: 0,
+                    totalHours: 0,
+                    autoclosed: false,
+                    absent: true
+                });
+            }
+        });
+
+        summaries.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        return {
+            date: new Date(target.getFullYear(), target.getMonth(), target.getDate()).toISOString(),
+            summaries
+        };
+    }
+
+
+    saveDailySummaryCSV(dateLike, options = {}) {
+        try {
+            const { summaries } = this.computeDailySummary(dateLike, options);
+            const rows = [
+                ['UF ID', 'Name', 'Total Hours', 'Total Minutes', 'Sessions', 'Notes']
+            ];
+
+            summaries.forEach(s => {
+                let notes = '';
+                if (s.absent || s.totalMinutes === 0) {
+                    notes = 'A'; // Absent marker
+                } else if (s.sessions.some(x => !x.closed)) {
+                    notes = 'Open session';
+                } else if (s.autoclosed) {
+                    notes = 'Auto-closed at cutoff';
+                }
+
+                const sessionStr = s.sessions.map(x => {
+                    if (!x.out) return `${x.in} → (open)`;
+                    return `${x.in} → ${x.out}${x.syntheticOut ? ' [auto]' : ''}`;
+                }).join(' | ');
+
+                rows.push([
+                    s.ufid,
+                    s.name,
+                    s.totalHours,
+                    s.totalMinutes,
+                    sessionStr,
+                    notes
+                ]);
+            });
+
+            const csv = rows.map(r => r.join(',')).join('\n');
+            const reportsDir = path.join(this.dataDir, 'reports');
+            if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
+
+            const d = new Date(dateLike);
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const filePath = path.join(reportsDir, `daily-${yyyy}-${mm}-${dd}.csv`);
+            fs.writeFileSync(filePath, csv);
+
+            if (this.logger) this.logger.info('report', `Daily summary saved: ${path.basename(filePath)}`, 'admin');
+            return { success: true, filePath };
+        } catch (e) {
+            if (this.logger) this.logger.error('report', `Daily summary save failed: ${e.message}`, 'admin');
+            return { success: false, error: e.message };
+        }
+    }
+
     getStats() {
         try {
             if (this.logger) {
