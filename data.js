@@ -5,7 +5,8 @@ const Logger = require('./logger.js');
 
 class DataManager {
     constructor() {
-        this.dataDir = path.join(__dirname, 'data');
+        const baseDataDir = app?.getPath('userData') || path.join(__dirname, 'data');
+        this.dataDir = path.join(baseDataDir, 'data');
         this.attendanceFile = path.join(this.dataDir, 'attendance.json');
         this.studentsFile = path.join(this.dataDir, 'students.json');
         this.configFile = path.join(this.dataDir, 'config.json');
