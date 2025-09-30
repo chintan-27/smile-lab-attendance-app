@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, screen } = require('electron')
 const path = require('path')
 const DataManager = require('./data.js')
 const EmailService = require('./emailService.js')
-const GoogleSheetsService = require('./googleSheetsService.js')
+delete require.cache[require.resolve('./googleSheetsService.js')];
+const GoogleSheetsService = require('./googleSheetsService.js');
 const DropboxService = require('./dropboxService.js')
 const Logger = require('./logger.js')
 const cron = require('node-cron')
@@ -605,24 +606,38 @@ ipcMain.handle('sync-todays-attendance', async (event) => {
   }
 });
 
-ipcMain.handle('test-sheets-connection', async (event) => {
+ipcMain.handle('test-sheets-connection', async () => {
   try {
-    dataManager.logger.info('sync', 'Testing Google Sheets connection', 'admin');
+    const cfg = dataManager.getConfig();
+    const s = cfg.googleSheets || {};
+    const missing = [];
 
-    const result = await googleSheetsService.testConnection();
+    if (!googleSheetsService?.hasCredentials?.()) missing.push('Service Account credentials');
+    if (!s.spreadsheetId) missing.push('Spreadsheet ID');
+    if (!s.attendanceSheet) missing.push('Attendance sheet name');
+    if (!s.studentsSheet) missing.push('Students sheet name');
 
-    if (result.success) {
-      dataManager.logger.info('sync', 'Google Sheets connection test successful', 'admin');
-    } else {
-      dataManager.logger.warning('sync', `Google Sheets connection test failed: ${result.error}`, 'admin');
+    if (missing.length) {
+      const msg = `Not configured: ${missing.join(', ')}`;
+      dataManager.logger?.warning('sync', msg, 'admin');
+      return { success: false, error: msg };
     }
 
-    return result;
+    const result = await googleSheetsService.testConnection();
+    if (!result?.success) {
+      // Make sure we bubble up WHY (permission, 404, etc.)
+      const err = result?.error || 'Unknown error from testConnection';
+      dataManager.logger?.warning('sync', `Sheets test failed: ${err}`, 'admin');
+      return { success: false, error: err };
+    }
+
+    return { success: true };
   } catch (error) {
-    dataManager.logger.error('sync', `Test sheets connection error: ${error.message}`, 'admin');
+    dataManager.logger?.error('sync', `Sheets test exception: ${error.message}`, 'admin');
     return { success: false, error: error.message };
   }
 });
+
 
 ipcMain.handle('save-google-credentials', async (event, credentials) => {
   try {
@@ -969,16 +984,17 @@ ipcMain.handle('update-email-config', async (event, emailConfig) => {
 
 ipcMain.handle('update-sheets-config', async (event, sheetsConfig) => {
   try {
+    // Apply sane defaults if missing
+    if (!sheetsConfig.attendanceSheet) sheetsConfig.attendanceSheet = 'Attendance';
+    if (!sheetsConfig.studentsSheet) sheetsConfig.studentsSheet = 'Students';
+
     dataManager.logger.info('config', 'Updating Google Sheets configuration', 'admin');
-
     const result = dataManager.updateSheetsConfig(sheetsConfig);
-
     if (result.success) {
       dataManager.logger.info('config', 'Google Sheets configuration updated successfully', 'admin');
     } else {
       dataManager.logger.error('config', `Google Sheets configuration update failed: ${result.error}`, 'admin');
     }
-
     return result;
   } catch (error) {
     dataManager.logger.error('config', `Update sheets config error: ${error.message}`, 'admin');

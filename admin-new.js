@@ -712,6 +712,7 @@ async function loadSettings() {
         document.getElementById('recipientEmail').value = emailSettings.recipientEmail || '';
 
         await loadDropboxSettings();
+        await loadSheetsSettings();
         await loadEncryptionSettings();
 
         document.getElementById('labName').value = config.labName || 'University of Florida Lab';
@@ -1140,6 +1141,124 @@ async function dropboxSyncNowAction() {
     }
 }
 
+// Google sheets Functions
+async function loadSheetsSettings() {
+    try {
+        const cfg = await window.electronAPI.getConfig();
+        const s = cfg.googleSheets || {};
+
+        setVal('sheetsSpreadsheetId', s.spreadsheetId || '');
+        setVal('sheetsAttendanceSheet', s.attendanceSheet || 'Attendance');
+        setVal('sheetsStudentsSheet', s.studentsSheet || 'Students');
+        const autoEl = document.getElementById('sheetsAutoSync');
+        if (autoEl) autoEl.checked = !!s.autoSync;
+
+        // Status
+        try {
+            const st = await window.electronAPI.getSheetsSyncStatus?.();
+            const statusEl = document.getElementById('sheetsSyncStatus');
+            const lastEl = document.getElementById('sheetsLastSync');
+            if (statusEl) statusEl.textContent = st?.running ? 'Status: Running' : 'Status: Idle';
+            if (lastEl) lastEl.textContent = 'Last sync: ' + (st?.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString() : '—');
+
+            const badge = document.getElementById('sheetsStatus');
+            if (badge) {
+                const connected = !!(s.spreadsheetId);
+                badge.textContent = connected ? 'Configured' : 'Disconnected';
+                badge.className = 'badge ' + (connected ? 'success' : 'error');
+            }
+        } catch { }
+    } catch (e) {
+        showNotification('Error loading Sheets settings: ' + e.message, 'error');
+    }
+}
+
+function extractSpreadsheetId(input) {
+    // Accept a bare ID or a full Sheets URL
+    if (!input) return '';
+    const m = String(input).match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return m ? m[1] : input.trim();
+}
+
+async function saveSheetsSettings() {
+    const rawId = document.getElementById('sheetsSpreadsheetId')?.value.trim();
+    const payload = {
+        spreadsheetId: extractSpreadsheetId(rawId),
+        attendanceSheet: document.getElementById('sheetsAttendanceSheet')?.value.trim() || 'Attendance',
+        studentsSheet: document.getElementById('sheetsStudentsSheet')?.value.trim() || 'Students',
+        autoSync: !!document.getElementById('sheetsAutoSync')?.checked
+    };
+    try {
+        const res = await window.electronAPI.updateSheetsConfig(payload);
+        if (!res?.success) throw new Error(res?.error || 'Save failed');
+
+        if (payload.autoSync) await window.electronAPI.enableAutoSync?.();
+        else await window.electronAPI.disableAutoSync?.();
+
+        showNotification('Google Sheets settings saved', 'success');
+        await loadSheetsSettings();
+    } catch (e) {
+        showNotification('Error saving Sheets settings: ' + e.message, 'error');
+    }
+}
+
+async function saveSheetsCredentials() {
+    const txt = document.getElementById('gcpCredsText')?.value.trim();
+    if (!txt) return showNotification('Paste Service Account JSON first', 'error');
+
+    let creds;
+    try { creds = JSON.parse(txt); }
+    catch { return showNotification('Invalid JSON', 'error'); }
+
+    try {
+        const res = await window.electronAPI.saveGoogleCredentials(creds);
+        if (!res?.success) throw new Error(res?.error || 'Save failed');
+        showNotification('Credentials saved', 'success');
+    } catch (e) {
+        showNotification('Save credentials error: ' + e.message, 'error');
+    }
+}
+
+async function testSheetsConnection() {
+    try {
+        const res = await window.electronAPI.testSheetsConnection();
+        if (res?.success) {
+            showNotification('Connected to Google Sheets', 'success');
+            const badge = document.getElementById('sheetsStatus');
+            if (badge) { badge.textContent = 'Connected'; badge.className = 'badge success'; }
+        } else {
+            throw new Error(res?.error || 'Test failed');
+        }
+    } catch (e) {
+        showNotification('Test connection error: ' + e.message, 'error');
+        const badge = document.getElementById('sheetsStatus');
+        if (badge) { badge.textContent = 'Disconnected'; badge.className = 'badge error'; }
+    }
+}
+
+async function sheetsSyncNow() {
+    try {
+        const res = await window.electronAPI.syncToSheets();
+        if (!res?.success) throw new Error(res?.error || 'Sync failed');
+        showNotification(`Synced ${res.recordsSynced} records to Google Sheets`, 'success');
+        const lastEl = document.getElementById('sheetsLastSync');
+        if (lastEl) lastEl.textContent = 'Last sync: ' + new Date().toLocaleString();
+    } catch (e) {
+        showNotification('Sync error: ' + e.message, 'error');
+    }
+}
+
+async function sheetsSyncTodayOnly() {
+    try {
+        const res = await window.electronAPI.syncTodaysAttendance();
+        if (!res?.success) throw new Error(res?.error || 'Sync failed');
+        showNotification(`Synced ${res.recordsSynced} today’s records`, 'success');
+        const lastEl = document.getElementById('sheetsLastSync');
+        if (lastEl) lastEl.textContent = 'Last sync: ' + new Date().toLocaleString();
+    } catch (e) {
+        showNotification('Sync today error: ' + e.message, 'error');
+    }
+}
 
 // Encryption Functions
 async function loadEncryptionSettings() {
@@ -1902,6 +2021,32 @@ document.addEventListener('DOMContentLoaded', function () {
     if (backupDropboxBtn) backupDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('backup'); });
     if (saveDropboxMasterBtn) { saveDropboxMasterBtn.addEventListener('click', (e) => { e.preventDefault(); saveDropboxMasterSettings(); }); }
     if (syncNowBtn) { syncNowBtn.addEventListener('click', (e) => { e.preventDefault(); dropboxSyncNowAction(); }); }
+
+    // Settings buttons – Google Sheets
+    const sheetsSaveCredsBtn = document.getElementById('sheetsSaveCredsBtn');
+    const sheetsTestBtn = document.getElementById('sheetsTestBtn');
+    const sheetsSaveCfgBtn = document.getElementById('sheetsSaveCfgBtn');
+    const sheetsSyncNowBtn = document.getElementById('sheetsSyncNowBtn');
+    const sheetsEnableAutoBtn = document.getElementById('sheetsEnableAutoBtn');
+    const sheetsDisableAutoBtn = document.getElementById('sheetsDisableAutoBtn');
+    const sheetsSyncTodayBtn = document.getElementById('sheetsSyncTodayBtn');
+
+    if (sheetsSaveCredsBtn) sheetsSaveCredsBtn.addEventListener('click', saveSheetsCredentials);
+    if (sheetsTestBtn) sheetsTestBtn.addEventListener('click', testSheetsConnection);
+    if (sheetsSaveCfgBtn) sheetsSaveCfgBtn.addEventListener('click', saveSheetsSettings);
+    if (sheetsSyncNowBtn) sheetsSyncNowBtn.addEventListener('click', sheetsSyncNow);
+    if (sheetsEnableAutoBtn) sheetsEnableAutoBtn.addEventListener('click', async () => {
+        const r = await window.electronAPI.enableAutoSync?.();
+        showNotification(r?.success ? 'Auto sync enabled' : 'Enable auto sync failed', r?.success ? 'success' : 'error');
+        loadSheetsSettings();
+    });
+    if (sheetsDisableAutoBtn) sheetsDisableAutoBtn.addEventListener('click', async () => {
+        const r = await window.electronAPI.disableAutoSync?.();
+        showNotification(r?.success ? 'Auto sync disabled' : 'Disable auto sync failed', r?.success ? 'success' : 'error');
+        loadSheetsSettings();
+    });
+    if (sheetsSyncTodayBtn) sheetsSyncTodayBtn.addEventListener('click', sheetsSyncTodayOnly);
+
 
     // Settings buttons - Encryption
     const enableEncryptionBtn = document.getElementById('enableEncryptionBtn');

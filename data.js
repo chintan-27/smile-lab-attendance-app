@@ -55,9 +55,11 @@ class DataManager {
                     recipientName: ''
                 },
                 googleSheets: {
-                    enabled: false,
+                    enabled: true,
                     spreadsheetId: '',
-                    sheetName: 'Attendance',
+                    // NEW per-tab fields (match the rest of your app)
+                    attendanceSheet: 'Attendance',
+                    studentsSheet: 'Students',
                     autoSync: false
                 },
                 dropbox: {
@@ -105,20 +107,34 @@ class DataManager {
     normalizeConfigShape(cfg) {
         cfg = cfg || {};
         cfg.dropbox = cfg.dropbox || {};
+        cfg.googleSheets = cfg.googleSheets || {};
 
-        // Booleans
+        // Dropbox defaults (your existing code)…
         if (typeof cfg.dropbox.enabled !== 'boolean') cfg.dropbox.enabled = false;
         if (typeof cfg.dropbox.autoBackup !== 'boolean') cfg.dropbox.autoBackup = false;
         if (typeof cfg.dropbox.autoReports !== 'boolean') cfg.dropbox.autoReports = false;
-
-        // Strings (OAuth + legacy token)
         if (typeof cfg.dropbox.appKey !== 'string') cfg.dropbox.appKey = '';
         if (typeof cfg.dropbox.appSecret !== 'string') cfg.dropbox.appSecret = '';
         if (typeof cfg.dropbox.refreshToken !== 'string') cfg.dropbox.refreshToken = '';
         if (typeof cfg.dropbox.accessToken !== 'string') cfg.dropbox.accessToken = '';
 
+        // Prefer new sheetName; fall back to legacy attendanceSheet
+        if (!cfg.googleSheets.sheetName && cfg.googleSheets.attendanceSheet) {
+            cfg.googleSheets.sheetName = cfg.googleSheets.attendanceSheet;
+        }
+        // If you plan to use a separate roster tab later, keep studentsSheet as-is;
+        // otherwise it's harmless to leave it unused.
+
+        // Defaults
+        if (typeof cfg.googleSheets.enabled !== 'boolean') cfg.googleSheets.enabled = false;
+        if (typeof cfg.googleSheets.autoSync !== 'boolean') cfg.googleSheets.autoSync = false;
+        if (typeof cfg.googleSheets.spreadsheetId !== 'string') cfg.googleSheets.spreadsheetId = '';
+        if (typeof cfg.googleSheets.sheetName !== 'string') cfg.googleSheets.sheetName = 'Attendance';
+
         return cfg;
     }
+
+
 
 
     hashPassword(password) {
@@ -1025,35 +1041,37 @@ class DataManager {
             return { success: false, error: error.message };
         }
     }
-
     updateSheetsConfig(sheetsConfig) {
         try {
-            if (this.logger) {
-                this.logger.info('config', `Updating Google Sheets configuration - SpreadsheetID: ${sheetsConfig.spreadsheetId || 'not set'}`, 'admin');
-            }
-
             const config = this.getConfig();
+            const prev = config.googleSheets || {};
+
+            const sheetName =
+                sheetsConfig.sheetName ||
+                sheetsConfig.attendanceSheet ||   // legacy input
+                prev.sheetName || 'Attendance';
+
             config.googleSheets = {
-                enabled: sheetsConfig.enabled || false,
-                spreadsheetId: sheetsConfig.spreadsheetId || '',
-                sheetName: sheetsConfig.sheetName || 'Attendance',
-                autoSync: sheetsConfig.autoSync || false
+                enabled: !!(sheetsConfig.enabled ?? prev.enabled),
+                spreadsheetId: sheetsConfig.spreadsheetId || prev.spreadsheetId || '',
+                sheetName,
+                autoSync: !!(sheetsConfig.autoSync ?? prev.autoSync),
+                // Keep legacy fields if you still show them in UI (optional)
+                attendanceSheet: sheetsConfig.attendanceSheet || prev.attendanceSheet || undefined,
+                studentsSheet: sheetsConfig.studentsSheet || prev.studentsSheet || undefined
             };
 
             fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
-
-            if (this.logger) {
-                this.logger.info('config', 'Google Sheets configuration updated successfully', 'admin');
-            }
-
+            if (this.logger) this.logger.info('config', 'Google Sheets configuration updated successfully', 'admin');
             return { success: true };
         } catch (error) {
-            if (this.logger) {
-                this.logger.error('config', `Error updating Google Sheets config: ${error.message}`, 'admin');
-            }
+            if (this.logger) this.logger.error('config', `Error updating Google Sheets config: ${error.message}`, 'admin');
             return { success: false, error: error.message };
         }
     }
+
+
+
 
     getConfigPath() {
         return this.configFile;
