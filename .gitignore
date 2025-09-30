@@ -145,3 +145,7 @@ data/
 # Testing reports
 playwright-report/
 test-results/
+
+
+logo.png
+build/
