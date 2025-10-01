@@ -1572,6 +1572,7 @@ async function saveEmailSettings() {
         smtp: document.getElementById('smtpServer').value,
         email: document.getElementById('emailAddress').value,
         recipientEmail: document.getElementById('recipientEmail').value,
+        password: document.getElementById('smtpPassword').value,
         port: 587,
         secure: false
     };
@@ -1596,6 +1597,7 @@ async function testEmail() {
             smtp: document.getElementById('smtpServer').value,
             email: document.getElementById('emailAddress').value,
             recipientEmail: document.getElementById('recipientEmail').value,
+            password: document.getElementById('smtpPassword').value,
             port: 587,
             secure: false
         };

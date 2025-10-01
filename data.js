@@ -3,10 +3,34 @@ const path = require('path');
 const crypto = require('crypto');
 const Logger = require('./logger.js');
 
+
+let electronApp = null;
+try {
+    // This require will work only in Electron's main process.
+    const { app } = require('electron');
+    electronApp = app;
+} catch (_) {
+    // Not running inside Electron main (e.g., jest or a plain node script)
+}
+
+function resolveDataDir() {
+    // Packaged app: use OS-specific userData folder
+    if (electronApp && electronApp.isPackaged) {
+        return path.join(electronApp.getPath('userData'), 'data');
+    }
+    // Dev run under Electron: still okay to use userData (keeps dev data out of repo)
+    if (electronApp) {
+        return path.join(electronApp.getPath('userData'), 'data');
+    }
+    // Fallback (tests / node): use project-local data folder
+    return path.join(process.cwd(), 'data');
+}
+
 class DataManager {
     constructor() {
-        const baseDataDir = app?.getPath('userData') || path.join(__dirname, 'data');
-        this.dataDir = path.join(baseDataDir, 'data');
+        // const baseDataDir = app?.getPath('userData') || path.join(__dirname, 'data');
+        this.dataDir = resolveDataDir();
+        // this.dataDir = path.join(baseDataDir, 'data');
         this.attendanceFile = path.join(this.dataDir, 'attendance.json');
         this.studentsFile = path.join(this.dataDir, 'students.json');
         this.configFile = path.join(this.dataDir, 'config.json');
@@ -46,7 +70,7 @@ class DataManager {
                 adminPassword: this.hashPassword('admin123'),
                 labName: 'University of Florida Lab',
                 emailSettings: {
-                    enabled: false,
+                    enabled: true,
                     smtp: '',
                     port: 587,
                     secure: false,
