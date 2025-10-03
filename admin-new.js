@@ -711,6 +711,7 @@ async function loadSettings() {
         document.getElementById('smtpServer').value = emailSettings.smtp || '';
         document.getElementById('emailAddress').value = emailSettings.email || '';
         document.getElementById('recipientEmail').value = emailSettings.recipientEmail || '';
+        document.getElementById('smtpPassword').value = emailSettings.recipientEmail || '';
 
         await loadDropboxSettings();
         await loadSheetsSettings();

@@ -7,6 +7,7 @@ class EmailService {
         this.dataManager = dataManager;
         this.scheduledTask = null;
         this.testTask = null;
+        this.schedulerRunning = false; 
         this.initializeScheduler();
     }
 
@@ -194,22 +195,16 @@ class EmailService {
             scheduled: false,
             timezone: "America/New_York"
         });
-
         console.log('Email scheduler initialized');
     }
 
     startScheduler() {
         try {
-            if (!this.scheduledTask) {
-                this.initializeScheduler();
-            }
-
-            if (this.scheduledTask) {
-                this.scheduledTask.start();
-                console.log('Email scheduler started successfully');
-                return { success: true, message: 'Weekly email scheduler started successfully' };
-            }
-            return { success: false, message: 'Failed to initialize scheduler' };
+            if (!this.scheduledTask) this.initializeScheduler();
+            this.scheduledTask.start();
+            this.schedulerRunning = true; // set true here
+            console.log('Email scheduler started successfully');
+            return { success: true, message: 'Weekly email scheduler started successfully' };
         } catch (error) {
             console.error('Error starting scheduler:', error);
             return { success: false, message: 'Error starting scheduler: ' + error.message };
@@ -220,6 +215,7 @@ class EmailService {
         try {
             if (this.scheduledTask) {
                 this.scheduledTask.stop();
+                this.schedulerRunning = false; // and false here
                 console.log('Email scheduler stopped');
                 return { success: true, message: 'Weekly email scheduler stopped successfully' };
             }
@@ -230,17 +226,42 @@ class EmailService {
         }
     }
 
+    // Optional: compute a friendly next-run string
+    getNextRunText() {
+        // Compute current NY local date/time
+        const nowNY = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const target = new Date(nowNY);
+
+        const dow = target.getDay(); // 0=Sun ... 6=Sat
+        let daysToSat = (6 - dow + 7) % 7;
+
+        // If it's already Saturday and past 8:00 AM NY time, schedule next Saturday
+        const pastEight = nowNY.getHours() > 8 || (nowNY.getHours() === 8 && (nowNY.getMinutes() > 0 || nowNY.getSeconds() > 0));
+        if (daysToSat === 0 && pastEight) daysToSat = 7;
+
+        target.setDate(target.getDate() + daysToSat);
+        target.setHours(8, 0, 0, 0); // 8:00 AM
+
+        // Format a friendly NY-time string
+        const fmt = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
+
+        return fmt.format(target); // e.g., "Sat, Oct 5, 2025, 8:00 AM EDT"
+    }
+
     getSchedulerStatus() {
-        const isRunning = this.scheduledTask ? this.scheduledTask.running : false;
-        const nextRun = isRunning ? 'Every Saturday at 8:00 AM (EST)' : 'Not scheduled';
-
+        const isRunning = this.schedulerRunning;
+        const nextRun = isRunning ? this.getNextRunText() : 'Not scheduled';
         console.log('Scheduler status:', isRunning ? 'Running' : 'Stopped');
-
-        return {
-            running: isRunning,
-            nextRun: nextRun,
-            initialized: !!this.scheduledTask
-        };
+        return { running: isRunning, nextRun, initialized: !!this.scheduledTask };
     }
 
     startTestScheduler() {

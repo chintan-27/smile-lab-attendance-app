@@ -30,6 +30,9 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             background: #ffffff;
             color: #333333;
             min-height: 100vh;
@@ -40,8 +43,10 @@
         .header {
             padding: 2rem 2rem 1rem;
             display: flex;
+            /* flex-direction: row; */
             justify-content: space-between;
             align-items: center;
+            min-width: 1200px;
             max-width: 1200px;
             margin: 0 auto;
         }
@@ -309,7 +314,8 @@
             color: var(--uf-gray);
             font-size: 0.875rem;
             border-top: 1px solid #e2e8f0;
-            margin-top: 25%;
+            max-width: 800px;
+            /* margin-top: 25%; */
         }
 
         /* Admin Modal */
@@ -338,7 +344,7 @@
             padding: 1.5rem 1.5rem 0;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: space-evenly;
         }
 
         .admin-modal-header h3 {
@@ -549,9 +555,15 @@
                 </button>
             </div>
         </div>
-
-        <!-- Features Section -->
-        <!-- <div class="features-section">
+    </div>
+    <!-- Footer -->
+    <div class="main-container">
+        <div class="footer">
+            © 2024 University of Florida - SMILE Lab Attendance System
+        </div>
+    </div>
+    <!-- Features Section -->
+    <!-- <div class="features-section">
             <div class="features-grid">
                 <div class="feature">
                     <div class="feature-icon">
@@ -581,15 +593,11 @@
                     </p>
                 </div>
             </div>
-        </div>
-    </div> -->
+        </div>-->
 
-        <!-- Footer -->
-        <div class="footer">
-            © 2024 University of Florida - SMILE Lab Attendance System
-        </div>
 
-        <script src="./index.js"></script>
+
+    <script src="./index.js"></script>
 </body>
 
 </html>
