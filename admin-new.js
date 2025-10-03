@@ -379,10 +379,11 @@ async function importStudents() {
             const csv = e.target.result;
             const lines = csv.split('\n');
             const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            console.log(headers)
 
             const requiredHeaders = ['uf_id', 'name'];
             const hasRequiredHeaders = requiredHeaders.every(header =>
-                headers.some(h => h.includes(header.replace('_', '')))
+                headers.some(h => h.includes(header))
             );
 
             if (!hasRequiredHeaders) {
