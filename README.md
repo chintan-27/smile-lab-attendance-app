@@ -2,7 +2,7 @@
 
 A modern, cross-platform Electron app for tracking lab attendance with automated daily/weekly reporting and cloud sync.
 
-> **Latest release:** [v1.0.0](https://github.com/chintan-27/smile-lab-attendance-app/releases/tag/v1.0.0)
+> **Latest release:** [v1.0.2](https://github.com/chintan-27/smile-lab-attendance-app/releases/tag/v1.0.2)
 > **All releases:** [Releases page](../../releases)
 
 ---
