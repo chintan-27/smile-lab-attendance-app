@@ -45,7 +45,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pushDailySummaryToSheets: (dateLike, summarySheetName) => ipcRenderer.invoke('push-daily-summary-to-sheets', { dateLike, summarySheetName }),
 
   // Dropbox Service
-  updateDropboxConfig: (config) => ipcRenderer.invoke('update-dropbox-config', config),
   dropboxOAuthConnect: () => ipcRenderer.invoke('dropbox-oauth-connect'),
   testDropboxConnection: () => ipcRenderer.invoke('test-dropbox-connection'),
   createDropboxDefaultFolders: () => ipcRenderer.invoke('create-dropbox-default-folders'),

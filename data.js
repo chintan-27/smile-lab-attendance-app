@@ -100,7 +100,7 @@ class DataManager {
 
                     autoBackup: false,
                     autoReports: false,
-                    masterMode: false,
+                    masterMode: true,
                     syncIntervalMinutes: 10
                 },
 

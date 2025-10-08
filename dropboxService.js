@@ -1,3 +1,4 @@
+// dropboxService.js
 const { Dropbox, DropboxAuth } = require('dropbox');
 const { shell } = require('electron');
 const fs = require('fs');
@@ -31,10 +32,6 @@ function writeJsonAtomic(p, obj) {
     fs.renameSync(tmp, p); // atomic on most platforms
 }
 
-const DPX_ROOT = '/UF-Lab-Attendance';
-const DPX_DATA = `${DPX_ROOT}/data`;
-const DPX_BACKUPS = `${DPX_ROOT}/backups`;
-
 // Only these files are team-shared (skip config.json)
 const SYNC_FILES = ['students.json', 'attendance.json'];
 
@@ -61,6 +58,26 @@ class DropboxService {
             console.warn('DropboxService: could not persist config (no updateConfig/setConfig/saveConfig)');
         }
         return config.dropbox;
+    }
+
+    // -------------------------
+    // Folder helpers (match UI)
+    // -------------------------
+    getBaseFolder() {
+        // Prefer user-configured folder from config; UI defaults to /UF_Lab_Reports
+        const cfg = this.dataManager.getConfig?.() || {};
+        const d = cfg.dropbox || {};
+        return (d.folder && d.folder.trim()) || '/UF-Lab-Attendance';
+    }
+
+    getDataFolder() {
+        // Keep files right in base or under /data.
+        // If you prefer root, return this.getBaseFolder() instead.
+        return `${this.getBaseFolder()}/data`;
+    }
+
+    getBackupsFolder() {
+        return `${this.getBaseFolder()}/backups`;
     }
 
     // -----------
@@ -124,12 +141,12 @@ class DropboxService {
         const port = opts.port || 53682;
         const redirectUri = `http://localhost:${port}/auth`;
 
-        // Scopes needed for your features
+        // Scopes needed for your features (READ reinstated!)
         const scopes = (opts.scopes && Array.isArray(opts.scopes) ? opts.scopes : [
             'account_info.read',
             'files.metadata.read',
+            'files.content.read',
             'files.content.write',
-            // 'files.content.read', // uncomment if you need download
         ]).join(' ');
 
         // Build authorize URL
@@ -304,7 +321,6 @@ class DropboxService {
                     try {
                         tokenResponse = await dbxAuth.getAccessTokenFromCode(redirectUri, code);
                     } catch (ex) {
-                        // Surface HTTP body for 400s
                         const message = ex?.error?.error_description || ex?.message || 'Token exchange failed';
                         res.statusCode = 400;
                         res.end(`Token exchange failed (400). ${message}`);
@@ -358,15 +374,11 @@ class DropboxService {
                 try {
                     shell.openExternal(authUrl.toString());
                 } catch (e) {
-                    // Fallback logging; but normally this is available from electron
-                    // User can manually paste the URL if needed
                     console.log('Open this URL:', authUrl.toString());
                 }
             });
         });
     }
-
-
 
     // -------------
     // API methods
@@ -413,11 +425,14 @@ class DropboxService {
     }
 
     async createDefaultFolders() {
-        const a = await this.ensureFolder('/UF_Lab_Reports');
+        // Keep backward compatibility with UI buttons
+        const a = await this.ensureFolder(this.getBaseFolder());
         if (!a.success) return a;
-        const b = await this.ensureFolder('/UF_Lab_Backups');
+        const b = await this.ensureFolder(this.getBackupsFolder());
         if (!b.success) return b;
-        return { success: true, created: (a.created || b.created) };
+        const c = await this.ensureFolder(this.getDataFolder());
+        if (!c.success) return c;
+        return { success: true, created: (a.created || b.created || c.created) };
     }
 
     async uploadFile(localPath, dropboxPath) {
@@ -428,6 +443,15 @@ class DropboxService {
 
         try {
             const fileBuffer = fs.readFileSync(localPath);
+
+            // Ensure parent folder exists
+            const parent = dropboxPath.substring(0, dropboxPath.lastIndexOf('/')) || '/';
+            if (parent && parent !== '/') {
+                try { await this.dropbox.filesCreateFolderV2({ path: parent }); }
+                catch (e) {
+                    if (!String(e?.error?.error_summary || '').includes('conflict/folder')) throw e;
+                }
+            }
 
             const response = await this.dropbox.filesUpload({
                 path: dropboxPath,
@@ -472,7 +496,7 @@ class DropboxService {
                 return { success: false, error: 'Failed to generate report' };
             }
 
-            const parent = '/UF_Lab_Reports';
+            const parent = this.getBaseFolder();
             const ensured = await this.ensureFolder(parent);
             if (!ensured.success) return { success: false, error: `Cannot ensure ${parent}: ${ensured.error}` };
 
@@ -510,7 +534,7 @@ class DropboxService {
                 return { success: false, error: 'Failed to create backup' };
             }
 
-            const parent = '/UF_Lab_Backups';
+            const parent = this.getBackupsFolder();
             const ensured = await this.ensureFolder(parent);
             if (!ensured.success) return { success: false, error: `Cannot ensure ${parent}: ${ensured.error}` };
 
@@ -532,8 +556,7 @@ class DropboxService {
             return { success: false, error: error.message };
         }
     }
-
-    async listFiles(folderPath = '') {
+    async listFiles(folderPath = '', { recursive = false } = {}) {
         if (!this.dropbox) {
             const init = this.initializeFromConfig();
             if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
@@ -541,15 +564,34 @@ class DropboxService {
 
         try {
             const pathArg = (!folderPath || folderPath === '/') ? '' : folderPath;
-            const response = await this.dropbox.filesListFolder({ path: pathArg });
 
-            const files = response.result.entries.map(entry => ({
-                name: entry.name,
-                path: entry.path_display,
-                size: entry.size,
-                modified: entry.server_modified,
-                type: entry['.tag']
-            }));
+            // first page
+            let resp = await this.dropbox.filesListFolder({
+                path: pathArg,
+                recursive,                // <<—— THIS enables walking subfolders
+                include_deleted: false,
+                include_non_downloadable_files: false
+            });
+
+            const entries = [...resp.result.entries];
+
+            // follow the cursor until done
+            while (resp.result.has_more) {
+                resp = await this.dropbox.filesListFolderContinue({
+                    cursor: resp.result.cursor
+                });
+                entries.push(...resp.result.entries);
+            }
+
+            const files = entries
+                .filter(e => e['.tag'] === 'file') // only files (skip folders)
+                .map(e => ({
+                    name: e.name,
+                    path: e.path_display,
+                    size: e.size,
+                    modified: e.server_modified,
+                    type: e['.tag']
+                }));
 
             return { success: true, files };
         } catch (error) {
@@ -558,9 +600,10 @@ class DropboxService {
             if (String(summary).includes('path/not_found')) {
                 return { success: true, files: [], note: 'Folder does not exist yet' };
             }
-            return { success: false, error: `filesListFolder failed [${status ?? 'n/a'}]: ${summary}` };
+            return { success: false, error: `filesListFolder (recursive=${recursive}) failed [${status ?? 'n/a'}]: ${summary}` };
         }
     }
+
 
     async downloadFile(dropboxPath, localPath) {
         if (!this.dropbox) {
@@ -570,8 +613,11 @@ class DropboxService {
 
         try {
             const response = await this.dropbox.filesDownload({ path: dropboxPath });
-            fs.writeFileSync(localPath, response.result.fileBinary);
-            return { success: true, localPath, size: response.result.fileBinary.length };
+            const file = response.result;
+            const bin = file.fileBinary ?? file.result?.fileBinary ?? file.fileBlob ?? file.fileBuffer;
+            const buf = Buffer.isBuffer(bin) ? bin : Buffer.from(bin ?? '');
+            fs.writeFileSync(localPath, buf);
+            return { success: true, localPath, size: buf.length };
         } catch (error) {
             const summary = error?.error?.error_summary || error?.message || JSON.stringify(error);
             return { success: false, error: summary };
@@ -603,18 +649,21 @@ class DropboxService {
     }
 
     // -------------
-    // Live Syncing
+    // Low-level helpers for live syncing
     // -------------
     async ensureDefaultFolders() {
         if (!this.dropbox) return { success: false, error: 'not initialized' };
-        const mk = async (path) => {
-            try { await this.dropbox.filesCreateFolderV2({ path }); }
+        const root = this.getBaseFolder();
+        const data = this.getDataFolder();
+        const backups = this.getBackupsFolder();
+        const mk = async (p) => {
+            try { await this.dropbox.filesCreateFolderV2({ path: p }); }
             catch (e) {
                 if (String(e?.error?.error_summary || '').includes('conflict/folder')) return;
                 throw e;
             }
         };
-        await mk(DPX_ROOT); await mk(DPX_DATA); await mk(DPX_BACKUPS);
+        await mk(root); await mk(data); await mk(backups);
         return { success: true };
     }
 
@@ -629,13 +678,21 @@ class DropboxService {
     async downloadBuffer(dropboxPath) {
         const r = await this.dropbox.filesDownload({ path: dropboxPath });
         const file = r.result;
-        // SDKs vary; normalize to Buffer
-        const buf =
-            file.fileBinary ?? file.fileBlob ?? file.fileBuffer ?? Buffer.from(file.fileBinary ?? '');
-        return { buf: Buffer.isBuffer(buf) ? buf : Buffer.from(buf), serverModified: file.server_modified, meta: file };
+        const bin = file.fileBinary ?? file.result?.fileBinary ?? file.fileBlob ?? file.fileBuffer;
+        const buf = Buffer.isBuffer(bin) ? bin : Buffer.from(bin ?? '');
+        return { buf, serverModified: file.server_modified, meta: file };
     }
 
     async uploadBuffer(dropboxPath, buf) {
+        // ensure parent exists
+        const parent = dropboxPath.substring(0, dropboxPath.lastIndexOf('/')) || '/';
+        if (parent && parent !== '/') {
+            try { await this.dropbox.filesCreateFolderV2({ path: parent }); }
+            catch (e) {
+                if (!String(e?.error?.error_summary || '').includes('conflict/folder')) throw e;
+            }
+        }
+
         await this.dropbox.filesUpload({
             path: dropboxPath,
             contents: buf,
@@ -647,8 +704,8 @@ class DropboxService {
     async backupRemoteBeforeOverwrite(fileName, remoteMeta) {
         try {
             const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            const backupPath = `${DPX_BACKUPS}/${fileName}.${ts}.json`;
-            const { buf } = await this.downloadBuffer(`${DPX_DATA}/${fileName}`);
+            const backupPath = `${this.getBackupsFolder()}/${fileName}.${ts}.json`;
+            const { buf } = await this.downloadBuffer(`${this.getDataFolder()}/${fileName}`);
             await this.uploadBuffer(backupPath, buf);
         } catch {
             // best-effort; do not fail sync because backup failed
@@ -670,12 +727,30 @@ class DropboxService {
         return newerSide === 'remote' ? (remoteArr || []) : (localArr || []);
     }
 
-    async syncOne(fileName, localPath) {
-        const dropboxPath = `${DPX_DATA}/${fileName}`;
+    // -----------------------------------------------------------------
+    // Two-way reconcile (kept for future/advanced use; not used by mode)
+    // -----------------------------------------------------------------
+    async syncOne(fileName, localPath, mode = 'merge') {
+        const dropboxPath = `${this.getDataFolder()}/${fileName}`;
         const remoteMeta = await this.getMeta(dropboxPath);
         const localExists = fs.existsSync(localPath);
         const remoteExists = !!remoteMeta;
 
+        if (mode === 'pull') {
+            if (!remoteExists) return { file: fileName, action: 'skip-remote-missing' };
+            const { buf } = await this.downloadBuffer(dropboxPath);
+            writeJsonAtomic(localPath, JSON.parse(buf.toString('utf8') || '[]'));
+            return { file: fileName, action: 'pull' };
+        }
+
+        if (mode === 'push') {
+            if (!localExists) return { file: fileName, action: 'skip-local-missing' };
+            const buf = fs.readFileSync(localPath);
+            await this.uploadBuffer(dropboxPath, buf);
+            return { file: fileName, action: 'push' };
+        }
+
+        // MERGE mode (legacy behavior)
         if (!localExists && !remoteExists) return { file: fileName, action: 'skip-none' };
 
         if (remoteExists && !localExists) {
@@ -710,7 +785,6 @@ class DropboxService {
                 JSON.parse(localBuf.toString('utf8') || '[]'),
                 JSON.parse(remoteBuf.toString('utf8') || '[]')
             );
-            // backup remote copy (optional safety) before overwriting either side
             if (newer === 'remote') await this.backupRemoteBeforeOverwrite(fileName, remoteMeta);
             writeJsonAtomic(localPath, merged);
             await this.uploadBuffer(dropboxPath, Buffer.from(JSON.stringify(merged, null, 2)));
@@ -728,17 +802,24 @@ class DropboxService {
         }
     }
 
-    // Public: full reconcile for shared files
-    async syncAll(dataDir) {
+    // -------------------------
+    // Mode-specific operations
+    // -------------------------
+    async pullAll(dataDir) {
         if (!this.dropbox && !this.initializeFromConfig().success) {
             return { success: false, error: 'Dropbox not configured' };
         }
         await this.ensureDefaultFolders();
         const results = [];
         for (const f of SYNC_FILES) {
+            const dropboxPath = `${this.getDataFolder()}/${f}`;
+            const local = path.join(dataDir, f);
             try {
-                const local = path.join(dataDir, f);
-                results.push(await this.syncOne(f, local));
+                const meta = await this.getMeta(dropboxPath);
+                if (!meta) { results.push({ file: f, action: 'skip-remote-missing' }); continue; }
+                const { buf } = await this.downloadBuffer(dropboxPath);
+                writeJsonAtomic(local, JSON.parse(buf.toString('utf8') || '[]'));
+                results.push({ file: f, action: 'pull' });
             } catch (e) {
                 results.push({ file: f, action: 'error', error: e.message });
             }
@@ -746,7 +827,6 @@ class DropboxService {
         return { success: true, results };
     }
 
-    // For app-close: push local copies up (no pulling/merging)
     async pushAll(dataDir) {
         if (!this.dropbox && !this.initializeFromConfig().success) {
             return { success: false, error: 'Dropbox not configured' };
@@ -755,16 +835,27 @@ class DropboxService {
         const results = [];
         for (const f of SYNC_FILES) {
             const local = path.join(dataDir, f);
-            if (!fs.existsSync(local)) { results.push({ file: f, action: 'skip-missing' }); continue; }
+            if (!fs.existsSync(local)) { results.push({ file: f, action: 'skip-local-missing' }); continue; }
             const buf = fs.readFileSync(local);
             try {
-                await this.uploadBuffer(`${DPX_DATA}/${f}`, buf);
+                await this.uploadBuffer(`${this.getDataFolder()}/${f}`, buf);
                 results.push({ file: f, action: 'push' });
             } catch (e) {
                 results.push({ file: f, action: 'error', error: e.message });
             }
         }
         return { success: true, results };
+    }
+
+    async syncByMode(dataDir) {
+        const cfg = this.dataManager.getConfig?.() || {};
+        const d = cfg.dropbox || {};
+        const master = !!d.masterMode; // true => always pull; false => always push
+        if (master) {
+            return this.pullAll(dataDir);
+        } else {
+            return this.pushAll(dataDir);
+        }
     }
 }
 

@@ -17,14 +17,15 @@ let dropboxService;
 let syncTimer = null;
 let syncing = false;
 
-async function safeSyncAll(tag) {
+async function safeSyncByMode(tag) {
   if (syncing) return; // single-flight
   syncing = true;
   try {
-    const res = await dropboxService.syncAll(dataManager.dataDir);
-    dataManager.logger.info('sync', `${tag}: ${JSON.stringify(res)}`, 'system');
+    const res = await dropboxService.syncByMode(dataManager.dataDir);
+    // log under 'dropbox' so it's easier to filter
+    dataManager.logger.info('dropbox', `${tag}: ${JSON.stringify(res)}`, 'system');
   } catch (e) {
-    dataManager.logger.error('sync', `${tag} failed: ${e.message}`, 'system');
+    dataManager.logger.error('dropbox', `${tag} failed: ${e.message}`, 'system');
   } finally {
     syncing = false;
   }
@@ -270,15 +271,16 @@ app.whenReady().then(async () => {
 
 
   const cfg = dataManager.getConfig();
-  if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
-    // 1) Pull latest on startup (with merge)
-    await safeSyncAll('startup-sync');
+  if (cfg.dropbox?.enabled) {
+    // One immediate sync respecting mode:
+    // - masterMode true  => pull
+    // - masterMode false => push
+    await safeSyncByMode('startup-sync');
 
-    // 2) Periodic reconcile (minutes, not seconds)
-    const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10)); // min 2 mins
-    syncTimer = setInterval(() => safeSyncAll('interval-sync'), mins * 60 * 1000);
+    // Periodic job (minutes, not seconds)
+    const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10));
+    syncTimer = setInterval(() => safeSyncByMode('interval-sync'), mins * 60 * 1000);
   }
-
   createWindow();
 
   app.on('activate', () => {
@@ -289,17 +291,19 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', async (e) => {
+app.on('before-quit', async () => {
   try {
     const cfg = dataManager.getConfig();
-    if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
+    // Push-on-close only makes sense when we're in push mode (masterMode=false)
+    if (cfg.dropbox?.enabled && !cfg.dropbox?.masterMode) {
       await dropboxService.pushAll(dataManager.dataDir);
-      dataManager.logger.info('sync', 'push-on-close completed', 'system');
+      dataManager.logger.info('dropbox', 'push-on-close completed', 'system');
     }
   } catch (err) {
-    dataManager.logger.warning('sync', `push-on-close error: ${err.message}`, 'system');
+    dataManager.logger.warning('dropbox', `push-on-close error: ${err.message}`, 'system');
   }
 });
+
 
 // Attendance handlers
 ipcMain.handle('sign-in', async (event, data) => {
@@ -993,10 +997,11 @@ ipcMain.handle('get-dropbox-space', async () => {
 
 ipcMain.handle('list-dropbox-files', async (event, folderPath) => {
   try {
-    const folder = folderPath || '/UF_Lab_Reports';
+    const folder = folderPath || '/UF-Lab-Attendance';
     const init = dropboxService.initializeFromConfig();
     if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
-    return await dropboxService.listFiles(folder);
+    // pass null to let the service default to the configured base folder
+    return await dropboxService.listFiles(folder, {recursive: true});
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -1006,20 +1011,20 @@ ipcMain.handle('list-dropbox-files', async (event, folderPath) => {
 function scheduleSyncTimer() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   const cfg = dataManager.getConfig();
-  if (!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode)) return;
+  if (!cfg.dropbox?.enabled) return;
 
   const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10));
-  syncTimer = setInterval(() => safeSyncAll('interval-sync'), mins * 60 * 1000);
+  syncTimer = setInterval(() => safeSyncByMode('interval-sync'), mins * 60 * 1000);
 }
 
 // Manual “Sync Now”
 ipcMain.handle('dropbox-sync-now', async () => {
   const cfg = dataManager.getConfig();
-  if (!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode)) {
-    return { success: false, error: 'Dropbox master mode is not enabled' };
+  if (!cfg.dropbox?.enabled) {
+    return { success: false, error: 'Dropbox is not enabled' };
   }
   try {
-    await safeSyncAll('manual-sync');
+    await safeSyncByMode('manual-sync');
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1029,25 +1034,27 @@ ipcMain.handle('dropbox-sync-now', async () => {
 // Status for Admin UI
 ipcMain.handle('get-dropbox-sync-status', async () => {
   const cfg = dataManager.getConfig();
-  const running = !!(cfg.dropbox?.enabled && cfg.dropbox?.masterMode && syncTimer);
+  const enabled = !!cfg.dropbox?.enabled;
+  const running = !!(enabled && syncTimer);
+  const mode = cfg.dropbox?.masterMode ? 'pull' : 'push';
   const nextRun = running
     ? `Every ${Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10))} minutes`
     : null;
-  // You already log last runs in safeSyncAll; if you want a timestamp, store one there and read it here.
-  return { running, lastSyncAt: null, nextRun };
+  return { enabled, running, mode, lastSyncAt: null, nextRun };
 });
 
 // Re-apply after settings saved (and do one immediate sync)
 ipcMain.handle('apply-dropbox-sync-config', async () => {
   const cfg = dataManager.getConfig();
-  if (cfg.dropbox?.enabled && cfg.dropbox?.masterMode) {
-    await safeSyncAll('apply-config-sync');
+  if (cfg.dropbox?.enabled) {
+    await safeSyncByMode('apply-config-sync');
     scheduleSyncTimer();
   } else {
     if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   }
   return { success: true };
 });
+
 
 
 

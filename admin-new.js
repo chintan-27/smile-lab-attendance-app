@@ -787,6 +787,53 @@ if (typeof window.setDropboxStatus !== 'function') {
     };
 }
 
+async function refreshDropboxBadges() {
+    try {
+        const cfg = await window.electronAPI.getConfig();
+        const dbx = cfg?.dropbox || {};
+        const status = await window.electronAPI.getDropboxSyncStatus?.();
+
+        const mode = !dbx.enabled ? 'off' : (dbx.masterMode ? 'pull' : 'push');
+
+        const statusBadge = document.getElementById('dropboxStatus');      // header badge
+        const syncBadge = document.getElementById('dropboxSyncStatus');  // "Status: ..."
+        const nextRunSpan = document.getElementById('dropboxNextRun');     // "Next pull: ..."
+
+        // Header badge
+        if (statusBadge) {
+            statusBadge.classList.remove('success', 'warning', 'error');
+            if (!dbx.enabled) {
+                statusBadge.textContent = 'Disconnected';
+                statusBadge.classList.add('error');
+            } else {
+                statusBadge.textContent = `Connected (${mode})`;
+                statusBadge.classList.add('success');
+            }
+        }
+
+        // Sync badge + next run
+        if (syncBadge) {
+            if (!dbx.enabled) {
+                syncBadge.textContent = 'Status: Disabled';
+                syncBadge.className = 'badge warning';
+            } else if (dbx.masterMode) {
+                syncBadge.textContent = status?.running ? 'Status: Pulling (timer ON)' : 'Status: Pulling (timer OFF)';
+                syncBadge.className = 'badge info';
+            } else {
+                syncBadge.textContent = 'Status: Push on Save/Close';
+                syncBadge.className = 'badge info';
+            }
+        }
+
+        if (nextRunSpan) {
+            nextRunSpan.textContent = (dbx.enabled && dbx.masterMode) ? (status?.nextRun || '—') : '—';
+        }
+    } catch (e) {
+        console.error('refreshDropboxBadges error:', e);
+    }
+}
+
+
 async function loadDropboxSettings() {
     try {
         const config = await window.electronAPI.getConfig();
@@ -802,7 +849,7 @@ async function loadDropboxSettings() {
         if (tokenEl) tokenEl.value = d.refreshToken || '';
 
         const folderEl = document.getElementById('dropboxFolder');
-        if (folderEl) folderEl.value = '/UF_Lab_Reports';
+        if (folderEl) folderEl.value = '/UF-Lab-Attendance';
 
         const autoBackupEl = document.getElementById('dropboxAutoBackup');
         if (autoBackupEl) autoBackupEl.checked = !!d.autoBackup;
@@ -824,6 +871,7 @@ async function loadDropboxSettings() {
             if (statusEl) statusEl.textContent = status?.lastSyncAt ? `Last sync: ${new Date(status.lastSyncAt).toLocaleTimeString()}` : 'Status: —';
             if (nextRunEl) nextRunEl.textContent = status?.nextRun ? `Next pull: ${status.nextRun}` : 'Next pull: —';
         } catch { }
+        await refreshDropboxBadges();
     } catch (error) {
         console.error('Error loading Dropbox settings:', error);
         setDropboxMsg?.('Error loading Dropbox settings: ' + (error?.message || error));
@@ -950,12 +998,15 @@ async function saveDropboxSettings() {
 
     try {
         if (typeof setDropboxMsg === 'function') setDropboxMsg('Saving Dropbox settings...');
+        const folder = getDropboxFolderOrDefault();
         const partial = {
             enabled: true,
             appKey,
             appSecret,
             autoBackup,     // <— new
-            autoReports
+            autoReports,
+            folder,
+
         };
         if (refreshToken) partial.refreshToken = refreshToken; // if user already pasted one
 
@@ -963,6 +1014,9 @@ async function saveDropboxSettings() {
         if (res?.success) {
             if (typeof setDropboxMsg === 'function') setDropboxMsg('Dropbox settings saved.');
             if (typeof setDropboxStatus === 'function') setDropboxStatus('Saved', true);
+            // Apply timers and refresh UI state
+            await window.electronAPI.applyDropboxSyncConfig?.();
+            await refreshDropboxBadges();
         } else {
             const msg = 'Save failed: ' + (res?.error || 'Unknown error');
             if (typeof setDropboxMsg === 'function') setDropboxMsg(msg);
@@ -1013,7 +1067,7 @@ async function uploadToDropbox(type) {
 
 async function viewDropboxFiles() {
     try {
-        const result = await window.electronAPI.listDropboxFiles('/UF_Lab_Reports');
+        const result = await window.electronAPI.listDropboxFiles(getDropboxFolderOrDefault());
         if (result.success) {
             displayDropboxFiles(result.files);
             openModal('dropboxFilesModal');
@@ -1026,7 +1080,7 @@ async function viewDropboxFiles() {
 }
 function getDropboxFolderOrDefault() {
     const el = document.getElementById('dropboxFolder');
-    const v = (el && el.value && el.value.trim()) ? el.value.trim() : '/UF_Lab_Reports';
+    const v = (el && el.value && el.value.trim()) ? el.value.trim() : '/UF-Lab-Attendance';
     return v;
 }
 
@@ -1097,7 +1151,7 @@ function displayDropboxFiles(files) {
 }
 
 async function refreshDropboxFiles() {
-    await viewDropboxFiles();
+    await listDropboxFiles();
 }
 
 // Live Syncing
@@ -1115,6 +1169,7 @@ async function saveDropboxMasterSettings() {
 
         showNotification('Dropbox sync settings saved', 'success');
         await loadDropboxSettings(); // refresh badges/values
+        await refreshDropboxBadges();
     } catch (err) {
         showNotification('Error saving Dropbox sync settings: ' + err.message, 'error');
     }
@@ -2154,6 +2209,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Load initial data
     loadDashboard();
     console.log('Admin dashboard initialized successfully');
+    refreshDropboxBadges();
 });
 
 // Wait for scripts to load before initializing charts
