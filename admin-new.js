@@ -2089,6 +2089,48 @@ document.addEventListener('DOMContentLoaded', function () {
     const sheetsEnableAutoBtn = document.getElementById('sheetsEnableAutoBtn');
     const sheetsDisableAutoBtn = document.getElementById('sheetsDisableAutoBtn');
     const sheetsSyncTodayBtn = document.getElementById('sheetsSyncTodayBtn');
+    const btn = document.getElementById('rebuildSummaryBtn');
+    const statusEl = document.getElementById('rebuildSummaryStatus');
+    const startEl = document.getElementById('rebuildStart');
+    const endEl = document.getElementById('rebuildEnd');
+    const policyEl = document.getElementById('rebuildPolicy');
+
+    btn?.addEventListener('click', async () => {
+        try {
+            btn.disabled = true;
+            statusEl.textContent = 'Running…';
+
+            // Collect optional range
+            const startISO = startEl?.value ? new Date(startEl.value).toISOString() : undefined;
+            const endISO = endEl?.value ? new Date(endEl.value).toISOString() : undefined;
+            const policy = policyEl?.value || 'cap';
+
+            const res = await window.electronAPI.backfillDailySummary({
+                startISO, endISO, policy,
+                summarySheetName: 'Daily Summary',
+                colorAbsences: true,
+            });
+
+            if (res.success) {
+                statusEl.className = 'badge success';
+                statusEl.textContent = `Done: ${res.daysProcessed} day(s)`;
+            } else {
+                statusEl.className = 'badge warning';
+                if (res.failures?.length) {
+                    statusEl.textContent = `Partial: ${res.daysProcessed} processed, ${res.failures.length} failed`;
+                    console.warn('Backfill failures:', res.failures);
+                } else {
+                    statusEl.textContent = `Failed`;
+                }
+            }
+        } catch (e) {
+            statusEl.className = 'badge error';
+            statusEl.textContent = `Error: ${e.message}`;
+            console.error(e);
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     if (sheetsSaveCredsBtn) sheetsSaveCredsBtn.addEventListener('click', saveSheetsCredentials);
     if (sheetsTestBtn) sheetsTestBtn.addEventListener('click', testSheetsConnection);

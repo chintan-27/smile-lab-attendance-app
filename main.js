@@ -744,6 +744,69 @@ ipcMain.handle('sync-to-sheets', async (event) => {
   }
 });
 
+ipcMain.handle('sheets-backfill-daily-summary', async (event, args = {}) => {
+  const {
+    startISO,                // optional: ISO string
+    endISO,                  // optional: ISO string
+    policy = 'cap',          // 'cap' or 'autosignout'
+    summarySheetName = 'Daily Summary',
+    colorAbsences = true,
+  } = args;
+
+  try {
+    // Default range: last 30 full days up to yesterday
+    const today = new Date();
+    const end = endISO ? new Date(endISO) : atMidnight(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+    const start = startISO ? new Date(startISO) : atMidnight(new Date(end.getFullYear(), end.getMonth(), end.getDate() - 29));
+
+    const options =
+      policy === 'autosignout'
+        ? { closeOpenAtHour: null, autoWriteSignOutAtHour: 17 }
+        : { closeOpenAtHour: 17, autoWriteSignOutAtHour: null };
+
+    let daysProcessed = 0;
+    let failures = [];
+
+    for (
+      let d = atMidnight(new Date(start));
+      d <= atMidnight(new Date(end));
+      d.setDate(d.getDate() + 1)
+    ) {
+      try {
+        // compute summary for that day
+        const { summaries } = dataManager.computeDailySummary(new Date(d), options);
+
+        // write a column into "Daily Summary"
+        const res = await googleSheetsService.upsertDailyHours({
+          dateLike: new Date(d),
+          summaries,
+          summarySheetName,
+          colorAbsences,
+        });
+
+        if (!res.success) {
+          failures.push({ date: new Date(d).toISOString().slice(0, 10), error: res.error || 'unknown' });
+        }
+        daysProcessed++;
+      } catch (e) {
+        failures.push({ date: new Date(d).toISOString().slice(0, 10), error: e.message });
+      }
+    }
+
+    return {
+      success: failures.length === 0,
+      daysProcessed,
+      failures,
+      range: {
+        start: atMidnight(start).toISOString(),
+        end: atMidnight(end).toISOString(),
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('sync-todays-attendance', async (event) => {
   try {
     dataManager.logger.info('sync', 'Syncing today\'s attendance to Google Sheets', 'admin');
@@ -1001,7 +1064,7 @@ ipcMain.handle('list-dropbox-files', async (event, folderPath) => {
     const init = dropboxService.initializeFromConfig();
     if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
     // pass null to let the service default to the configured base folder
-    return await dropboxService.listFiles(folder, {recursive: true});
+    return await dropboxService.listFiles(folder, { recursive: true });
   } catch (e) {
     return { success: false, error: e.message };
   }

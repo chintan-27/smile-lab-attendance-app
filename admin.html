@@ -1858,18 +1858,52 @@
 
                             <!-- Optional Advanced: quick actions -->
                             <details class="disclosure" style="margin-top:1rem;">
-                                <summary>
-                                    <span>Advanced Tools</span>
-                                    <i class="fas fa-chevron-down chev"></i>
+                                <summary style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
+                                    <span class="card-title" style="font-size:1rem;">Google Sheets Tools</span>
+                                    <i class="fas fa-chevron-down chev" aria-hidden="true"></i>
                                 </summary>
-                                <div class="content">
-                                    <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap;">
-                                        <button class="btn" id="sheetsEnableAutoBtn">Enable Auto Sync</button>
-                                        <button class="btn" id="sheetsDisableAutoBtn">Disable Auto Sync</button>
-                                        <button class="btn" id="sheetsSyncTodayBtn">Sync Today Only</button>
+
+                                <div class="content" style="margin-top:0.75rem;display:grid;gap:1rem;">
+                                    <!-- Rebuild Daily Summary -->
+                                    <div class="card"
+                                        style="border:none;background:var(--uf-gray-light);padding:1rem;border-radius:10px;">
+                                        <div class="form-group"
+                                            style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+                                            <button id="rebuildSummaryBtn" class="btn btn-secondary">
+                                                <i class="fas fa-rotate"></i> Rebuild Daily Summary (last 30 days)
+                                            </button>
+
+                                            <input type="date" id="rebuildStart" class="form-input"
+                                                aria-label="Start date" />
+                                            <input type="date" id="rebuildEnd" class="form-input"
+                                                aria-label="End date" />
+
+                                            <select id="rebuildPolicy" class="form-input" aria-label="Policy">
+                                                <option value="cap" selected>Cap @ 5pm (no mutation)</option>
+                                                <option value="autosignout">Auto sign-out @ 5pm</option>
+                                            </select>
+
+                                            <span id="rebuildSummaryStatus" class="badge info"
+                                                aria-live="polite">Idle</span>
+                                        </div>
+                                        <small style="color:var(--uf-gray);display:block;margin-top:.25rem;">
+                                            Leave dates empty to rebuild the last 30 full days. “Cap @ 5pm” doesn’t
+                                            alter raw data; “Auto sign-out” writes a synthetic sign-out at 5pm for open
+                                            sessions.
+                                        </small>
+                                    </div>
+
+                                    <!-- Advanced Tools -->
+                                    <div class="card" style="border:1px solid #e2e8f0;padding:1rem;border-radius:10px;">
+                                        <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                                            <button class="btn" id="sheetsEnableAutoBtn">Enable Auto Sync</button>
+                                            <button class="btn" id="sheetsDisableAutoBtn">Disable Auto Sync</button>
+                                            <button class="btn" id="sheetsSyncTodayBtn">Sync Today Only</button>
+                                        </div>
                                     </div>
                                 </div>
                             </details>
+
                         </div>
                     </div>
 
