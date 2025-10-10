@@ -782,92 +782,119 @@ class DataManager {
         });
     }
 
-    computeDailySummary(dateLike, options = {}) {
-        const { cutoffHour = 17 } = options; // default 5 PM cutoff
-        const attendance = this.getAttendanceForDate(dateLike);
-        const students = this.getStudents();
-        const byStudent = {};
+    getAttendanceForDate(dateLike) {
+        const target = new Date(dateLike);
+        const dayStart = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 0, 0, 0, 0);
+        const dayEnd = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59, 999);
+        return this.getAttendance().filter(r => {
+            const t = new Date(r.timestamp);
+            return t >= dayStart && t <= dayEnd;
+        });
+    }
 
+    /**
+     * Hybrid policy:
+     * - If a student never logs out -> treat sign-out as 5:00 PM for the *daily summary* (no record is written)
+     * - If they do log out after 5 PM -> respect their actual sign-out (no cap)
+     * Pass options.closeOpenAtHour = 17 to cap, or options.autoWriteSignOutAtHour = 17 to also persist a synthetic row.
+     */
+    computeDailySummary(dateLike, options = {}) {
+        const { closeOpenAtHour = 17, autoWriteSignOutAtHour = null } = options;
+
+        const records = this.getAttendanceForDate(dateLike)
+            .slice()
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        const students = this.getStudents();
         const nameOf = (ufid) => (students.find(s => s.ufid === ufid)?.name || 'Unknown');
 
-        // Group by student
-        attendance
-            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-            .forEach(r => {
-                byStudent[r.ufid] = byStudent[r.ufid] || { ufid: r.ufid, name: nameOf(r.ufid), events: [] };
-                byStudent[r.ufid].events.push(r);
-            });
+        // bucket per student
+        const byStudent = new Map();
+        for (const r of records) {
+            if (!byStudent.has(r.ufid)) {
+                byStudent.set(r.ufid, { ufid: r.ufid, name: nameOf(r.ufid), events: [] });
+            }
+            byStudent.get(r.ufid).events.push(r);
+        }
 
-        const target = new Date(dateLike);
-        const cutoffISO = (h) => {
-            const dt = new Date(target.getFullYear(), target.getMonth(), target.getDate(), h, 0, 0, 0);
-            return dt.toISOString();
-        };
+        // mk cutoff ISO for this calendar day
+        const day = new Date(dateLike);
+        const cutoffISO = (h) =>
+            new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0, 0).toISOString();
 
         const summaries = [];
 
-        for (const ufid of Object.keys(byStudent)) {
-            const entry = byStudent[ufid];
+        for (const [, entry] of byStudent) {
             const evs = entry.events;
-
             const sessions = [];
-            let openSignIn = null;
-            let autoclosed = false;
+            let open = null;
 
-            evs.forEach(ev => {
+            // pair ALL sessions in order
+            for (const ev of evs) {
                 if (ev.action === 'signin') {
-                    openSignIn = ev; // start session
+                    // if double signin without signout in between, keep latest as the start
+                    open = ev;
                 } else if (ev.action === 'signout') {
-                    if (openSignIn) {
-                        sessions.push({ in: openSignIn.timestamp, out: ev.timestamp, closed: true });
-                        openSignIn = null;
+                    if (open) {
+                        sessions.push({ in: open.timestamp, out: ev.timestamp, closed: true });
+                        open = null;
                     }
                 }
-            });
-
-            // Handle still-open session (never signed out)
-            if (openSignIn) {
-                const syntheticOut = {
-                    id: Date.now() + Math.floor(Math.random() * 1000),
-                    ufid: entry.ufid,
-                    name: entry.name,
-                    action: 'signout',
-                    timestamp: cutoffISO(cutoffHour),
-                    synthetic: true
-                };
-                const all = this.getAttendance();
-                all.push(syntheticOut);
-                let dataToSave = this.encryptSensitiveFields(all, ['name']);
-                fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
-                sessions.push({
-                    in: openSignIn.timestamp,
-                    out: syntheticOut.timestamp,
-                    closed: true,
-                    syntheticOut: true
-                });
-                autoclosed = true;
             }
 
-            // Compute minutes
-            let totalMin = 0;
-            sessions.forEach(s => {
-                if (s.in && s.out) {
-                    totalMin += (new Date(s.out) - new Date(s.in)) / (1000 * 60);
+            let autoclosed = false;
+
+            // handle one remaining open session (no signout that day)
+            if (open) {
+                if (autoWriteSignOutAtHour != null) {
+                    // persist synthetic sign-out into attendance.json
+                    const syntheticOut = {
+                        id: Date.now() + Math.floor(Math.random() * 1000),
+                        ufid: entry.ufid,
+                        name: entry.name,
+                        action: 'signout',
+                        timestamp: cutoffISO(autoWriteSignOutAtHour),
+                        synthetic: true
+                    };
+                    const all = this.getAttendance();
+                    all.push(syntheticOut);
+                    const dataToSave = this.encryptSensitiveFields(all, ['name']);
+                    fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+
+                    sessions.push({ in: open.timestamp, out: syntheticOut.timestamp, closed: true, syntheticOut: true });
+                    autoclosed = true;
+                } else if (closeOpenAtHour != null) {
+                    // cap *for calculation only* (no write)
+                    sessions.push({ in: open.timestamp, out: cutoffISO(closeOpenAtHour), closed: false, cappedAtHour: closeOpenAtHour });
+                } else {
+                    // leave it open (counted as zero since no out)
+                    sessions.push({ in: open.timestamp, out: null, closed: false });
                 }
-            });
+            }
+
+            // sum minutes across ALL sessions for the day
+            let totalMin = 0;
+            for (const s of sessions) {
+                if (s.in && s.out) {
+                    totalMin += (new Date(s.out) - new Date(s.in)) / 60000;
+                }
+            }
+
+            const totalHours = Math.round((totalMin / 60) * 100) / 100;
 
             summaries.push({
-                ufid,
+                ufid: entry.ufid,
                 name: entry.name,
                 sessions,
                 totalMinutes: Math.round(totalMin),
-                totalHours: Math.round((totalMin / 60) * 100) / 100,
-                autoclosed
+                totalHours,
+                autoclosed,
+                absent: totalMin === 0 // mark absent if no minutes today
             });
         }
 
-        // Include absent students
-        students.forEach(s => {
+        // include zero-activity students
+        for (const s of students) {
             if (!summaries.find(x => x.ufid === s.ufid)) {
                 summaries.push({
                     ufid: s.ufid,
@@ -879,14 +906,12 @@ class DataManager {
                     absent: true
                 });
             }
-        });
+        }
 
         summaries.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        const dateOnly = new Date(day.getFullYear(), day.getMonth(), day.getDate()).toISOString();
 
-        return {
-            date: new Date(target.getFullYear(), target.getMonth(), target.getDate()).toISOString(),
-            summaries
-        };
+        return { date: dateOnly, summaries };
     }
 
 

@@ -459,6 +459,7 @@ class GoogleSheetsService {
     }
 
     // helper: 0 -> A, 1 -> B, ...
+    // helper: 0 -> A, 1 -> B, ...
     colLetterFromIndex(idx) {
         let s = '';
         while (idx >= 0) {
@@ -468,73 +469,110 @@ class GoogleSheetsService {
         return s;
     }
 
-
-    // Generate daily summary data
-    async upsertDailyHours({ dateLike, summaries, summarySheetName = 'Daily Summary', colorAbsences = true }) {
+    async upsertDailyHours({
+        dateLike,
+        summaries,
+        summarySheetName = 'Daily Summary',
+        colorAbsences = true,
+        weekendLabel = 'Weekend'
+    }) {
         const init = await this.initialize();
         if (!init.success) return init;
 
         const { spreadsheetId } = this.dataManager.getConfig().googleSheets;
         const sheets = this.sheets;
 
-        // 1) Ensure the summary sheet exists (headers in A1:B1)
+        // 0) Date bits
+        const d = new Date(dateLike);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const label = `${mm}/${dd}`; // row 1 header
+        const weekday = d.toLocaleDateString('en-US', { weekday: 'long' }); // row 2 header
+        const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
+
+        // 1) Ensure sheet exists, seed two header rows
         const meta = await sheets.spreadsheets.get({ spreadsheetId });
         let sheet = meta.data.sheets.find(s => s.properties.title === summarySheetName);
         let sheetId;
         if (!sheet) {
             const addRes = await sheets.spreadsheets.batchUpdate({
                 spreadsheetId,
-                resource: {
-                    requests: [{ addSheet: { properties: { title: summarySheetName } } }]
-                }
+                resource: { requests: [{ addSheet: { properties: { title: summarySheetName } } }] }
             });
             sheetId = addRes.data.replies[0].addSheet.properties.sheetId;
+            // Headers:
+            // Row 1: UF ID | Name
+            // Row 2: Days  | (blank)
             await sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `${summarySheetName}!A1:B1`,
+                range: `${summarySheetName}!A1:B2`,
                 valueInputOption: 'RAW',
-                resource: { values: [['UF ID', 'Name']] }
+                resource: { values: [['UF ID', 'Name'], ['Days', '']] }
             });
         } else {
             sheetId = sheet.properties.sheetId;
         }
 
-        // 2) Column header "MM/DD" for this date
-        const d = new Date(dateLike);
-        const label = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-
-        // 3) Read header row, add date column if missing
+        // 2) Read row 1 header to decide the date column (add if missing)
         const headerResp = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: `${summarySheetName}!1:1`
         });
-        const header = headerResp.data.values?.[0] || [];
-        let dateColIdx = header.indexOf(label);
+        const row1 = headerResp.data.values?.[0] || [];
+        let dateColIdx = row1.indexOf(label);
         if (dateColIdx === -1) {
-            const newIdx = header.length; // zero-based
+            const newIdx = row1.length; // zero-based col index to append
             const colLetter = this.colLetterFromIndex(newIdx);
+
+            // Write row 1 date and row 2 weekday
             await sheets.spreadsheets.values.update({
                 spreadsheetId,
-                range: `${summarySheetName}!${colLetter}1:${colLetter}1`,
+                range: `${summarySheetName}!${colLetter}1:${colLetter}2`,
                 valueInputOption: 'RAW',
-                resource: { values: [[label]] }
+                resource: { values: [[label], [weekday]] }
             });
+
             dateColIdx = newIdx;
+
+            // Optional: visually mark weekend columns (light gray header background)
+            if (isWeekend) {
+                await sheets.spreadsheets.batchUpdate({
+                    spreadsheetId,
+                    resource: {
+                        requests: [{
+                            repeatCell: {
+                                range: {
+                                    sheetId,
+                                    startRowIndex: 0, endRowIndex: 2, // rows 1–2 (headers)
+                                    startColumnIndex: dateColIdx, endColumnIndex: dateColIdx + 1
+                                },
+                                cell: {
+                                    userEnteredFormat: {
+                                        backgroundColor: { red: 0.95, green: 0.95, blue: 0.95 },
+                                        textFormat: { bold: true }
+                                    }
+                                },
+                                fields: 'userEnteredFormat(backgroundColor,textFormat)'
+                            }
+                        }]
+                    }
+                });
+            }
         }
 
-        // 4) Map UFID -> existing row
+        // 3) Map UFID -> existing row (A/B), accounting for 2 header rows (data starts row 3)
         const tableResp = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: `${summarySheetName}!A:B`
         });
-        const rows = tableResp.data.values || []; // includes header at [0]
+        const rowsAB = tableResp.data.values || []; // includes two header rows
         const mapUFIDtoRow = new Map();
-        for (let r = 1; r < rows.length; r++) {
-            const ufid = rows[r][0];
-            if (ufid) mapUFIDtoRow.set(String(ufid), r + 1); // 1-based row
+        for (let r = 2; r < rowsAB.length; r++) { // start from row index 2 (sheet row 3)
+            const ufid = rowsAB[r][0];
+            if (ufid) mapUFIDtoRow.set(String(ufid), r + 1); // 1-based
         }
 
-        // 5) Ensure rows exist for each student; collect values for the date column
+        // 4) Ensure rows exist for all students
         const appendRows = [];
         for (const s of summaries) {
             const ufid = String(s.ufid || '');
@@ -549,20 +587,20 @@ class GoogleSheetsService {
                 insertDataOption: 'INSERT_ROWS',
                 resource: { values: appendRows }
             });
-            // refresh mapping
+            // refresh map
             const refresh = await sheets.spreadsheets.values.get({
                 spreadsheetId,
                 range: `${summarySheetName}!A:B`
             });
             const refreshed = refresh.data.values || [];
             mapUFIDtoRow.clear();
-            for (let r = 1; r < refreshed.length; r++) {
+            for (let r = 2; r < refreshed.length; r++) {
                 const ufid = refreshed[r][0];
                 if (ufid) mapUFIDtoRow.set(String(ufid), r + 1);
             }
         }
 
-        // Build values for this date column
+        // 5) Build values for this date column (row 3+)
         const valuesByRow = [];
         for (const s of summaries) {
             const ufid = String(s.ufid || '');
@@ -571,29 +609,36 @@ class GoogleSheetsService {
 
             const hadAuto = s.sessions?.some(x => x.syntheticOut);
             const isAbsent = !!s.absent;
-            // hours text with [auto] only when there was a synthetic sign-out
-            const cellVal = isAbsent ? 'A' : (hadAuto ? `${s.totalHours} [auto]` : String(s.totalHours ?? 0));
+
+            let cellVal;
+            if (isWeekend && isAbsent) {
+                cellVal = weekendLabel; // e.g., "Weekend"
+            } else if (isAbsent) {
+                cellVal = 'A';
+            } else {
+                cellVal = hadAuto ? `${s.totalHours} [auto]` : String(s.totalHours ?? 0);
+            }
+
             valuesByRow.push({ rowNumber, val: cellVal });
         }
 
-        // 6) Write contiguous block (Caution: sparse -> fill blanks with '')
+        // 6) Write contiguous block for this column from row 3..maxRow
         const colLetter = this.colLetterFromIndex(dateColIdx);
-        const maxRow = Math.max(...valuesByRow.map(v => v.rowNumber), 2);
-        const bucket = Array.from({ length: maxRow - 1 }, () => ['']); // rows 2..maxRow
+        const maxRow = Math.max(...valuesByRow.map(v => v.rowNumber), 3);
+        const bucket = Array.from({ length: maxRow - 2 }, () => ['']); // rows 3..maxRow
         for (const { rowNumber, val } of valuesByRow) {
-            const zero = rowNumber - 2;
+            const zero = rowNumber - 3;
             if (zero >= 0 && zero < bucket.length) bucket[zero] = [val];
         }
-
         await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `${summarySheetName}!${colLetter}2:${colLetter}${maxRow}`,
+            range: `${summarySheetName}!${colLetter}3:${colLetter}${maxRow}`,
             valueInputOption: 'RAW',
             resource: { values: bucket }
         });
 
-        // 7) (Optional) Color all "A" in THIS date column red with white text
-        if (colorAbsences) {
+        // 7) Conditional format “A” (weekday-only). Don’t color the weekendLabel.
+        if (colorAbsences && !isWeekend) {
             await sheets.spreadsheets.batchUpdate({
                 spreadsheetId,
                 resource: {
@@ -602,16 +647,13 @@ class GoogleSheetsService {
                             rule: {
                                 ranges: [{
                                     sheetId,
-                                    startRowIndex: 1,                // from row 2
+                                    startRowIndex: 2,              // from row 3 (0-based)
                                     endRowIndex: maxRow,
-                                    startColumnIndex: dateColIdx,    // this date column only
+                                    startColumnIndex: dateColIdx,
                                     endColumnIndex: dateColIdx + 1
                                 }],
                                 booleanRule: {
-                                    condition: {
-                                        type: 'TEXT_EQ',
-                                        values: [{ userEnteredValue: 'A' }]
-                                    },
+                                    condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: 'A' }] },
                                     format: {
                                         backgroundColor: { red: 0.94, green: 0.26, blue: 0.26 }, // ~#ef4444
                                         textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true }
