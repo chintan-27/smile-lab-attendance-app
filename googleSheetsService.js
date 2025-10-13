@@ -48,40 +48,37 @@ class GoogleSheetsService {
         try {
             const config = this.dataManager.getConfig();
             const gs = config.googleSheets || {};
-            if (!gs.enabled) {
-                return { success: false, error: 'Google Sheets not configured' };
-            }
+            if (!gs.enabled) return { success: false, error: 'Google Sheets not configured' };
+            if (!gs.spreadsheetId) return { success: false, error: 'Spreadsheet ID is not set' };
 
-            // must have spreadsheet ID and a sheet name
-            if (!gs.spreadsheetId) {
-                return { success: false, error: 'Spreadsheet ID is not set' };
-            }
-            const sheetName = gs.sheetName || 'Attendance';
-
-            // load service account json from data/google-credentials.json
+            // Load service account json
             const credentialsPath = path.join(this.dataManager.dataDir, 'google-credentials.json');
             if (!fs.existsSync(credentialsPath)) {
                 return { success: false, error: 'Google credentials file not found (data/google-credentials.json)' };
             }
             const raw = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-            if (raw.private_key && raw.private_key.includes('\\n')) {
-                raw.private_key = raw.private_key.replace(/\\n/g, '\n');
+            const clientEmail = raw.client_email;
+            let privateKey = raw.private_key || '';
+            if (privateKey.includes('\\n')) privateKey = privateKey.replace(/\\n/g, '\n');
+            if (!clientEmail || !privateKey) {
+                return { success: false, error: 'Invalid service account JSON: missing client_email or private_key' };
             }
 
-            const auth = new google.auth.GoogleAuth({
-                credentials: raw,
-                scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+            const jwt = new google.auth.JWT({
+                email: clientEmail,
+                key: privateKey,
+                scopes: ['https://www.googleapis.com/auth/spreadsheets']
             });
-            await (await auth.getClient()).getAccessToken(); // optional probe
-            this.auth = auth;
-            this.sheets = google.sheets({ version: 'v4', auth });
-            this.clientEmail = raw.client_email;
+            await jwt.authorize();
+
+            this.auth = jwt;
+            this.sheets = google.sheets({ version: 'v4', auth: jwt });
+            this.clientEmail = clientEmail;
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
         }
     }
-
 
 
 
@@ -167,7 +164,7 @@ class GoogleSheetsService {
             }
 
             // Clear existing data (except headers) and add new data
-            const range = `${sheetName}!A2:F${rows.length + 1}`;
+            const range = `${sheetName}!A2:G${rows.length + 1}`;
 
             await this.sheets.spreadsheets.values.update({
                 spreadsheetId,
@@ -276,7 +273,7 @@ class GoogleSheetsService {
             // Append single row
             await this.sheets.spreadsheets.values.append({
                 spreadsheetId,
-                range: `${sheetName}!A:F`,
+                range: `${sheetName}!A:G`,
                 valueInputOption: 'RAW',
                 insertDataOption: 'INSERT_ROWS',
                 resource: {
@@ -383,7 +380,7 @@ class GoogleSheetsService {
 
             const response = await this.sheets.spreadsheets.values.get({
                 spreadsheetId,
-                range: `${sheetName}!A1:F${maxRows}`
+                range: `${sheetName}!A1:G${maxRows}`
             });
 
             return {

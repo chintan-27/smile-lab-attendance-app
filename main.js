@@ -46,6 +46,19 @@ function addDays(date, n) {
   d.setDate(d.getDate() + n);
   return d;
 }
+// Normalize a Date to local midnight (00:00:00.000)
+function atMidnight(dt) {
+  const d = new Date(dt);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Normalize a Date to America/New_York midnight (00:00 ET)
+function atMidnightNY(dt) {
+  const ny = new Date(new Date(dt).toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  ny.setHours(0, 0, 0, 0);
+  return ny;
+}
 
 const createWindow = () => {
   const { height } = screen.getPrimaryDisplay().workAreaSize;
@@ -756,8 +769,8 @@ ipcMain.handle('sheets-backfill-daily-summary', async (event, args = {}) => {
   try {
     // Default range: last 30 full days up to yesterday
     const today = new Date();
-    const end = endISO ? new Date(endISO) : atMidnight(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
-    const start = startISO ? new Date(startISO) : atMidnight(new Date(end.getFullYear(), end.getMonth(), end.getDate() - 29));
+    const end = endISO ? new Date(endISO) : atMidnightNY(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+    const start = startISO ? new Date(startISO) : atMidnightNY(new Date(end.getFullYear(), end.getMonth(), end.getDate() - 29));
 
     const options =
       policy === 'autosignout'
@@ -768,8 +781,8 @@ ipcMain.handle('sheets-backfill-daily-summary', async (event, args = {}) => {
     let failures = [];
 
     for (
-      let d = atMidnight(new Date(start));
-      d <= atMidnight(new Date(end));
+      let d = atMidnightNY(new Date(start));
+      d <= atMidnightNY(new Date(end));
       d.setDate(d.getDate() + 1)
     ) {
       try {
@@ -798,8 +811,8 @@ ipcMain.handle('sheets-backfill-daily-summary', async (event, args = {}) => {
       daysProcessed,
       failures,
       range: {
-        start: atMidnight(start).toISOString(),
-        end: atMidnight(end).toISOString(),
+        start: atMidnightNY(start).toISOString(),
+        end: atMidnightNY(end).toISOString(),
       },
     };
   } catch (err) {
