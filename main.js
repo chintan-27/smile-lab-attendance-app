@@ -151,8 +151,8 @@ app.whenReady().then(async () => {
       // Choose ONE policy:
       // A) Cap open sessions at 5 PM (no mutation)
       const res = dataManager.saveDailySummaryCSV(dateIso, {
-        closeOpenAtHour: 17,
-        autoWriteSignOutAtHour: null
+        closeOpenAtHour: null,
+        autoWriteSignOutAtHour: 17
       });
 
       // // B) Or actually auto-signout at 5 PM (writes synthetic records)
@@ -257,12 +257,12 @@ app.whenReady().then(async () => {
         // Choose ONE policy:
         const res = dataManager.saveDailySummaryCSV(dateIso, {
           // A) Cap open sessions at 5 PM (no mutation):
-          closeOpenAtHour: 17,
-          autoWriteSignOutAtHour: null,
+          // closeOpenAtHour: 17,
+          // autoWriteSignOutAtHour: null,
 
           // // B) Or actually auto-signout at 5 PM (writes synthetic records):
-          // closeOpenAtHour: null,
-          // autoWriteSignOutAtHour: 17,
+          closeOpenAtHour: null,
+          autoWriteSignOutAtHour: 17,
         });
 
         if (res.success) {
@@ -272,7 +272,7 @@ app.whenReady().then(async () => {
         }
 
         // (Optional) also push the hour/Absent column to a "Daily Summary" sheet:
-        const { summaries } = dataManager.computeDailySummary(dateIso, { closeOpenAtHour: 17, autoWriteSignOutAtHour: null });
+        const { summaries } = dataManager.computeDailySummary(dateIso, { closeOpenAtHour: null, autoWriteSignOutAtHour: 17 });
         await googleSheetsService.upsertDailyHours({ dateLike: dateIso, summaries, summarySheetName: 'Daily Summary' });
 
       } catch (err) {
@@ -761,7 +761,7 @@ ipcMain.handle('sheets-backfill-daily-summary', async (event, args = {}) => {
   const {
     startISO,                // optional: ISO string
     endISO,                  // optional: ISO string
-    policy = 'cap',          // 'cap' or 'autosignout'
+    policy = 'autosignout',          // 'cap' or 'autosignout'
     summarySheetName = 'Daily Summary',
     colorAbsences = true,
   } = args;
@@ -940,12 +940,12 @@ ipcMain.handle('disable-auto-sync', async (event) => {
   }
 });
 
-ipcMain.handle('generate-daily-summary', async (event, isoDateOrNull, policy = { capAtHour: 17, autosignoutHour: null }) => {
+ipcMain.handle('generate-daily-summary', async (event, isoDateOrNull, policy = { capAtHour: null, autosignoutHour: 17 }) => {
   try {
     const date = isoDateOrNull ? new Date(isoDateOrNull) : new Date();
     const res = dataManager.saveDailySummaryCSV(date, {
-      closeOpenAtHour: policy.capAtHour ?? 17,
-      autoWriteSignOutAtHour: policy.autosignoutHour ?? null
+      closeOpenAtHour: policy.capAtHour ?? null,
+      autoWriteSignOutAtHour: policy.autosignoutHour ?? 17
     });
     return res;
   } catch (e) {
