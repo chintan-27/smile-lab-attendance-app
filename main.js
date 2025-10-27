@@ -247,22 +247,23 @@ app.whenReady().then(async () => {
     backupJobStarted = true;
   }
 
-  // Daily summary at 10:00 PM ET
+  // Daily summary at 11:59 PM ET
   if (!dailySummaryJobStarted) {
-    cron.schedule('0 22 * * *', async () => {
+    cron.schedule('59 23 * * *', async () => {
       try {
         // Use the ET calendar date for the summary
         const dateIso = getNYDateIso(new Date());
 
-        // Choose ONE policy:
+        // NEW hybrid policy:
         const res = dataManager.saveDailySummaryCSV(dateIso, {
-          // A) Cap open sessions at 5 PM (no mutation):
-          // closeOpenAtHour: 17,
-          // autoWriteSignOutAtHour: null,
-
-          // // B) Or actually auto-signout at 5 PM (writes synthetic records):
-          closeOpenAtHour: null,
-          autoWriteSignOutAtHour: 17,
+          closeOpenAtHour: null,              // no cap-only
+          autoWriteSignOutAtHour: null,       // disable old single-cutoff writer
+          autoPolicy: {                       // hybrid: 5pm or +60min, clamped to 11:59pm
+            cutoffHour: 17,
+            eodHour: 23,
+            eodMinute: 59,
+            after5Minutes: 60
+          }
         });
 
         if (res.success) {
@@ -271,16 +272,26 @@ app.whenReady().then(async () => {
           dataManager.logger.error('report', `Daily summary failed: ${res.error}`, 'system');
         }
 
-        // (Optional) also push the hour/Absent column to a "Daily Summary" sheet:
-        const { summaries } = dataManager.computeDailySummary(dateIso, { closeOpenAtHour: null, autoWriteSignOutAtHour: 17 });
+        // (Optional) also push the hour/Absent column to a "Daily Summary" sheet
+        const { summaries } = dataManager.computeDailySummary(dateIso, {
+          closeOpenAtHour: null,
+          autoWriteSignOutAtHour: null,
+          autoPolicy: { cutoffHour: 17, eodHour: 23, eodMinute: 59, after5Minutes: 60 }
+        });
         await googleSheetsService.upsertDailyHours({ dateLike: dateIso, summaries, summarySheetName: 'Daily Summary' });
 
+        // Sort attendance after synthetic sign-outs were written
+        const sr = dataManager.sortAttendanceByTimestamp?.();
+        if (!sr?.success) {
+          dataManager.logger.warning('attendance', `Post-summary sort failed: ${sr?.error || 'unknown'}`, 'system');
+        }
       } catch (err) {
         dataManager.logger.error('report', `Daily summary job error: ${err.message}`, 'system');
       }
     }, { scheduled: true, timezone: 'America/New_York' });
     dailySummaryJobStarted = true;
   }
+
 
 
   const cfg = dataManager.getConfig();

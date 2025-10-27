@@ -799,7 +799,12 @@ class DataManager {
      * Pass options.closeOpenAtHour = 17 to cap, or options.autoWriteSignOutAtHour = 17 to also persist a synthetic row.
      */
     computeDailySummary(dateLike, options = {}) {
-        const { closeOpenAtHour = 17, autoWriteSignOutAtHour = null } = options;
+        const {
+            closeOpenAtHour = 17,
+            autoWriteSignOutAtHour = null,
+            // NEW: hybrid policy options (optional)
+            autoPolicy = null // { cutoffHour: 17, eodHour: 23, eodMinute: 59, after5Minutes: 60 }
+        } = options;
 
         const records = this.getAttendanceForDate(dateLike)
             .slice()
@@ -819,8 +824,9 @@ class DataManager {
 
         // mk cutoff ISO for this calendar day
         const day = new Date(dateLike);
-        const cutoffISO = (h) =>
-            new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0, 0).toISOString();
+        const cutoffISO = (h, m = 0) =>
+            new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m, 0, 0).toISOString();
+
 
         const summaries = [];
 
@@ -845,15 +851,54 @@ class DataManager {
             let autoclosed = false;
 
             // handle one remaining open session (no signout that day)
+            // in the block that handles a remaining open session:
             if (open) {
-                if (autoWriteSignOutAtHour != null) {
-                    // persist synthetic sign-out into attendance.json
+                // --- NEW HYBRID BEHAVIOR ---
+                if (autoPolicy) {
+                    const cutoff = new Date(cutoffISO(autoPolicy.cutoffHour ?? 17, 0)); // 5:00 PM default
+                    const eod = new Date(cutoffISO(autoPolicy.eodHour ?? 23, autoPolicy.eodMinute ?? 59)); // 11:59 PM default
+                    const openedAt = new Date(open.timestamp);
+
+                    let effectiveOut;
+                    if (openedAt < cutoff) {
+                        // signed in before 5 PM -> synthetic out at 5 PM
+                        effectiveOut = cutoff;
+                    } else {
+                        // signed in at/after 5 PM -> synthetic out at min(open + after5Minutes, eod)
+                        const afterMins = (autoPolicy.after5Minutes ?? 60);
+                        const plusOneHour = new Date(openedAt.getTime() + afterMins * 60000);
+                        effectiveOut = plusOneHour < eod ? plusOneHour : eod;
+                    }
+
                     const syntheticOut = {
                         id: Date.now() + Math.floor(Math.random() * 1000),
                         ufid: entry.ufid,
                         name: entry.name,
                         action: 'signout',
-                        timestamp: cutoffISO(autoWriteSignOutAtHour),
+                        timestamp: effectiveOut.toISOString(),
+                        synthetic: true
+                    };
+
+                    const all = this.getAttendance();
+                    all.push(syntheticOut);
+                    const dataToSave = this.encryptSensitiveFields(all, ['name']);
+                    fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+
+                    sessions.push({ in: open.timestamp, out: syntheticOut.timestamp, closed: true, syntheticOut: true });
+                    autoclosed = true;
+
+                } else if (autoWriteSignOutAtHour != null) {
+                    // existing behavior (single cutoff hour)
+                    const cutoff = new Date(cutoffISO(autoWriteSignOutAtHour));
+                    const openedAt = new Date(open.timestamp);
+                    const effectiveOut = (openedAt > cutoff ? openedAt : cutoff).toISOString(); // small safety
+
+                    const syntheticOut = {
+                        id: Date.now() + Math.floor(Math.random() * 1000),
+                        ufid: entry.ufid,
+                        name: entry.name,
+                        action: 'signout',
+                        timestamp: effectiveOut,
                         synthetic: true
                     };
                     const all = this.getAttendance();
@@ -863,14 +908,19 @@ class DataManager {
 
                     sessions.push({ in: open.timestamp, out: syntheticOut.timestamp, closed: true, syntheticOut: true });
                     autoclosed = true;
+
                 } else if (closeOpenAtHour != null) {
-                    // cap *for calculation only* (no write)
-                    sessions.push({ in: open.timestamp, out: cutoffISO(closeOpenAtHour), closed: false, cappedAtHour: closeOpenAtHour });
+                    // existing cap-only mode (no write)
+                    const cutoff = new Date(cutoffISO(closeOpenAtHour));
+                    const openedAt = new Date(open.timestamp);
+                    const effectiveOut = (openedAt > cutoff ? openedAt : cutoff).toISOString();
+
+                    sessions.push({ in: open.timestamp, out: effectiveOut, closed: false, cappedAtHour: closeOpenAtHour });
                 } else {
-                    // leave it open (counted as zero since no out)
                     sessions.push({ in: open.timestamp, out: null, closed: false });
                 }
             }
+
 
             // sum minutes across ALL sessions for the day
             let totalMin = 0;
@@ -962,6 +1012,29 @@ class DataManager {
             return { success: true, filePath };
         } catch (e) {
             if (this.logger) this.logger.error('report', `Daily summary save failed: ${e.message}`, 'admin');
+            return { success: false, error: e.message };
+        }
+    }
+
+    sortAttendanceByTimestamp() {
+        try {
+            const attendance = this.getAttendance(); // decrypted array
+            const sorted = attendance.slice().sort((a, b) => {
+                const ta = new Date(a.timestamp).getTime() || 0;
+                const tb = new Date(b.timestamp).getTime() || 0;
+                if (ta !== tb) return ta - tb;
+                // tie-breaker for identical timestamps (keeps order deterministic)
+                const ia = typeof a.id === 'number' ? a.id : 0;
+                const ib = typeof b.id === 'number' ? b.id : 0;
+                return ia - ib;
+            });
+
+            const dataToSave = this.encryptSensitiveFields(sorted, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+            if (this.logger) this.logger.info('attendance', `Attendance sorted by timestamp (${sorted.length} records)`, 'system');
+            return { success: true, count: sorted.length };
+        } catch (e) {
+            if (this.logger) this.logger.error('attendance', `Sort attendance failed: ${e.message}`, 'system');
             return { success: false, error: e.message };
         }
     }

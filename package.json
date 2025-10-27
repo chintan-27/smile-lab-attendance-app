@@ -1,7 +1,7 @@
 {
   "name": "smile-lab-attendance-app",
-  "version": "1.0.3",
-  "description": "Updates in google sheets service",
+  "version": "1.0.4",
+  "description": "Bug Fixes and a better autosignout policy",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

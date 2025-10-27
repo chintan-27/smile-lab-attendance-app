@@ -1,4 +1,5 @@
 const CryptoJS = require('crypto-js');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,7 +12,7 @@ class EncryptionService {
     // Generate encryption key from password
     generateKey(password, salt = 'UF_LAB_SALT_2024') {
         return CryptoJS.PBKDF2(password, salt, {
-            keySize: 256/32,
+            keySize: 256 / 32,
             iterations: 10000
         });
     }
@@ -45,7 +46,7 @@ class EncryptionService {
             const data = fs.readFileSync(filePath, 'utf8');
             const parsed = JSON.parse(data);
             const encrypted = this.encrypt(parsed, password);
-            
+
             if (encrypted.success) {
                 const encryptedFilePath = filePath + '.encrypted';
                 fs.writeFileSync(encryptedFilePath, encrypted.data);
@@ -63,7 +64,7 @@ class EncryptionService {
         try {
             const encryptedData = fs.readFileSync(encryptedFilePath, 'utf8');
             const decrypted = this.decrypt(encryptedData, password);
-            
+
             if (decrypted.success) {
                 const output = outputPath || encryptedFilePath.replace('.encrypted', '');
                 fs.writeFileSync(output, JSON.stringify(decrypted.data, null, 2));
@@ -160,9 +161,7 @@ class EncryptionService {
 
     // Generate secure random key
     generateSecureKey(length = 32) {
-        const array = new Uint8Array(length);
-        require('crypto').getRandomValues(array);
-        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+        return crypto.randomBytes(length).toString('hex'); // 64 hex chars
     }
 
     // Check if data is encrypted
