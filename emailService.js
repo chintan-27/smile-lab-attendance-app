@@ -184,7 +184,6 @@ class EmailService {
 
     initializeScheduler() {
         this.scheduledTask = cron.schedule('0 8 * * 6', async () => {
-            console.log('Running weekly attendance report...');
             const result = await this.sendWeeklyReport();
             if (result.success) {
                 console.log('Weekly report sent successfully:', result.messageId);
@@ -195,7 +194,6 @@ class EmailService {
             scheduled: false,
             timezone: "America/New_York"
         });
-        console.log('Email scheduler initialized');
     }
 
     startScheduler() {
@@ -203,7 +201,6 @@ class EmailService {
             if (!this.scheduledTask) this.initializeScheduler();
             this.scheduledTask.start();
             this.schedulerRunning = true; // set true here
-            console.log('Email scheduler started successfully');
             return { success: true, message: 'Weekly email scheduler started successfully' };
         } catch (error) {
             console.error('Error starting scheduler:', error);
@@ -216,7 +213,6 @@ class EmailService {
             if (this.scheduledTask) {
                 this.scheduledTask.stop();
                 this.schedulerRunning = false; // and false here
-                console.log('Email scheduler stopped');
                 return { success: true, message: 'Weekly email scheduler stopped successfully' };
             }
             return { success: false, message: 'Scheduler not running' };
@@ -260,7 +256,7 @@ class EmailService {
     getSchedulerStatus() {
         const isRunning = this.schedulerRunning;
         const nextRun = isRunning ? this.getNextRunText() : 'Not scheduled';
-        console.log('Scheduler status:', isRunning ? 'Running' : 'Stopped');
+        // console.log('Scheduler status:', isRunning ? 'Running' : 'Stopped')
         return { running: isRunning, nextRun, initialized: !!this.scheduledTask };
     }
 
@@ -271,7 +267,6 @@ class EmailService {
             }
 
             this.testTask = cron.schedule('*/10 * * * * *', async () => {
-                console.log('Test scheduler running...');
                 const result = await this.sendWeeklyReport();
                 if (result.success) {
                     console.log('Test report sent successfully');

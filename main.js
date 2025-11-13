@@ -116,7 +116,6 @@ app.whenReady().then(async () => {
   // Log application startup
   dataManager.logger.info('system', 'Lab Attendance System starting up', 'system');
   dataManager.logger.info('system', 'All services initialized successfully', 'system');
-  console.log('Lab Attendance System initialized successfully');
 
   let backupJobStarted = false;
   let dailySummaryJobStarted = false;
@@ -985,7 +984,31 @@ ipcMain.handle('push-daily-summary-to-sheets', async (event, { dateLike, summary
     return { success: false, error: e.message };
   }
 });
+ipcMain.handle('get-daily-summary', async (event, { dateLike, policy = 'cap' } = {}) => {
+  try {
+    let options;
+    if (policy === 'autosignout') {
+      // write-mode (persist synthetic sign-outs)
+      options = { closeOpenAtHour: null, autoWriteSignOutAtHour: 17 };
+    } else if (policy === 'hybrid') {
+      // your 5pm/+60 after 5pm, capped at 23:59 policy (also writes)
+      options = {
+        closeOpenAtHour: null,
+        autoWriteSignOutAtHour: null,
+        autoPolicy: { cutoffHour: 17, eodHour: 23, eodMinute: 59, after5Minutes: 60 }
+      };
+    } else {
+      // cap-only (no mutation)
+      options = { closeOpenAtHour: 17, autoWriteSignOutAtHour: null };
+    }
 
+    const { date, summaries } = dataManager.computeDailySummary(dateLike || new Date(), options);
+    return { success: true, date, summaries };
+  } catch (err) {
+    dataManager.logger?.error('report', `get-daily-summary failed: ${err.message}`, 'admin');
+    return { success: false, error: err.message, summaries: [] };
+  }
+});
 
 // Dropbox service handlers
 
@@ -1348,7 +1371,6 @@ ipcMain.handle('get-system-logs', async (event, options = {}) => {
       // Don't log this operation to avoid recursive logging
       return { success: true, logs: logs };
     } else {
-      console.log('DataManager or logger not initialized');
       return { success: false, error: 'Logger not initialized', logs: [] };
     }
   } catch (error) {

@@ -2,7 +2,66 @@ let currentSection = 'dashboard';
 let studentsData = [];
 let attendanceData = [];
 let logsData = [];
-let charts = {};
+let charts = window.charts || (window.charts = {});
+
+// Reporting state (Attendance)
+let currentWeekStart = startOfWeek(new Date());          // Monday of current week
+let currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let reportMode = 'week'; // 'week' | 'month'
+function yesterday() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+let analyticsCurrentDay = yesterday();
+let analyticsCurrentWeekStart = startOfWeek(new Date());
+
+const HEAT_BUCKETS = [
+    { max: 0.0, label: '0h', color: '#eef2ff' },
+    { max: 2.0, label: '<2h', color: '#c7d2fe' },
+    { max: 4.0, label: '2–4h', color: '#a5b4fc' },
+    { max: 6.0, label: '4–6h', color: '#818cf8' },
+    { max: Infinity, label: '>6h', color: '#6366f1' }
+];
+function colorForHours(h) {
+    for (const b of HEAT_BUCKETS) if (h <= b.max) return b.color;
+    return HEAT_BUCKETS[HEAT_BUCKETS.length - 1].color;
+}
+function renderHeatLegend() {
+    const el = document.getElementById('heatLegend');
+    if (!el) return;
+    el.innerHTML = HEAT_BUCKETS.map(b =>
+        `<span style="display:inline-flex; align-items:center; gap:6px">
+       <span style="width:14px; height:14px; background:${b.color}; border:1px solid #e2e8f0; border-radius:3px"></span>
+       <span>${b.label}</span>
+     </span>`).join('');
+}
+function fmtShort(d) {
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// ----- Date helpers (put near top of admin.js) -----
+function addDays(d, n) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() + n);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+
+// Monday = start of week (weekStartsOn = 1). Change to 0 if you want Sunday.
+function startOfWeek(d, weekStartsOn = 1) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const day = (x.getDay() - weekStartsOn + 7) % 7;
+    x.setDate(x.getDate() - day);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+
+function startOfMonth(d) {
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+}
 
 // --- tiny DOM helpers ---
 const $ = (id) => document.getElementById(id);
@@ -379,7 +438,6 @@ async function importStudents() {
             const csv = e.target.result;
             const lines = csv.split('\n');
             const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-            console.log(headers)
 
             const requiredHeaders = ['uf_id', 'name'];
             const hasRequiredHeaders = requiredHeaders.every(header =>
@@ -433,6 +491,8 @@ async function importStudents() {
 async function loadAttendance() {
     try {
         attendanceData = await window.electronAPI.getAttendance();
+        await initAttendanceReporting();
+        // initAttendanceReportingNav();           // new
         populateStudentFilter();
         displayAttendance(attendanceData);
         setDefaultDateRange();
@@ -529,6 +589,246 @@ function clearAttendanceFilters() {
     document.getElementById('actionFilter').value = '';
     displayAttendance(attendanceData);
 }
+
+// ----- Attendance Reporting -----
+function initAttendanceReporting() {
+    const prevBtn = document.getElementById('reportPrevBtn');
+    const nextBtn = document.getElementById('reportNextBtn');
+    const modeBtn = document.getElementById('reportModeToggle');
+    const weeklyPane = document.getElementById('weeklyMatrixPane');
+    const monthlyPane = document.getElementById('monthlyHeatmapPane');
+
+    if (!prevBtn || !nextBtn || !modeBtn || !weeklyPane || !monthlyPane) {
+        console.warn('Reporting UI elements not found');
+        return;
+    }
+
+    async function refreshView() {
+        if (reportMode === 'week') {
+            weeklyPane.style.display = '';
+            monthlyPane.style.display = 'none';
+            modeBtn.textContent = 'Week view';
+            await renderWeeklyMatrix(currentWeekStart);
+        } else {
+            weeklyPane.style.display = 'none';
+            monthlyPane.style.display = '';
+            modeBtn.textContent = 'Month view';
+            await renderMonthlyHeatmap(currentMonthStart);
+        }
+    }
+
+    modeBtn.onclick = () => {
+        reportMode = (reportMode === 'week') ? 'month' : 'week';
+        refreshView();
+    };
+
+    prevBtn.onclick = async () => {
+        if (reportMode === 'week') {
+            currentWeekStart = addDays(currentWeekStart, -7);
+            await renderWeeklyMatrix(currentWeekStart);
+        } else {
+            currentMonthStart = new Date(
+                currentMonthStart.getFullYear(),
+                currentMonthStart.getMonth() - 1,
+                1
+            );
+            await renderMonthlyHeatmap(currentMonthStart);
+        }
+    };
+
+    nextBtn.onclick = async () => {
+        if (reportMode === 'week') {
+            const thisWeek = startOfWeek(new Date());
+            const candidate = addDays(currentWeekStart, 7);
+            if (candidate <= thisWeek) {
+                currentWeekStart = candidate;
+                await renderWeeklyMatrix(currentWeekStart);
+            }
+        } else {
+            const thisMonthStart = startOfMonth(new Date());
+            const candidate = new Date(
+                currentMonthStart.getFullYear(),
+                currentMonthStart.getMonth() + 1,
+                1
+            );
+            if (candidate <= thisMonthStart) {
+                currentMonthStart = candidate;
+                await renderMonthlyHeatmap(currentMonthStart);
+            }
+        }
+    };
+
+    // initial render
+    refreshView();
+}
+
+
+
+function fmtYMD(d) { return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+function setWeekLabel(weekStart) {
+    const weekEnd = addDays(weekStart, 6);
+    const isThisWeek = startOfWeek(new Date()).getTime() === weekStart.getTime();
+    document.getElementById('weekLabel').textContent =
+        isThisWeek ? 'This Week' : `${fmtYMD(weekStart)} – ${fmtYMD(weekEnd)}`;
+    // disable/enable next button
+    const weekNext = document.getElementById('weekNextBtn');
+    weekNext.disabled = !(addDays(weekStart, 7) <= startOfWeek(new Date()));
+}
+
+function setMonthLabel(monthStart) {
+    const nowMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const label = monthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    document.getElementById('monthLabel').textContent =
+        (monthStart.getTime() === nowMonthStart.getTime()) ? 'This Month' : label;
+    // disable/enable next button
+    document.getElementById('monthNextBtn').disabled = !(new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1) <= nowMonthStart);
+}
+
+// Build Mon–Sun matrix (alphabetical, neutral)
+async function renderWeeklyMatrix(weekStart) {
+    const labelEl = document.getElementById('reportRangeLabel');
+    const nextBtn = document.getElementById('reportNextBtn');
+
+    const days = Array.from({ length: 7 }, (_, i) =>
+        new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i)
+    );
+
+    // Label: "This week" or "Nov 11 – Nov 17"
+    const thisWeek = startOfWeek(new Date());
+    const weekEnd = addDays(weekStart, 6);
+    if (weekStart.getTime() === thisWeek.getTime()) {
+        labelEl.textContent = 'This week';
+    } else {
+        labelEl.textContent = `${fmtShort(weekStart)} – ${fmtShort(weekEnd)}`;
+    }
+    // Disable next if we would go past this week
+    nextBtn.disabled = addDays(weekStart, 7) > thisWeek;
+
+    // fetch summaries (using your autosignout policy or cap, as you prefer)
+    const perDay = await Promise.all(days.map(async (d) => {
+        const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+        const res = await window.electronAPI.getDailySummary(iso, 'autosignout');
+        return (res && res.success && Array.isArray(res.summaries)) ? res.summaries : [];
+    }));
+
+    const map = new Map();
+    perDay.forEach((summaries, idx) => {
+        summaries.forEach(s => {
+            const key = s.name || s.ufid || `UFID-${idx}`;
+            const row = map.get(key) || Array(7).fill(0);
+            row[idx] = (typeof s.totalHours === 'number') ? s.totalHours : 0;
+            map.set(key, row);
+        });
+    });
+
+    const header = document.getElementById('weeklyHeader');
+    const body = document.getElementById('weeklyBody');
+    const footer = document.getElementById('weeklyFooter');
+
+    header.innerHTML =
+        `<tr><th style="text-align:left">Student</th>${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' })}</th>`).join('')
+        }<th>Total</th></tr>`;
+
+    const rows = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    body.innerHTML = rows.map(([name, arr]) => {
+        const total = arr.reduce((a, b) => a + b, 0);
+        return `<tr><td style="text-align:left">${name}</td>${arr.map(h => `<td>${h.toFixed(2)}</td>`).join('')
+            }<td><strong>${total.toFixed(2)}</strong></td></tr>`;
+    }).join('');
+
+}
+
+
+function startOfWeek(d) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const day = (x.getDay() + 6) % 7; // make Monday 0
+    x.setDate(x.getDate() - day);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+
+// Month heatmap: render as a grid chart (bar heights=1, color by hours bucket)
+async function renderMonthlyHeatmap(monthStart) {
+    const labelEl = document.getElementById('reportRangeLabel');
+    const nextBtn = document.getElementById('reportNextBtn');
+
+    const nowMonthStart = startOfMonth(new Date());
+    if (monthStart.getTime() === nowMonthStart.getTime()) {
+        labelEl.textContent = 'This month';
+    } else {
+        labelEl.textContent = monthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
+    nextBtn.disabled = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1) > nowMonthStart;
+
+    const year = monthStart.getFullYear();
+    const month = monthStart.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const perDay = await Promise.all(
+        Array.from({ length: daysInMonth }, (_, i) => {
+            const d = new Date(year, month, i + 1);
+            return window.electronAPI.getDailySummary(d.toISOString(), 'autosignout');
+        })
+    );
+
+    const map = new Map();
+    perDay.forEach((r, dayIdx) => {
+        const summaries = (r && r.success && Array.isArray(r.summaries)) ? r.summaries : [];
+        summaries.forEach(s => {
+            const key = s.name || s.ufid;
+            const row = map.get(key) || Array(daysInMonth).fill(0);
+            row[dayIdx] = (typeof s.totalHours === 'number') ? s.totalHours : 0;
+            map.set(key, row);
+        });
+    });
+
+    const names = Array.from(map.keys()).sort((a, b) => a.localeCompare(b));
+    const data = names.map(n => map.get(n) || Array(daysInMonth).fill(0));
+
+    const ctx = document.getElementById('monthlyHeatmap');
+    if (!ctx) return;
+    if (charts.monthHeatmap) charts.monthHeatmap.destroy();
+
+    charts.monthHeatmap = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: names,
+            datasets: Array.from({ length: daysInMonth }, (_, dayIdx) => ({
+                label: String(dayIdx + 1),
+                data: names.map((_, rowIdx) => data[rowIdx][dayIdx] || 0),
+                stack: 'month',
+                backgroundColor: (ctx) => colorForHours(ctx.raw), // uses your legend buckets
+                borderWidth: 0,
+                fill: true
+            }))
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            layout: {
+                padding: { top: 10, right: 16, bottom: 10, left: 0 }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => names[items[0].dataIndex],
+                        label: (item) => `Day ${item.dataset.label}: ${item.raw.toFixed(2)}h`
+                    }
+                }
+            },
+            scales: {
+                x: { stacked: true, display: false },
+                y: { stacked: true }
+            }
+        }
+    });
+
+    // make sure legend text exists (if you added heatLegend in HTML)
+    renderHeatLegend?.();
+}
+
 
 // System Logs
 async function loadLogs() {
@@ -689,6 +989,15 @@ async function loadAnalyticsCharts() {
                 }
             });
         }
+        analyticsCurrentDay = new Date();
+        analyticsCurrentDay.setDate(analyticsCurrentDay.getDate() - 1);
+        analyticsCurrentDay.setHours(0, 0, 0, 0);
+        analyticsCurrentWeekStart = startOfWeek(new Date());
+
+        await renderStudentHoursForDay(analyticsCurrentDay);
+        await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
+
+        initAnalyticsDetailNav();
     } catch (error) {
         console.error('Error loading analytics charts:', error);
         const trendsChart = document.getElementById('trendsChart');
@@ -701,6 +1010,378 @@ async function loadAnalyticsCharts() {
         }
     }
 }
+// ----- Analytics helpers -----
+function minutes(h, m = 0) { return h * 60 + m; }
+function minToLabel(min) {
+    const h = Math.floor(min / 60), mm = min % 60;
+    const h12 = ((h + 11) % 12) + 1, ampm = h < 12 ? 'AM' : 'PM';
+    return `${h12}:${String(mm).padStart(2, '0')} ${ampm}`;
+}
+
+function studentColor(index, variant) {
+    const hue = (index * 47) % 360;   // spread hues around color wheel
+    const sat = 70;
+    const light = variant === 'in' ? 72 : 45; // lighter for sign-in, darker for sign-out
+    return `hsl(${hue}, ${sat}%, ${light}%)`;
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+
+
+// Hours per student (today)
+function initAnalyticsDetailNav() {
+    const dayPrev = document.getElementById('hoursPrevBtn');
+    const dayNext = document.getElementById('hoursNextBtn');
+    const weekPrev = document.getElementById('bandsPrevBtn');
+    const weekNext = document.getElementById('bandsNextBtn');
+
+    if (!dayPrev || !dayNext || !weekPrev || !weekNext) {
+        console.warn('Analytics nav buttons not found');
+        return;
+    }
+
+    // ---- Daily student hours (left chart) ----
+    dayPrev.onclick = async () => {
+        analyticsCurrentDay = addDays(analyticsCurrentDay, -1);
+        await renderStudentHoursForDay(analyticsCurrentDay);
+    };
+
+    dayNext.onclick = async () => {
+        const candidate = addDays(analyticsCurrentDay, 1);
+
+        const now = new Date();
+        const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        todayOnly.setHours(0, 0, 0, 0);
+
+        // don’t go past today
+        if (candidate <= todayOnly) {
+            analyticsCurrentDay = candidate;
+            await renderStudentHoursForDay(analyticsCurrentDay);
+        }
+    };
+
+    // ---- Weekly time bands (right chart) ----
+    weekPrev.onclick = async () => {
+        analyticsCurrentWeekStart = addDays(analyticsCurrentWeekStart, -7);
+        await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
+    };
+
+    weekNext.onclick = async () => {
+        const thisWeekStart = startOfWeek(new Date());
+        const candidate = addDays(analyticsCurrentWeekStart, 7);
+        // don’t step into a future week
+        if (candidate <= thisWeekStart) {
+            analyticsCurrentWeekStart = candidate;
+            await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
+        }
+    };
+}
+
+
+async function renderStudentHoursForDay(day = new Date()) {
+    const ctx = document.getElementById('studentHoursChart');
+    if (!ctx) return;
+
+    const labelEl = document.getElementById('hoursRangeLabel');
+    const nextBtn = document.getElementById('hoursNextBtn');
+
+    // normalize to midnight
+    const d = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    const today = new Date();
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    // Label: "Today" or "Thu, Nov 14"
+    if (d.getTime() === todayOnly.getTime()) {
+        labelEl.textContent = 'Today';
+    } else {
+        labelEl.textContent = d.toLocaleDateString(undefined, {
+            weekday: 'short', month: 'short', day: 'numeric'
+        });
+    }
+    // disable next if we’d go into the future
+    nextBtn.disabled = d.getTime() >= todayOnly.getTime();
+
+    const dateISO = d.toISOString();
+    const res = await window.electronAPI.getDailySummary(dateISO, 'autosignout'); // or 'autosignout' if you prefer
+    const summaries = (res && Array.isArray(res.summaries)) ? res.summaries : [];
+
+    const rows = summaries.slice().sort((a, b) =>
+        (a.name || a.ufid).localeCompare(b.name || b.ufid)
+    );
+
+    if (charts.studentHours) charts.studentHours.destroy();
+    charts.studentHours = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: rows.map(r => r.name || r.ufid),
+            datasets: [{
+                label: 'Hours',
+                data: rows.map(r => r.totalHours),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,  // like trendsChart
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { title: { display: true, text: 'Hours' } },
+                y: { title: { display: false } }
+            }
+        }
+    });
+}
+
+// “Two dots of a bar” (dumbbell) per student for selected day
+// Weekly “two dots of a bar” per student (time bands)
+// “Two dots of a bar” per student, per day for the week containing `day`
+// Weekly scatter: every sign-in/sign-out is a point
+async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 } = {}) {
+    const ctx = document.getElementById('timeBandsChart');
+    if (!ctx) return;
+
+    const labelEl = document.getElementById('bandsRangeLabel');
+    const nextBtn = document.getElementById('bandsNextBtn');
+
+    const xMin = minutes(startHour);
+    const xMax = minutes(endHour);
+
+    // ----- figure out the week -----
+    const base = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    const weekStart = startOfWeek(base);
+    const thisWeekStart = startOfWeek(new Date());
+    const weekEnd = addDays(weekStart, 6);
+
+    // Update label text
+    if (labelEl) {
+        if (weekStart.getTime() === thisWeekStart.getTime()) {
+            labelEl.textContent = 'This week';
+        } else {
+            labelEl.textContent =
+                `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ` +
+                `${weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+        }
+    }
+
+    // Enable/disable "next" button (can’t go into future week)
+    if (nextBtn) {
+        nextBtn.disabled = addDays(weekStart, 7) > thisWeekStart;
+    }
+
+    const weekDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart);
+        d.setDate(weekStart.getDate() + i);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    });
+
+    const dayLabels = weekDays.map(d =>
+        d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    );
+
+    // ----- fetch summaries for each day in the week -----
+    const now = new Date();
+    const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    todayOnly.setHours(0, 0, 0, 0);
+
+    const perDaySummaries = await Promise.all(
+        weekDays.map(async (d) => {
+            // skip today and any future day in this week
+            const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            if (dayOnly.getTime() >= todayOnly.getTime()) {
+                return [];  // no points for today / future
+            }
+
+            // use whatever date format you’re already using here:
+            // if you’re on toISOString:
+            const dayISO = d.toISOString();
+            // or, if you switched to a YYYY-MM-DD string:
+            // const dayISO = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+            const res = await window.electronAPI.getDailySummary(dayISO, 'autosignout');
+            return (res && Array.isArray(res.summaries)) ? res.summaries : [];
+        })
+    );
+
+    // ----- collect all sessions as points -----
+    const toMin = iso => {
+        const t = new Date(iso);
+        return t.getHours() * 60 + t.getMinutes();
+    };
+
+    const allStudents = new Set();
+    const signInPoints = [];
+    const signOutPoints = [];
+
+
+    perDaySummaries.forEach((summaries, dayIdx) => {
+        summaries.forEach(s => {
+            if (!s.sessions || !s.sessions.length) return;
+            const name = s.name || s.ufid;
+            allStudents.add(name);
+
+            s.sessions.forEach(sess => {
+                // sign-in
+                if (sess.in) {
+                    const m = toMin(sess.in);
+                    if (m >= xMin && m <= xMax) {
+                        signInPoints.push({ x: m, name, dayIndex: dayIdx });
+                    }
+                }
+                // sign-out
+                if (sess.out) {
+                    const m = toMin(sess.out);
+                    if (m >= xMin && m <= xMax) {
+                        signOutPoints.push({ x: m, name, dayIndex: dayIdx });
+                    }
+                }
+            });
+        });
+    });
+
+    const names = Array.from(allStudents).sort((a, b) => a.localeCompare(b));
+    const nameToIndex = new Map();
+    names.forEach((n, i) => nameToIndex.set(n, i));
+
+    // map names to y index
+    const signinData = signInPoints.map(p => ({
+        x: p.x,
+        y: nameToIndex.get(p.name),
+        dayIndex: p.dayIndex
+    }));
+    const signoutData = signOutPoints.map(p => ({
+        x: p.x,
+        y: nameToIndex.get(p.name),
+        dayIndex: p.dayIndex
+    }));
+
+    // ----- build chart -----
+    if (charts.timeBands) charts.timeBands.destroy();
+
+    charts.timeBands = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            // we use a numeric y-axis and map ticks to names,
+            // so labels array isn't critical here, but keep for clarity:
+            labels: names,
+            datasets: [
+                {
+                    label: 'Sign in',
+                    data: signinData,
+                    parsing: false,
+                    pointRadius: 4,
+                    hoverRadius: 6,
+                    backgroundColor: (ctx) => {
+                        const raw = ctx.raw;
+                        let rowIndex = 0;
+
+                        if (raw && typeof raw.y === 'number') {
+                            rowIndex = raw.y;
+                        } else {
+                            // Fallback: look at the underlying data array
+                            const ds = ctx.chart.data.datasets[ctx.datasetIndex];
+                            const datum = ds && ds.data ? ds.data[ctx.dataIndex] : null;
+                            if (datum && typeof datum.y === 'number') {
+                                rowIndex = datum.y;
+                            }
+                        }
+
+                        return studentColor(rowIndex, 'in'); // for Sign in dataset
+                    }
+                },
+                {
+                    label: 'Sign out',
+                    data: signoutData,
+                    parsing: false,
+                    pointRadius: 4,
+                    hoverRadius: 6,
+                    backgroundColor: (ctx) => {
+                        const raw = ctx.raw;
+                        let rowIndex = 0;
+
+                        if (raw && typeof raw.y === 'number') {
+                            rowIndex = raw.y;
+                        } else {
+                            const ds = ctx.chart.data.datasets[ctx.datasetIndex];
+                            const datum = ds && ds.data ? ds.data[ctx.dataIndex] : null;
+                            if (datum && typeof datum.y === 'number') {
+                                rowIndex = datum.y;
+                            }
+                        }
+
+                        return studentColor(rowIndex, 'out'); // darker variant
+                    }
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        title: items => {
+                            const raw = items[0].raw;
+                            const studentName = names[raw.y] || '';
+                            const dayLabel = dayLabels[raw.dayIndex] || '';
+                            return `${studentName} – ${dayLabel}`;
+                        },
+                        label: item => {
+                            const raw = item.raw;
+                            const timeLabel = minToLabel(raw.x);
+                            return `${item.dataset.label}: ${timeLabel}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    min: xMin,
+                    max: xMax,
+                    ticks: {
+                        callback: v => minToLabel(v)
+                    },
+                    title: {
+                        display: true,
+                        text: 'Time of day'
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    min: -0.5,
+                    max: names.length - 0.5,
+                    offset: true,
+                    ticks: {
+                        stepSize: 1,
+                        autoSkip: false,
+                        callback: (value, index) => {
+                            // index is 0..N-1 in order, use that to index names[]
+                            return names[index] || '';
+                        }
+                    },
+                    title: { display: false },
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+}
+
+
+
 
 // Settings Management
 async function loadSettings() {
@@ -1533,10 +2214,20 @@ async function deleteRecord(recordId) {
 async function exportData() {
     try {
         const result = await window.electronAPI.generateWeeklyReport();
-        if (result.success) {
-            showNotification('Data exported successfully!', 'success');
+        if (result.success && result.csvContent) {
+            // Download to the user's default Downloads folder
+            const blob = new Blob([result.csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const today = new Date().toISOString().split('T')[0];
+            a.href = url;
+            a.download = `weekly-report-${today}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+
+            showNotification('Weekly report saved to Downloads!', 'success');
         } else {
-            showNotification('Export failed: ' + result.error, 'error');
+            showNotification('Export failed: ' + (result.error || 'No CSV content'), 'error');
         }
     } catch (error) {
         showNotification('Export error: ' + error.message, 'error');
@@ -1601,19 +2292,6 @@ async function generateWeeklyReport() {
         const result = await window.electronAPI.sendWeeklyReport();
         if (result.success) {
             showNotification('Weekly report generated and sent!', 'success');
-        } else {
-            showNotification('Report generation failed: ' + result.error, 'error');
-        }
-    } catch (error) {
-        showNotification('Report error: ' + error.message, 'error');
-    }
-}
-
-async function generateReport() {
-    try {
-        const result = await window.electronAPI.generateWeeklyReport();
-        if (result.success) {
-            showNotification('Report generated successfully!', 'success');
         } else {
             showNotification('Report generation failed: ' + result.error, 'error');
         }
@@ -1740,11 +2418,9 @@ async function backupDataNow() {
 
 // Scheduler Functions
 async function startScheduler() {
-    console.log('Admin: Starting scheduler...');
     showNotification('Starting email scheduler...', 'info');
     try {
         const result = await window.electronAPI.startEmailScheduler();
-        console.log('Start scheduler result:', result);
         if (result.success) {
             showNotification('Email scheduler started successfully!', 'success');
             setTimeout(async () => {
@@ -1760,11 +2436,9 @@ async function startScheduler() {
 }
 
 async function stopScheduler() {
-    console.log('Admin: Stopping scheduler...');
     showNotification('Stopping email scheduler...', 'info');
     try {
         const result = await window.electronAPI.stopEmailScheduler();
-        console.log('Stop scheduler result:', result);
         if (result.success) {
             showNotification('Email scheduler stopped successfully!', 'success');
             setTimeout(async () => {
@@ -2019,7 +2693,7 @@ document.addEventListener('DOMContentLoaded', function () {
         syncToSheetsBtn.addEventListener('click', syncToSheets);
     }
     if (generateReportBtn) {
-        generateReportBtn.addEventListener('click', generateReport);
+        generateReportBtn.addEventListener('click', exportData);
     }
     if (applyFiltersBtn) {
         applyFiltersBtn.addEventListener('click', applyAttendanceFilters);
@@ -2103,7 +2777,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Collect optional range
             const startISO = startEl?.value ? new Date(startEl.value).toISOString() : undefined;
             const endISO = endEl?.value ? new Date(endEl.value).toISOString() : undefined;
-            const policy = policyEl?.value || 'cap';
+            const policy = policyEl?.value || 'autosignout';
 
             const res = await window.electronAPI.backfillDailySummary({
                 startISO, endISO, policy,
@@ -2250,7 +2924,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Load initial data
     loadDashboard();
-    console.log('Admin dashboard initialized successfully');
     refreshDropboxBadges();
 });
 

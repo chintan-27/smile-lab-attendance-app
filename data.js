@@ -46,23 +46,19 @@ class DataManager {
 
         // Log initialization
         this.logger.info('system', 'DataManager initialized successfully', 'system');
-        console.log('DataManager initialized with logger');
     }
 
     initializeData() {
         if (!fs.existsSync(this.dataDir)) {
             fs.mkdirSync(this.dataDir);
-            console.log('Created data directory:', this.dataDir);
         }
 
         if (!fs.existsSync(this.attendanceFile)) {
             fs.writeFileSync(this.attendanceFile, JSON.stringify([], null, 2));
-            console.log('Created attendance.json file');
         }
 
         if (!fs.existsSync(this.studentsFile)) {
             fs.writeFileSync(this.studentsFile, JSON.stringify([], null, 2));
-            console.log('Created students.json file');
         }
 
         if (!fs.existsSync(this.configFile)) {
@@ -110,7 +106,6 @@ class DataManager {
                 }
             };
             fs.writeFileSync(this.configFile, JSON.stringify(defaultConfig, null, 2));
-            console.log('Created config.json file with default settings');
         }
     }
 
@@ -176,7 +171,6 @@ class DataManager {
             const storedHash = config.adminPassword;
 
             if (!storedHash) {
-                console.log('No admin password set, using default');
                 if (this.logger) {
                     this.logger.warning('auth', 'No admin password set, using default', 'system');
                 }
@@ -186,11 +180,11 @@ class DataManager {
             const inputHash = this.hashPassword(password);
             const isValid = inputHash === storedHash;
 
-            console.log('Password verification:', {
-                inputHash: inputHash.substring(0, 10) + '...',
-                storedHash: storedHash.substring(0, 10) + '...',
-                isValid
-            });
+            // console.log('Password verification:', {
+            //     inputHash: inputHash.substring(0, 10) + '...',
+            //     storedHash: storedHash.substring(0, 10) + '...',
+            //     isValid
+            // });
 
             if (this.logger) {
                 if (isValid) {

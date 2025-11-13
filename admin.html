@@ -4,10 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self';
-           script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
-           style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
-           img-src 'self' data:;
-           connect-src 'self' https://cdn.jsdelivr.net;">
+    script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+    style-src  'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+    font-src   'self' https://cdnjs.cloudflare.com data:;
+    img-src    'self' data:;
+    connect-src 'self' https://cdn.jsdelivr.net;
+    ">
 
     <!-- <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://cdn.jsdelivr.net;"> -->
@@ -1486,6 +1488,93 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Reporting Mode: Week | Month -->
+                <div class="card" style="margin:1rem 0rem;">
+                    <div class="card-header">
+                        <div class="card-title">Reporting</div>
+                        <div style="display:flex; gap:.5rem; align-items:center">
+                            <button class="btn btn-secondary" id="reportPrevBtn" title="Previous period">◀</button>
+                            <div id="reportRangeLabel" style="min-width: 220px; text-align:center; font-weight:600">
+                                <!-- Filled by JS -->
+                            </div>
+                            <button class="btn btn-secondary" id="reportNextBtn" title="Next period">▶</button>
+
+                            <button class="btn btn-secondary" id="reportModeToggle"
+                                style="margin-left:.75rem; min-width: 110px;">
+                                Week view
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Weekly matrix (students x Mon–Sun) -->
+                        <div id="weeklyMatrixPane">
+                            <div style="overflow:auto;">
+                                <table class="table" id="weeklyMatrixTable">
+                                    <thead id="weeklyHeader"></thead>
+                                    <tbody id="weeklyBody"></tbody>
+                                    <tfoot id="weeklyFooter"></tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Monthly heatmap (students x days) -->
+                        <div id="monthlyHeatmapPane" style="display:none;">
+                            <!-- Chart fills this area, same pattern as trendsChart -->
+                            <div class="chart-container">
+                                <canvas id="monthlyHeatmap" height="520"></canvas>
+                            </div>
+
+                            <!-- Legend UNDER the chart -->
+                            <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                                <!-- Row 1: legend chips -->
+                                <div style="display:flex; align-items:center; flex-wrap:wrap; gap: 0.75rem;">
+                                    <span style="font-weight:600; color:#0f172a;">Hours legend:</span>
+
+                                    <span
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        <span
+                                            style="width:14px; height:14px; border-radius:3px; background:#EFF6FF;"></span>
+                                        0h
+                                    </span>
+                                    <span
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        <span
+                                            style="width:14px; height:14px; border-radius:3px; background:#DBEAFE;"></span>
+                                        &lt;2h
+                                    </span>
+                                    <span
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        <span
+                                            style="width:14px; height:14px; border-radius:3px; background:#BFDBFE;"></span>
+                                        2–4h
+                                    </span>
+                                    <span
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        <span
+                                            style="width:14px; height:14px; border-radius:3px; background:#93C5FD;"></span>
+                                        4–6h
+                                    </span>
+                                    <span
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        <span
+                                            style="width:14px; height:14px; border-radius:3px; background:#3B82F6;"></span>
+                                        &gt;6h
+                                    </span>
+                                </div>
+
+                                <!-- Row 2: explanation text -->
+                                <p style="margin:0; font-size:0.9rem; color:#64748B;">
+                                    Each bar shows the total hours recorded for that student in this month.
+                                    Darker color = more hours.
+                                </p>
+                            </div>
+                        </div>
+
+
+                    </div>
+                </div>
+
                 <!-- Attendance Table -->
                 <div class="card">
                     <div class="card-body">
@@ -1516,7 +1605,7 @@
                     <h1 class="page-title">Analytics & Reports</h1>
                     <p class="page-subtitle">Advanced analytics and automated reporting system.</p>
                 </div>
-                <!-- Report Cards -->
+                <!-- Report Cards
                 <div class="stats-grid" style="margin-bottom: 2rem;">
                     <div class="card">
                         <div class="card-body" style="text-align: center;">
@@ -1549,7 +1638,7 @@
                             <button class="btn btn-primary" id="openAnalyticsBtn">View Analytics</button>
                         </div>
                     </div>
-                </div>
+                </div> -->
                 <!-- Charts -->
                 <div class="content-grid">
                     <div class="card">
@@ -1572,6 +1661,47 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Time Bands (Weekly dumbbell with nav) -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Time Bands (8am–8pm)</div>
+                            <div style="display:flex; gap:.5rem; align-items:center">
+                                <button class="btn btn-secondary btn-icon" id="bandsPrevBtn">◀</button>
+                                <div id="bandsRangeLabel" style="min-width: 190px; text-align:center; font-weight:600;">
+                                    This week
+                                </div>
+                                <button class="btn btn-secondary btn-icon" id="bandsNextBtn">▶</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="timeBandsChart" height="420"></canvas>
+                            </div>
+                            <div id="bandsLegend"
+                                style="margin-top:0.5rem; display:flex; flex-wrap:wrap; gap:0.5rem; font-size:0.85rem;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">Student Hours</div>
+                            <div style="display:flex; gap:.5rem; align-items:center">
+                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
+                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
+                                    Today
+                                </div>
+                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="studentHoursChart" height="280"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+
                 </div>
             </div>
             <!-- Settings Section -->
@@ -1885,8 +2015,8 @@
                                                 aria-label="End date" />
 
                                             <select id="rebuildPolicy" class="form-input" aria-label="Policy">
-                                                <option value="cap" selected>Cap @ 5pm (no mutation)</option>
-                                                <option value="autosignout">Auto sign-out @ 5pm</option>
+                                                <option value="cap">Cap @ 5pm (no mutation)</option>
+                                                <option value="autosignout" selected>Auto sign-out @ 5pm</option>
                                             </select>
 
                                             <span id="rebuildSummaryStatus" class="badge info"
