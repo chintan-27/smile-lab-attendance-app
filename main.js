@@ -1,6 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron')
 const path = require('path')
-const updateElectronApp = require('update-electron-app');
 const { autoUpdater } = require('electron-updater');
 
 const DataManager = require('./data.js')
@@ -10,6 +9,8 @@ const GoogleSheetsService = require('./googleSheetsService.js');
 const DropboxService = require('./dropboxService.js')
 const Logger = require('./logger.js')
 const cron = require('node-cron')
+const log = require('electron-log');
+log.transports.file.level = 'info';
 
 let mainWindow;
 let dataManager;
@@ -64,38 +65,36 @@ function atMidnightNY(dt) {
 }
 
 function initAutoUpdate() {
-  // Only run auto-update in packaged builds (not `npm start`)
-  if (!app.isPackaged) {
-    dataManager?.logger?.info('system', 'Skipping auto-update (not packaged build)', 'system');
+  // Log whether Electron thinks this is a packaged build
+  const packaged = app.isPackaged;
+  console.log('[updates] initAutoUpdate called, isPackaged =', packaged);
+  log.info('[updates] initAutoUpdate called, isPackaged = ' + packaged);
+
+  if (!packaged) {
+    console.log('[updates] Skipping auto-update: not a packaged build');
+    log.info('[updates] Skipping auto-update: not a packaged build');
     return;
   }
 
-  // Initialize update-electron-app
-  updateElectronApp({
-    repo: 'chintan-27/smile-lab-attendance-app', // 👈 change if your repo is different
-    updateInterval: '1 hour',                    // check every hour
-    notifyUser: false                            // we will show our own dialogs
-  });
+  // Let electron-updater log into the same file
+  autoUpdater.logger = log;
+  autoUpdater.logger.transports.file.level = 'info';
 
-  // Don't download automatically — we will ask the user first
+  // Make sure we’re not auto-downloading so we can offer Download/Later
   autoUpdater.autoDownload = false;
 
-  autoUpdater.on('error', (err) => {
-    const msg = err ? (err.stack || err.message || String(err)) : 'Unknown error';
-    dataManager?.logger?.error('system', `Auto-updater error: ${msg}`, 'system');
+  // --- Event handlers so we SEE what’s happening ---
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[updates] Checking for update…');
+    log.info('[updates] Checking for update…');
   });
 
-  // 1️⃣ Update is FOUND → ask user if they want to download it
   autoUpdater.on('update-available', (info) => {
-    dataManager?.logger?.info(
-      'system',
-      `Update available: ${info.version}`,
-      'system'
-    );
+    console.log('[updates] Update available:', info.version);
+    log.info('[updates] Update available:', info.version);
 
-    if (!mainWindow) return;
-
-    const choice = dialog.showMessageBoxSync(mainWindow, {
+    const choice = dialog.showMessageBoxSync({
       type: 'info',
       title: 'Update Available',
       message: `A new version (${info.version}) is available.`,
@@ -106,24 +105,43 @@ function initAutoUpdate() {
     });
 
     if (choice === 0) {
-      dataManager?.logger?.info('system', 'User chose to download update', 'system');
+      console.log('[updates] User chose to download update');
+      log.info('[updates] User chose to download update');
       autoUpdater.downloadUpdate();
     } else {
-      dataManager?.logger?.info('system', 'User postponed update download', 'system');
+      console.log('[updates] User postponed download');
+      log.info('[updates] User postponed download');
     }
   });
 
-  // 2️⃣ Update is DOWNLOADED → ask user if they want to restart now
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[updates] No update available.', info && info.version);
+    log.info('[updates] No update available.', info && info.version);
+
+    // dialog.showMessageBox({
+    //   type: 'info',
+    //   title: 'No Updates',
+    //   message: 'You are already on the latest version.'
+    // });
+  });
+
+  autoUpdater.on('error', (err) => {
+    const msg = err ? (err.stack || err.message || String(err)) : 'Unknown error';
+    console.error('[updates] Error:', msg);
+    log.error('[updates] Error:', msg);
+    dialog.showErrorBox('Update Error', msg);
+  });
+
+  autoUpdater.on('download-progress', (p) => {
+    console.log('[updates] Download progress:', p && p.percent);
+    log.info('[updates] Download progress:', p && p.percent);
+  });
+
   autoUpdater.on('update-downloaded', (info) => {
-    dataManager?.logger?.info(
-      'system',
-      `Update downloaded: ${info.version}`,
-      'system'
-    );
+    console.log('[updates] Update downloaded:', info.version);
+    log.info('[updates] Update downloaded:', info.version);
 
-    if (!mainWindow) return;
-
-    const choice = dialog.showMessageBoxSync(mainWindow, {
+    const choice = dialog.showMessageBoxSync({
       type: 'info',
       title: 'Update Ready',
       message: `Version ${info.version} has been downloaded.`,
@@ -134,14 +152,17 @@ function initAutoUpdate() {
     });
 
     if (choice === 0) {
-      dataManager?.logger?.info('system', 'User chose to restart and install update', 'system');
+      console.log('[updates] User chose to restart and install');
+      log.info('[updates] User chose to restart and install');
       autoUpdater.quitAndInstall();
     } else {
-      dataManager?.logger?.info('system', 'User postponed installing update', 'system');
+      console.log('[updates] User postponed install');
+      log.info('[updates] User postponed install');
     }
   });
 
-  // Optional: trigger an initial check on startup
+  console.log('[updates] Calling checkForUpdates()…');
+  log.info('[updates] Calling checkForUpdates()…');
   autoUpdater.checkForUpdates();
 }
 
@@ -331,6 +352,23 @@ app.whenReady().then(async () => {
     }, { scheduled: true, timezone: 'America/New_York' });
     backupJobStarted = true;
   }
+
+  // Check for updates every day at 9 AM ET
+  cron.schedule('0 9 * * *', () => {
+    try {
+      console.log('[updates] Scheduled 9 AM update check triggered');
+      log.info('[updates] Scheduled 9 AM update check triggered');
+
+      if (app.isPackaged) {
+        autoUpdater.checkForUpdates();
+      } else {
+        console.log('[updates] Skipping scheduled update check (not packaged)');
+      }
+    } catch (e) {
+      console.error('[updates] Scheduled update check error:', e);
+      log.error('[updates] Scheduled update check error:', e.message);
+    }
+  }, { timezone: 'America/New_York' });
 
   // Daily summary at 11:59 PM ET
   if (!dailySummaryJobStarted) {
