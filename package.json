@@ -16,7 +16,8 @@
     "pretest": "node tests/setup/setupTests.js",
     "posttest": "node tests/setup/teardown.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder -mwl"
+    "dist": "electron-builder -mwl",
+    "release": "electron-builder -mwl --publish always"
   },
   "author": "",
   "license": "ISC",
