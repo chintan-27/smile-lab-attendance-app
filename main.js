@@ -1,5 +1,8 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron')
 const path = require('path')
+const updateElectronApp = require('update-electron-app');
+const { autoUpdater } = require('electron-updater');
+
 const DataManager = require('./data.js')
 const EmailService = require('./emailService.js')
 delete require.cache[require.resolve('./googleSheetsService.js')];
@@ -59,6 +62,89 @@ function atMidnightNY(dt) {
   ny.setHours(0, 0, 0, 0);
   return ny;
 }
+
+function initAutoUpdate() {
+  // Only run auto-update in packaged builds (not `npm start`)
+  if (!app.isPackaged) {
+    dataManager?.logger?.info('system', 'Skipping auto-update (not packaged build)', 'system');
+    return;
+  }
+
+  // Initialize update-electron-app
+  updateElectronApp({
+    repo: 'chintan-27/smile-lab-attendance-app', // 👈 change if your repo is different
+    updateInterval: '1 hour',                    // check every hour
+    notifyUser: false                            // we will show our own dialogs
+  });
+
+  // Don't download automatically — we will ask the user first
+  autoUpdater.autoDownload = false;
+
+  autoUpdater.on('error', (err) => {
+    const msg = err ? (err.stack || err.message || String(err)) : 'Unknown error';
+    dataManager?.logger?.error('system', `Auto-updater error: ${msg}`, 'system');
+  });
+
+  // 1️⃣ Update is FOUND → ask user if they want to download it
+  autoUpdater.on('update-available', (info) => {
+    dataManager?.logger?.info(
+      'system',
+      `Update available: ${info.version}`,
+      'system'
+    );
+
+    if (!mainWindow) return;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version (${info.version}) is available.`,
+      detail: 'Do you want to download it now?',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (choice === 0) {
+      dataManager?.logger?.info('system', 'User chose to download update', 'system');
+      autoUpdater.downloadUpdate();
+    } else {
+      dataManager?.logger?.info('system', 'User postponed update download', 'system');
+    }
+  });
+
+  // 2️⃣ Update is DOWNLOADED → ask user if they want to restart now
+  autoUpdater.on('update-downloaded', (info) => {
+    dataManager?.logger?.info(
+      'system',
+      `Update downloaded: ${info.version}`,
+      'system'
+    );
+
+    if (!mainWindow) return;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'info',
+      title: 'Update Ready',
+      message: `Version ${info.version} has been downloaded.`,
+      detail: 'Restart the app now to install the update?',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (choice === 0) {
+      dataManager?.logger?.info('system', 'User chose to restart and install update', 'system');
+      autoUpdater.quitAndInstall();
+    } else {
+      dataManager?.logger?.info('system', 'User postponed installing update', 'system');
+    }
+  });
+
+  // Optional: trigger an initial check on startup
+  autoUpdater.checkForUpdates();
+}
+
 
 const createWindow = () => {
   const { height } = screen.getPrimaryDisplay().workAreaSize;
@@ -305,6 +391,7 @@ app.whenReady().then(async () => {
     syncTimer = setInterval(() => safeSyncByMode('interval-sync'), mins * 60 * 1000);
   }
   createWindow();
+  initAutoUpdate();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
