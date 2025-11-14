@@ -7,7 +7,7 @@ class EmailService {
         this.dataManager = dataManager;
         this.scheduledTask = null;
         this.testTask = null;
-        this.schedulerRunning = false; 
+        this.schedulerRunning = false;
         this.initializeScheduler();
     }
 
@@ -89,6 +89,12 @@ class EmailService {
                             </tbody>
                         </table>
                     </div>
+                    <div style="margin-bottom: 30px;">
+                        <h3 style="color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Visualizatio</h3>
+                        <img src="cid:timeBandsChart"
+                            alt="Weekly time bands"
+                            style="max-width:100%; border-radius:6px;" />
+                    </div>
 
                     <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
                         <p style="color: #666; font-size: 14px;">
@@ -102,7 +108,7 @@ class EmailService {
         `;
     }
 
-    async sendWeeklyReport() {
+    async sendWeeklyReport(bandsImageDataUrl) {
         try {
             const config = this.dataManager.getConfig();
 
@@ -117,6 +123,19 @@ class EmailService {
 
             const transporter = this.createTransporter(config.emailSettings);
             const emailHTML = this.generateEmailHTML(reportResult.reportData);
+            const attachments = [{
+                filename: path.basename(reportResult.filePath),
+                path: reportResult.filePath
+            }];
+
+            if (bandsImageDataUrl && bandsImageDataUrl.startsWith('data:image/png;base64,')) {
+                const base64 = bandsImageDataUrl.replace(/^data:image\/png;base64,/, '');
+                attachments.push({
+                    filename: 'weekly-time-bands.png',
+                    content: Buffer.from(base64, 'base64'),
+                    cid: 'timeBandsChart'  // must match <img src="cid:timeBandsChart">
+                });
+            }
 
             const mailOptions = {
                 from: {
@@ -126,10 +145,7 @@ class EmailService {
                 to: config.emailSettings.recipientEmail,
                 subject: `Weekly Lab Attendance Report - ${new Date().toLocaleDateString()}`,
                 html: emailHTML,
-                attachments: [{
-                    filename: path.basename(reportResult.filePath),
-                    path: reportResult.filePath
-                }]
+                attachments: attachments
             };
 
             const info = await transporter.sendMail(mailOptions);
@@ -280,7 +296,7 @@ class EmailService {
 
             return { success: true, message: 'Test scheduler will run in 10 seconds' };
         } catch (error) {
-            return { success: false, message: 'Error starting test scheduler: ' + error.message };
+            return { success: false, message: 'Error starting test scheduler: ' + error.message }
         }
     }
 }

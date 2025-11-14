@@ -728,11 +728,11 @@ ipcMain.handle('generate-weekly-report', async (event) => {
 });
 
 // Email service handlers
-ipcMain.handle('send-weekly-report', async (event) => {
+ipcMain.handle('send-weekly-report', async (event, bandsImageDataUrl) => {
   try {
     dataManager.logger.info('email', 'Sending weekly report', 'admin');
 
-    const result = await emailService.sendWeeklyReport();
+    const result = await emailService.sendWeeklyReport(bandsImageDataUrl);
 
     if (result.success) {
       dataManager.logger.info('email', 'Weekly report sent successfully', 'admin');

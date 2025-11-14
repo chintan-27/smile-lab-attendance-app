@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateWeeklyReport: () => ipcRenderer.invoke('generate-weekly-report'),
 
   // Email Service
-  sendWeeklyReport: () => ipcRenderer.invoke('send-weekly-report'),
+  sendWeeklyReport: (bandsImageDataUrl) => ipcRenderer.invoke('send-weekly-report', bandsImageDataUrl),
   testEmailConfig: (emailConfig) => ipcRenderer.invoke('test-email-config', emailConfig),
   startEmailScheduler: () => ipcRenderer.invoke('start-email-scheduler'),
   stopEmailScheduler: () => ipcRenderer.invoke('stop-email-scheduler'),

@@ -2350,15 +2350,24 @@ async function testEmail() {
 
 async function sendWeeklyReportNow() {
     try {
+        let bandsImageDataUrl = null;
+
+        const canvas = document.getElementById('timeBandsChart');
+        if (canvas && typeof canvas.toDataURL === 'function') {
+            // Grab current Time Bands scatter as PNG
+            bandsImageDataUrl = canvas.toDataURL('image/png');
+        }
+
         showNotification('Sending weekly report...', 'info');
-        const result = await window.electronAPI.sendWeeklyReport();
+        const result = await window.electronAPI.sendWeeklyReport(bandsImageDataUrl);
+
         if (result.success) {
-            showNotification('Weekly report sent successfully!', 'success');
+            showNotification('Weekly report generated and sent!', 'success');
         } else {
-            showNotification('Failed to send report: ' + result.error, 'error');
+            showNotification('Report email failed: ' + result.error, 'error');
         }
     } catch (error) {
-        showNotification('Report error: ' + error.message, 'error');
+        showNotification('Test email error: ' + error.message, 'error');
     }
 }
 
