@@ -684,6 +684,37 @@ function setMonthLabel(monthStart) {
     document.getElementById('monthNextBtn').disabled = !(new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1) <= nowMonthStart);
 }
 
+function fmtTime(dt) {
+    if (!dt) return '—';
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function normalizeSessions(s) {
+    // Prefer the sessions array you already use in renderTimeBands()
+    if (Array.isArray(s.sessions) && s.sessions.length) {
+        return s.sessions.map(sess => ({
+            in: sess.in ?? sess.signInAt ?? sess.clockInAt ?? sess.startTime ?? sess.inTime ?? null,
+            out: sess.out ?? sess.signOutAt ?? sess.clockOutAt ?? sess.endTime ?? sess.outTime ?? null
+        }));
+    }
+
+    // Fallback: sometimes summary might have one pair on the summary itself
+    const inT = s.in ?? s.signInAt ?? s.clockInAt ?? s.startTime ?? s.inTime ?? null;
+    const outT = s.out ?? s.signOutAt ?? s.clockOutAt ?? s.endTime ?? s.outTime ?? null;
+    return (inT || outT) ? [{ in: inT, out: outT }] : [];
+}
+
+function renderSessionsHtml(sessions) {
+    if (!sessions || !sessions.length) return '';
+    return `<div style="margin-top:4px; font-size:0.75rem; color:#475569; line-height:1.2;">
+        ${sessions.map(sess =>
+        `<div>${fmtTime(sess.in)} – ${fmtTime(sess.out)}</div>`
+    ).join('')}
+    </div>`;
+}
+
 // Build Mon–Sun matrix (alphabetical, neutral)
 async function renderWeeklyMatrix(weekStart) {
     const labelEl = document.getElementById('reportRangeLabel');
@@ -693,49 +724,68 @@ async function renderWeeklyMatrix(weekStart) {
         new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i)
     );
 
-    // Label: "This week" or "Nov 11 – Nov 17"
+    // Label
     const thisWeek = startOfWeek(new Date());
     const weekEnd = addDays(weekStart, 6);
-    if (weekStart.getTime() === thisWeek.getTime()) {
-        labelEl.textContent = 'This week';
-    } else {
-        labelEl.textContent = `${fmtShort(weekStart)} – ${fmtShort(weekEnd)}`;
-    }
+    labelEl.textContent =
+        (weekStart.getTime() === thisWeek.getTime())
+            ? 'This week'
+            : `${fmtShort(weekStart)} – ${fmtShort(weekEnd)}`;
+
     // Disable next if we would go past this week
     nextBtn.disabled = addDays(weekStart, 7) > thisWeek;
 
-    // fetch summaries (using your autosignout policy or cap, as you prefer)
+    // Fetch summaries per day
     const perDay = await Promise.all(days.map(async (d) => {
         const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
-        const res = await window.electronAPI.getDailySummary(iso, 'autosignout');
+        const res = await window.electronAPI.getDailySummary(iso, 'cap');
         return (res && res.success && Array.isArray(res.summaries)) ? res.summaries : [];
     }));
 
+    // Map: studentKey -> [{hours, sessions[]}, ... x7]
     const map = new Map();
-    perDay.forEach((summaries, idx) => {
+
+    perDay.forEach((summaries, dayIdx) => {
         summaries.forEach(s => {
-            const key = s.name || s.ufid || `UFID-${idx}`;
-            const row = map.get(key) || Array(7).fill(0);
-            row[idx] = (typeof s.totalHours === 'number') ? s.totalHours : 0;
+            const key = s.name || s.ufid || `UFID-${dayIdx}`;
+            const row = map.get(key) || Array.from({ length: 7 }, () => ({ hours: 0, sessions: [] }));
+
+            const hours = (typeof s.totalHours === 'number') ? s.totalHours : 0;
+            const sessions = normalizeSessions(s);
+
+            row[dayIdx] = { hours, sessions };
             map.set(key, row);
         });
     });
 
     const header = document.getElementById('weeklyHeader');
     const body = document.getElementById('weeklyBody');
-    const footer = document.getElementById('weeklyFooter');
 
     header.innerHTML =
-        `<tr><th style="text-align:left">Student</th>${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' })}</th>`).join('')
-        }<th>Total</th></tr>`;
+        `<tr>
+            <th style="text-align:left">Student</th>
+            ${days.map(d => `<th>${d.toLocaleDateString(undefined, { weekday: 'short' })}</th>`).join('')}
+            <th>Total</th>
+        </tr>`;
 
     const rows = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    body.innerHTML = rows.map(([name, arr]) => {
-        const total = arr.reduce((a, b) => a + b, 0);
-        return `<tr><td style="text-align:left">${name}</td>${arr.map(h => `<td>${h.toFixed(2)}</td>`).join('')
-            }<td><strong>${total.toFixed(2)}</strong></td></tr>`;
-    }).join('');
 
+    body.innerHTML = rows.map(([name, weekCells]) => {
+        const total = weekCells.reduce((sum, c) => sum + (c.hours || 0), 0);
+
+        return `<tr>
+            <td style="text-align:left">${escapeHtml(name)}</td>
+            ${weekCells.map(cell => {
+                const h = (cell.hours || 0);
+                const sessHtml = renderSessionsHtml(cell.sessions);
+                return `<td style="vertical-align:top;">
+                    <div style="font-variant-numeric: tabular-nums;">${h.toFixed(2)}h</div>
+                    ${sessHtml}
+                </td>`;
+            }).join('')}
+            <td style="vertical-align:top;"><strong>${total.toFixed(2)}h</strong></td>
+        </tr>`;
+    }).join('');
 }
 
 

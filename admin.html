@@ -1641,13 +1641,21 @@
                 </div> -->
                 <!-- Charts -->
                 <div class="content-grid">
+
                     <div class="card">
                         <div class="card-header">
-                            <h3 class="card-title">Attendance Trends</h3>
+                            <div class="card-title">Student Hours</div>
+                            <div style="display:flex; gap:.5rem; align-items:center">
+                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
+                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
+                                    Today
+                                </div>
+                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="chart-container">
-                                <canvas id="trendsChart" width="600" height="300"></canvas>
+                                <canvas id="studentHoursChart" height="280"></canvas>
                             </div>
                         </div>
                     </div>
@@ -1685,21 +1693,15 @@
 
                     <div class="card">
                         <div class="card-header">
-                            <div class="card-title">Student Hours</div>
-                            <div style="display:flex; gap:.5rem; align-items:center">
-                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
-                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
-                                    Today
-                                </div>
-                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
-                            </div>
+                            <h3 class="card-title">Attendance Trends</h3>
                         </div>
                         <div class="card-body">
                             <div class="chart-container">
-                                <canvas id="studentHoursChart" height="280"></canvas>
+                                <canvas id="trendsChart" width="600" height="300"></canvas>
                             </div>
                         </div>
                     </div>
+
 
 
                 </div>
