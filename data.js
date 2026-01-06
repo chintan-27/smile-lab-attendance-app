@@ -959,12 +959,13 @@ class DataManager {
     }
 
     computeHoursWorkedToday(dateLike) {
-        const {
-            // Optional: useful for tests or "as of" reporting
-            now = new Date(),
+        // let options;
+        // const {
+        //     // Optional: useful for tests or "as of" reporting
+        const now = new Date();
             // Optional: clamp totals so you don't count beyond a certain hour on that day
-            closeOpenAtHour = null
-        } = options;
+        const closeOpenAtHour = null;
+        // } = options;
 
         const records = this.getAttendanceForDate(dateLike)
             .slice()
