@@ -8,6 +8,7 @@ let charts = window.charts || (window.charts = {});
 let currentWeekStart = startOfWeek(new Date());          // Monday of current week
 let currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let reportMode = 'week'; // 'week' | 'month'
+let dashboardChartDaysCount = 7;
 function yesterday() {
     const d = new Date();
     d.setDate(d.getDate() - 1);
@@ -234,7 +235,7 @@ async function loadDashboardCharts() {
         if (!ctx) return;
 
         const last7Days = [];
-        for (let i = 6; i >= 0; i--) {
+        for (let i = dashboardChartDaysCount - 1; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             last7Days.push(date.toDateString());
@@ -257,20 +258,20 @@ async function loadDashboardCharts() {
         }
 
         charts.attendance = new Chart(ctx, {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: last7Days.map(day => new Date(day).toLocaleDateString('en-US', { weekday: 'short' })),
                 datasets: [{
                     label: 'Sign Ins',
                     data: signInsByDay,
                     borderColor: '#0021A5', // UF Blue instead of green
-                    backgroundColor: 'rgba(0, 33, 165, 0.1)', // Light blue
+                    backgroundColor: 'rgba(0, 33, 165, 1)', // Light blue
                     tension: 0.4
                 }, {
                     label: 'Sign Outs',
                     data: signOutsByDay,
                     borderColor: '#FA4616', // UF Orange instead of yellow
-                    backgroundColor: 'rgba(250, 70, 22, 0.1)', // Light orange
+                    backgroundColor: 'rgba(250, 70, 22, 1)', // Light orange
                     tension: 0.4
                 }]
             },
@@ -1263,7 +1264,7 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
         weekDays.map(async (d) => {
             // skip today and any future day in this week
             const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-            if (dayOnly.getTime() >= todayOnly.getTime()) {
+            if (dayOnly.getTime() > todayOnly.getTime()) {
                 return [];  // no points for today / future
             }
 
@@ -2644,8 +2645,18 @@ function goBack() {
     window.location.href = 'index.html';
 }
 
-function changeChartPeriod(period) {
-    showNotification(`Chart period changed to ${period}`, 'info');
+async function changeChartPeriod(period) {
+    if(period == "week"){
+        dashboardChartDaysCount = 7;
+        await loadDashboardCharts();
+        showNotification(`Chart period changed to ${period}`, 'info');
+    } else if (period == "month") {
+        dashboardChartDaysCount = 30;
+        await loadDashboardCharts();
+        showNotification(`Chart period changed to ${period}`, 'info');
+    } else {
+       showNotification(`Invalid period ${period}`, 'error'); 
+    }
 }
 
 function openAnalytics() {
