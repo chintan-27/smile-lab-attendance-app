@@ -1323,6 +1323,7 @@ async function renderStudentHoursForDay(day = new Date()) {
 // Weekly “two dots of a bar” per student (time bands)
 // “Two dots of a bar” per student, per day for the week containing `day`
 // Weekly scatter: every sign-in/sign-out is a point
+// Weekly scatter: every sign-in/sign-out is a point
 async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 } = {}) {
     const ctx = document.getElementById('timeBandsChart');
     if (!ctx) return;
@@ -1366,26 +1367,29 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
         d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
     );
 
-    // ----- fetch summaries for each day in the week -----
+    // ----- helpers -----
     const now = new Date();
     const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     todayOnly.setHours(0, 0, 0, 0);
 
+    const isSameDay = (a, b) =>
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate();
+
+    // ----- fetch summaries for each day in the week -----
+    // Use 'cap' so we don't autosignout; for today we also skip plotting any "out" points.
     const perDaySummaries = await Promise.all(
         weekDays.map(async (d) => {
-            // skip today and any future day in this week
+            // skip future days (including tomorrow+). We DO include today.
             const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-            if (dayOnly.getTime() > todayOnly.getTime()) {
-                return [];  // no points for today / future
-            }
+            if (dayOnly.getTime() > todayOnly.getTime()) return [];
 
-            // use whatever date format you’re already using here:
-            // if you’re on toISOString:
+            // Keep your existing date format (ISO is fine here)
             const dayISO = d.toISOString();
-            // or, if you switched to a YYYY-MM-DD string:
-            // const dayISO = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
-            const res = await window.electronAPI.getDailySummary(dayISO, 'autosignout');
+            // IMPORTANT: do NOT use 'autosignout'
+            const res = await window.electronAPI.getDailySummary(dayISO, 'cap');
             return (res && Array.isArray(res.summaries)) ? res.summaries : [];
         })
     );
@@ -1400,23 +1404,28 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
     const signInPoints = [];
     const signOutPoints = [];
 
-
     perDaySummaries.forEach((summaries, dayIdx) => {
+        const dayDate = weekDays[dayIdx];
+        const isToday = isSameDay(dayDate, todayOnly);
+
         summaries.forEach(s => {
             if (!s.sessions || !s.sessions.length) return;
             const name = s.name || s.ufid;
             allStudents.add(name);
 
             s.sessions.forEach(sess => {
-                // sign-in
+                // sign-in point (always show if present)
                 if (sess.in) {
                     const m = toMin(sess.in);
                     if (m >= xMin && m <= xMax) {
                         signInPoints.push({ x: m, name, dayIndex: dayIdx });
                     }
                 }
-                // sign-out
-                if (sess.out) {
+
+                // sign-out point:
+                // For TODAY: do NOT show sign-outs at all (prevents "auto" / capped end-times)
+                // For past days: show real sign-outs if present
+                if (!isToday && sess.out) {
                     const m = toMin(sess.out);
                     if (m >= xMin && m <= xMax) {
                         signOutPoints.push({ x: m, name, dayIndex: dayIdx });
@@ -1448,8 +1457,6 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
     charts.timeBands = new Chart(ctx, {
         type: 'scatter',
         data: {
-            // we use a numeric y-axis and map ticks to names,
-            // so labels array isn't critical here, but keep for clarity:
             labels: names,
             datasets: [
                 {
@@ -1465,15 +1472,12 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
                         if (raw && typeof raw.y === 'number') {
                             rowIndex = raw.y;
                         } else {
-                            // Fallback: look at the underlying data array
                             const ds = ctx.chart.data.datasets[ctx.datasetIndex];
                             const datum = ds && ds.data ? ds.data[ctx.dataIndex] : null;
-                            if (datum && typeof datum.y === 'number') {
-                                rowIndex = datum.y;
-                            }
+                            if (datum && typeof datum.y === 'number') rowIndex = datum.y;
                         }
 
-                        return studentColor(rowIndex, 'in'); // for Sign in dataset
+                        return studentColor(rowIndex, 'in');
                     }
                 },
                 {
@@ -1491,12 +1495,10 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
                         } else {
                             const ds = ctx.chart.data.datasets[ctx.datasetIndex];
                             const datum = ds && ds.data ? ds.data[ctx.dataIndex] : null;
-                            if (datum && typeof datum.y === 'number') {
-                                rowIndex = datum.y;
-                            }
+                            if (datum && typeof datum.y === 'number') rowIndex = datum.y;
                         }
 
-                        return studentColor(rowIndex, 'out'); // darker variant
+                        return studentColor(rowIndex, 'out');
                     }
                 }
             ]
@@ -1526,13 +1528,8 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
                 x: {
                     min: xMin,
                     max: xMax,
-                    ticks: {
-                        callback: v => minToLabel(v)
-                    },
-                    title: {
-                        display: true,
-                        text: 'Time of day'
-                    }
+                    ticks: { callback: v => minToLabel(v) },
+                    title: { display: true, text: 'Time of day' }
                 },
                 y: {
                     type: 'linear',
@@ -1543,15 +1540,10 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
                     ticks: {
                         stepSize: 1,
                         autoSkip: false,
-                        callback: (value, index) => {
-                            // index is 0..N-1 in order, use that to index names[]
-                            return names[index] || '';
-                        }
+                        callback: (value, index) => names[index] || ''
                     },
                     title: { display: false },
-                    grid: {
-                        display: false
-                    }
+                    grid: { display: false }
                 }
             }
         }
@@ -2473,7 +2465,7 @@ async function cloudBackup() {
         showNotification('Creating cloud backup...', 'info');
         const result = await window.electronAPI.uploadToDropbox('backup');
         if (result.success) {
-;
+            ;
         } else {
             showNotification('Backup failed: ' + result.error, 'error');
         }
