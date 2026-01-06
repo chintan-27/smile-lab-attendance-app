@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Students
   getStudents: () => ipcRenderer.invoke('get-students'),
   addStudent: (student) => ipcRenderer.invoke('add-student', student),
+  updateStudent: (student) => ipcRenderer.invoke('update-student', student),
   removeStudent: (ufid) => ipcRenderer.invoke('remove-student', ufid),
   getCurrentlySignedIn: () => ipcRenderer.invoke('get-currently-signed-in'),
 

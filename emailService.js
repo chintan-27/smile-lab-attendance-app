@@ -2,6 +2,10 @@ const nodemailer = require('nodemailer');
 const cron = require('node-cron');
 const path = require('path');
 
+async function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
 class EmailService {
     constructor(dataManager) {
         this.dataManager = dataManager;
@@ -23,25 +27,112 @@ class EmailService {
         });
     }
 
+    async captureWeeklyTimeBandsChartDataUrl() {
+        const { BrowserWindow } = require('electron');
+
+        let win;
+        try {
+            win = new BrowserWindow({
+                show: false,
+                width: 1400,
+                height: 900,
+                webPreferences: {
+                    // Use the same preload you use for the admin window so window.electronAPI exists
+                    preload: path.join(__dirname, 'preload.js'),
+                    contextIsolation: true,
+                }
+            });
+
+            await win.loadFile(path.join(__dirname, 'admin.html'));
+
+            // Run in the page context: open Reports, render, then export canvas
+            const dataUrl = await win.webContents.executeJavaScript(`
+        (async () => {
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+        // 1) Force Reports visible (Chart.js must see a visible canvas)
+        document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+        const reports = document.getElementById('reports-section');
+        if (reports) reports.classList.add('active');
+
+        // 2) Ensure Chart.js is loaded
+        for (let i = 0; i < 50; i++) {
+            if (window.Chart) break;
+            await wait(100);
+        }
+
+        // 3) Ensure report page JS ran and charts were rendered
+        if (typeof loadReports === 'function') {
+            await loadReports();
+        }
+
+        if (typeof renderTimeBands === 'function') {
+            await renderTimeBands({ day: new Date() });
+        }
+
+        // 4) Wait a tick for paint/layout and chart animation
+        for (let i = 0; i < 30; i++) {
+            await wait(100);
+            const c = document.getElementById('timeBandsChart');
+            if (!c) continue;
+
+            // If Chart.js chart instance exists, force a resize + update (helps in hidden windows)
+            const chart = window.Chart?.getChart?.(c);
+            if (chart) {
+            chart.resize();
+            chart.update('none');
+            }
+
+            const url = c.toDataURL('image/png');
+            if (url && url.startsWith('data:image/png;base64,') && url.length > 5000) {
+            return url;
+            }
+        }
+
+        return null;
+        })();
+        `);
+
+
+            return dataUrl;
+        } finally {
+            if (win && !win.isDestroyed()) win.destroy();
+        }
+    }
+
     generateEmailHTML(reportData) {
         const startDate = new Date(reportData.startDate).toLocaleDateString();
         const endDate = new Date(reportData.endDate).toLocaleDateString();
 
         let studentRows = '';
         Object.keys(reportData.studentReports).forEach(ufid => {
-            const student = reportData.studentReports[ufid];
-            if (student.signIns > 0 || student.signOuts > 0) {
+            const s = reportData.studentReports[ufid];
+            if (s.signIns > 0 || s.signOuts > 0) {
+                const expH = Number(s.expectedHoursPerWeek ?? 0);
+                const expD = Number(s.expectedDaysPerWeek ?? 0);
+
+                const hoursText = expH > 0 ? `${s.totalHours}h / ${expH}h` : `${s.totalHours}h / —`;
+                const daysText = expD > 0 ? `${s.daysAttended} / ${expD}` : `${s.daysAttended} / —`;
+
                 studentRows += `
-                    <tr>
-                        <td style="padding: 8px; border: 1px solid #ddd;">${ufid}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd;">${student.name}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${student.signIns}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${student.signOuts}</td>
-                        <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${student.totalHours}h</td>
-                    </tr>
-                `;
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #ddd;">
+                            <div style="font-weight: 600;">${s.name}
+                                <span style="font-weight: normal; color:#64748b;"> (${s.role || 'volunteer'})</span>
+                            </div>
+                            <div style="color:#64748b; font-size: 12px;">${s.email || ''}</div>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid #ddd; text-align:center; font-variant-numeric: tabular-nums;">
+                            ${hoursText}
+                            </td>
+                            <td style="padding: 10px; border: 1px solid #ddd; text-align:center; font-variant-numeric: tabular-nums;">
+                            ${daysText}
+                            </td>
+                        </tr>
+                        `;
             }
         });
+
 
         return `
             <!DOCTYPE html>
@@ -77,12 +168,11 @@ class EmailService {
                         <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
                             <thead>
                                 <tr style="background-color: #667eea; color: white;">
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">UF ID</th>
-                                    <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Name</th>
-                                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">Sign Ins</th>
-                                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">Sign Outs</th>
-                                    <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">Hours</th>
+                                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Student</th>
+                                <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">Hours (attended / expected)</th>
+                                <th style="padding: 12px; text-align: center; border: 1px solid #ddd;">Days (attended / expected)</th>
                                 </tr>
+
                             </thead>
                             <tbody>
                                 ${studentRows}
@@ -90,7 +180,7 @@ class EmailService {
                         </table>
                     </div>
                     <div style="margin-bottom: 30px;">
-                        <h3 style="color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Visualizatio</h3>
+                        <h3 style="color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Visualization</h3>
                         <img src="cid:timeBandsChart"
                             alt="Weekly time bands"
                             style="max-width:100%; border-radius:6px;" />
@@ -110,6 +200,9 @@ class EmailService {
 
     async sendWeeklyReport(bandsImageDataUrl) {
         try {
+            if (!bandsImageDataUrl) {
+                bandsImageDataUrl = await this.captureWeeklyTimeBandsChartDataUrl();
+            }
             const config = this.dataManager.getConfig();
 
             if (!config.emailSettings || !config.emailSettings.enabled) {
@@ -123,19 +216,25 @@ class EmailService {
 
             const transporter = this.createTransporter(config.emailSettings);
             const emailHTML = this.generateEmailHTML(reportResult.reportData);
-            const attachments = [{
-                filename: path.basename(reportResult.filePath),
-                path: reportResult.filePath
-            }];
+            const attachments = [];
 
             if (bandsImageDataUrl && bandsImageDataUrl.startsWith('data:image/png;base64,')) {
                 const base64 = bandsImageDataUrl.replace(/^data:image\/png;base64,/, '');
                 attachments.push({
                     filename: 'weekly-time-bands.png',
                     content: Buffer.from(base64, 'base64'),
-                    cid: 'timeBandsChart'  // must match <img src="cid:timeBandsChart">
+                    cid: 'timeBandsChart',
+                    contentType: 'image/png',
+                    contentDisposition: 'inline',
+
                 });
             }
+
+            attachments.push({
+                filename: path.basename(reportResult.filePath),
+                path: reportResult.filePath
+            });
+
 
             const mailOptions = {
                 from: {
@@ -200,7 +299,16 @@ class EmailService {
 
     initializeScheduler() {
         this.scheduledTask = cron.schedule('0 8 * * 6', async () => {
-            const result = await this.sendWeeklyReport();
+            let bandsImageDataUrl = null;
+
+            try {
+                bandsImageDataUrl = await this.captureWeeklyTimeBandsChartDataUrl();
+            } catch (e) {
+                console.error('Failed to capture time bands chart:', e);
+            }
+
+            const result = await this.sendWeeklyReport(bandsImageDataUrl);
+
             if (result.success) {
                 console.log('Weekly report sent successfully:', result.messageId);
             } else {
@@ -283,7 +391,14 @@ class EmailService {
             }
 
             this.testTask = cron.schedule('*/10 * * * * *', async () => {
-                const result = await this.sendWeeklyReport();
+                let bandsImageDataUrl = null;
+
+                try {
+                    bandsImageDataUrl = await this.captureWeeklyTimeBandsChartDataUrl();
+                } catch (e) {
+                    console.error('Failed to capture time bands chart:', e);
+                }
+                const result = await this.sendWeeklyReport(bandsImageDataUrl);
                 if (result.success) {
                     console.log('Test report sent successfully');
                 } else {

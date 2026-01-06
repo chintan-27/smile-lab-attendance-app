@@ -658,8 +658,16 @@ ipcMain.handle('get-students', async (event) => {
 ipcMain.handle('add-student', async (event, student) => {
   try {
     dataManager.logger.info('student', `Adding new student: ${student.name} (${student.ufid})`, 'admin');
-
-    const result = dataManager.addStudent(student.ufid, student.name, student.email);
+    const result = dataManager.addStudent(
+      student.ufid,
+      student.name,
+      student.email,
+      {
+        role: student.role,
+        expectedHoursPerWeek: student.expectedHoursPerWeek,
+        expectedDaysPerWeek: student.expectedDaysPerWeek
+      }
+    );
 
     if (result.success) {
       dataManager.logger.info('student', `Student added successfully: ${student.name} (${student.ufid})`, 'admin');
@@ -671,6 +679,13 @@ ipcMain.handle('add-student', async (event, student) => {
   } catch (error) {
     dataManager.logger.error('student', `Add student error for ${student.ufid}: ${error.message}`, 'admin');
     return { success: false, error: error.message };
+  }
+});
+ipcMain.handle('update-student', async (event, payload) => {
+  try {
+    return dataManager.updateStudent(payload.ufid, payload);
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 });
 

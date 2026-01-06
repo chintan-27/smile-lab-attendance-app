@@ -304,6 +304,7 @@ async function loadDashboardCharts() {
     }
 }
 
+
 // Students Management
 async function loadStudents() {
     try {
@@ -314,46 +315,96 @@ async function loadStudents() {
         showNotification('Error loading students: ' + error.message, 'error');
     }
 }
+function setupEditStudentModal() {
+    const closeBtn = document.getElementById('closeEditStudentModal');
+    const cancelBtn = document.getElementById('cancelEditStudentBtn');
+    const saveBtn = document.getElementById('saveEditStudentBtn');
+
+    if (closeBtn) closeBtn.addEventListener('click', () => closeModal('editStudentModal'));
+    if (cancelBtn) cancelBtn.addEventListener('click', () => closeModal('editStudentModal'));
+
+    // Save: prevent default form behavior if any
+    if (saveBtn) saveBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        saveStudentEdits();
+    });
+}
 
 function displayStudents(students) {
-    const tbody = document.getElementById('studentsTable');
+    const tbody = document.getElementById('studentsTableBody');
     if (!students || students.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No students found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No students found</td></tr>';
         return;
     }
 
-    tbody.innerHTML = students.map(student => `
-        <tr>
-            <td>
-                <input type="checkbox" class="student-checkbox" value="${student.ufid}">
-            </td>
-            <td style="font-family: monospace; font-weight: 500;">${student.ufid}</td>
-            <td>
-                <div style="font-weight: 500;">${student.name}</div>
-            </td>
-            <td style="color: #64748b;">${student.email || 'N/A'}</td>
-            <td>
-                <span class="badge ${student.active ? 'success' : 'error'}">
-                    ${student.active ? 'Active' : 'Inactive'}
-                </span>
-            </td>
-            <td style="font-size: 0.875rem; color: #64748b;">
-                ${student.addedDate ? new Date(student.addedDate).toLocaleDateString() : 'N/A'}
-            </td>
-            <td>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-secondary edit-student-btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" data-ufid="${student.ufid}">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn btn-secondary delete-student-btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #ef4444;" data-ufid="${student.ufid}">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    const fmtRole = (r) => (r || 'volunteer').toLowerCase();
+    const fmtNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+    };
 
-    // Add event listeners to dynamically created buttons
+    tbody.innerHTML = students.map(student => {
+        const role = fmtRole(student.role);
+        const expH = fmtNum(student.expectedHoursPerWeek);
+        const expD = fmtNum(student.expectedDaysPerWeek);
+
+        return `
+      <tr>
+        <td>
+          <input type="checkbox" class="student-checkbox" value="${student.ufid}">
+        </td>
+
+        <td style="font-family: monospace; font-weight: 500;">${student.ufid}</td>
+
+        <td>
+          <div style="font-weight: 500;">${student.name}</div>
+        </td>
+
+        <td style="color: #64748b;">${student.email || 'N/A'}</td>
+
+        <td>
+          <span class="badge" style="background:#eef2ff; color:#3730a3;">
+            ${role}
+          </span>
+        </td>
+
+        <td style="text-align:center; font-variant-numeric: tabular-nums;">
+          ${expH || '—'}
+        </td>
+
+        <td style="text-align:center; font-variant-numeric: tabular-nums;">
+          ${expD || '—'}
+        </td>
+
+        <td>
+          <span class="badge ${student.active ? 'success' : 'error'}">
+            ${student.active ? 'Active' : 'Inactive'}
+          </span>
+        </td>
+
+        <td style="font-size: 0.875rem; color: #64748b;">
+          ${student.addedDate ? new Date(student.addedDate).toLocaleDateString() : 'N/A'}
+        </td>
+
+        <td>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary edit-student-btn"
+              style="padding: 0.25rem 0.5rem; font-size: 0.75rem;"
+              data-ufid="${student.ufid}">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-secondary delete-student-btn"
+              style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #ef4444;"
+              data-ufid="${student.ufid}">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+    }).join('');
+
+    // listeners unchanged
     document.querySelectorAll('.edit-student-btn').forEach(btn => {
         btn.addEventListener('click', function () {
             const ufid = this.getAttribute('data-ufid');
@@ -368,6 +419,7 @@ function displayStudents(students) {
         });
     });
 }
+
 
 function populateStudentFilter() {
     const filter = document.getElementById('studentFilter');
@@ -407,6 +459,67 @@ function filterStudents() {
 
     displayStudents(filtered);
 }
+
+function editStudent(ufid) {
+    const s = studentsData.find(x => x.ufid === ufid);
+    if (!s) {
+        showNotification('Student not found', 'error');
+        return;
+    }
+
+    document.getElementById('editUfid').value = s.ufid;
+    document.getElementById('editName').value = s.name || '';
+    document.getElementById('editEmail').value = s.email || '';
+    document.getElementById('editRole').value = (s.role || 'volunteer').toLowerCase();
+    document.getElementById('editExpectedHours').value = (s.expectedHoursPerWeek ?? '');
+    document.getElementById('editExpectedDays').value = (s.expectedDaysPerWeek ?? '');
+    document.getElementById('editActive').checked = !!s.active;
+
+    openModal('editStudentModal');
+}
+
+async function saveStudentEdits() {
+    const ufid = document.getElementById('editUfid').value.trim();
+    const name = document.getElementById('editName').value.trim();
+    const email = document.getElementById('editEmail').value.trim();
+    const role = document.getElementById('editRole').value;
+    const expectedHoursPerWeek = Number(document.getElementById('editExpectedHours').value || 0);
+    const expectedDaysPerWeek = Number(document.getElementById('editExpectedDays').value || 0);
+    const active = document.getElementById('editActive').checked;
+
+    if (!ufid || !name) {
+        showNotification('UFID and name are required', 'error');
+        return;
+    }
+    if (expectedDaysPerWeek < 0 || expectedDaysPerWeek > 7) {
+        showNotification('Expected days/week must be between 0 and 7', 'error');
+        return;
+    }
+
+    try {
+        const result = await window.electronAPI.updateStudent({
+            ufid,
+            name,
+            email,
+            role,
+            expectedHoursPerWeek,
+            expectedDaysPerWeek,
+            active
+        });
+
+        if (!result.success) {
+            showNotification('Error updating student: ' + result.error, 'error');
+            return;
+        }
+
+        showNotification('Student updated', 'success');
+        closeModal('editStudentModal');
+        await loadStudents();
+    } catch (e) {
+        showNotification('Error updating student: ' + e.message, 'error');
+    }
+}
+
 
 function clearFilters() {
     document.getElementById('studentSearch').value = '';
@@ -810,13 +923,13 @@ async function renderWeeklyMatrix(weekStart) {
         return `<tr>
             <td style="text-align:left">${escapeHtml(name)}</td>
             ${weekCells.map(cell => {
-                const h = (cell.hours || 0);
-                const sessHtml = renderSessionsHtml(cell.sessions);
-                return `<td style="vertical-align:top;">
+            const h = (cell.hours || 0);
+            const sessHtml = renderSessionsHtml(cell.sessions);
+            return `<td style="vertical-align:top;">
                     <div style="font-variant-numeric: tabular-nums;">${h.toFixed(2)}h</div>
                     ${sessHtml}
                 </td>`;
-            }).join('')}
+        }).join('')}
             <td style="vertical-align:top;"><strong>${total.toFixed(2)}h</strong></td>
         </tr>`;
     }).join('');
@@ -1147,7 +1260,6 @@ function initAnalyticsDetailNav() {
 
 
 async function renderStudentHoursForDay(day = new Date()) {
-    console.log("rendering start")
     const ctx = document.getElementById('studentHoursChart');
     if (!ctx) return;
 
@@ -1170,14 +1282,13 @@ async function renderStudentHoursForDay(day = new Date()) {
     // disable next if we’d go into the future
     nextBtn.disabled = d.getTime() >= todayOnly.getTime();
     const dateISO = d.toISOString();
-    let res = {"summaries": []};
+    let res = { "summaries": [] };
 
-    if (d.getTime() == todayOnly.getTime()) {   
+    if (d.getTime() == todayOnly.getTime()) {
         res = await window.electronAPI.computeHoursWorkedToday(dateISO);
     } else {
         res = await window.electronAPI.getDailySummary(dateISO, 'autosignout'); // or 'autosignout' if you prefer
     }
-    console.log(res)
     const summaries = (res && Array.isArray(res.summaries)) ? res.summaries : [];
 
     const rows = summaries.slice().sort((a, b) =>
@@ -2218,6 +2329,11 @@ async function addStudent() {
     const name = document.getElementById('modalName').value.trim();
     const email = document.getElementById('modalEmail').value.trim();
 
+    // NEW
+    const role = document.getElementById('modalRole')?.value || 'volunteer';
+    const expectedHoursPerWeek = Number(document.getElementById('modalExpectedHours')?.value || 0);
+    const expectedDaysPerWeek = Number(document.getElementById('modalExpectedDays')?.value || 0);
+
     if (!ufid || !name) {
         showNotification('Please enter both UF ID and name', 'error');
         return;
@@ -2228,8 +2344,21 @@ async function addStudent() {
         return;
     }
 
+    if (expectedDaysPerWeek < 0 || expectedDaysPerWeek > 7) {
+        showNotification('Expected days/week must be between 0 and 7', 'error');
+        return;
+    }
+
     try {
-        const result = await window.electronAPI.addStudent({ ufid, name, email });
+        const result = await window.electronAPI.addStudent({
+            ufid,
+            name,
+            email,
+            role,
+            expectedHoursPerWeek,
+            expectedDaysPerWeek
+        });
+
         if (result.success) {
             showNotification('Student added successfully!', 'success');
             closeModal('addStudentModal');
@@ -2242,6 +2371,7 @@ async function addStudent() {
         showNotification('Error adding student: ' + error.message, 'error');
     }
 }
+
 
 async function deleteStudent(ufid) {
     if (confirm('Are you sure you want to remove this student? This action cannot be undone.')) {
@@ -2343,7 +2473,7 @@ async function cloudBackup() {
         showNotification('Creating cloud backup...', 'info');
         const result = await window.electronAPI.uploadToDropbox('backup');
         if (result.success) {
-            showNotification('Cloud backup completed successfully!', 'success');
+;
         } else {
             showNotification('Backup failed: ' + result.error, 'error');
         }
@@ -2356,6 +2486,7 @@ async function cloudBackup() {
 async function generateWeeklyReport() {
     try {
         showNotification('Generating weekly report...', 'info');
+        await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
         const result = await window.electronAPI.sendWeeklyReport();
         if (result.success) {
             showNotification('Weekly report generated and sent!', 'success');
@@ -2417,14 +2548,7 @@ async function testEmail() {
 
 async function sendWeeklyReportNow() {
     try {
-        let bandsImageDataUrl = null;
-
-        const canvas = document.getElementById('timeBandsChart');
-        if (canvas && typeof canvas.toDataURL === 'function') {
-            // Grab current Time Bands scatter as PNG
-            bandsImageDataUrl = canvas.toDataURL('image/png');
-        }
-
+        let bandsImageDataUrl = null; // Null so that sendWeeklyReport can generate the image
         showNotification('Sending weekly report...', 'info');
         const result = await window.electronAPI.sendWeeklyReport(bandsImageDataUrl);
 
@@ -2646,7 +2770,7 @@ function goBack() {
 }
 
 async function changeChartPeriod(period) {
-    if(period == "week"){
+    if (period == "week") {
         dashboardChartDaysCount = 7;
         await loadDashboardCharts();
         showNotification(`Chart period changed to ${period}`, 'info');
@@ -2655,7 +2779,7 @@ async function changeChartPeriod(period) {
         await loadDashboardCharts();
         showNotification(`Chart period changed to ${period}`, 'info');
     } else {
-       showNotification(`Invalid period ${period}`, 'error'); 
+        showNotification(`Invalid period ${period}`, 'error');
     }
 }
 
@@ -2663,9 +2787,9 @@ function openAnalytics() {
     showSection('reports');
 }
 
-function editStudent(ufid) {
-    showNotification('Edit student functionality coming soon', 'info');
-}
+// function editStudent(ufid) {
+//     showNotification('Edit student functionality coming soon', 'info');
+// }
 
 // Initialization
 document.addEventListener('DOMContentLoaded', function () {
@@ -2688,6 +2812,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Setup search and filters
     setupStudentSearch();
+    setupEditStudentModal();
     setupGlobalSearch();
     setupBulkImport();
 

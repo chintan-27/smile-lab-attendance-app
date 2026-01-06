@@ -26,6 +26,84 @@ function resolveDataDir() {
     return path.join(process.cwd(), 'data');
 }
 
+function ymdLocal(dt) {
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addOneDay(d) {
+    const x = new Date(d);
+    x.setDate(x.getDate() + 1);
+    return x;
+}
+function computeTotalHoursFromEvents(dayEvents) {
+    // dayEvents: [{action:'signin'|'signout', timestamp:...}, ...] ONLY for that day and that student
+    const events = [...dayEvents].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    let totalMs = 0;
+    let openIn = null;
+
+    for (const e of events) {
+        const t = new Date(e.timestamp);
+        if (Number.isNaN(t.getTime())) continue;
+
+        if (e.action === 'signin') {
+            // take the first signin if none open; ignore repeated signins
+            if (!openIn) openIn = t;
+        } else if (e.action === 'signout') {
+            if (openIn && t > openIn) {
+                totalMs += (t - openIn);
+            }
+            openIn = null;
+        }
+    }
+
+    return totalMs / (1000 * 60 * 60);
+}
+
+
+// Count days where there was >0 work time.
+// If a session crosses midnight, it counts both days (usually correct).
+function computeDaysAttendedFromPairs(records) {
+    const days = new Set();
+
+    const sessions = [...records].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    for (let i = 0; i < sessions.length; i++) {
+        const r = sessions[i];
+        if (r.action !== 'signin') continue;
+
+        // find the next signout after this signin
+        let j = i + 1;
+        while (j < sessions.length && sessions[j].action !== 'signout') j++;
+        if (j >= sessions.length) continue;
+
+        const start = new Date(r.timestamp);
+        const end = new Date(sessions[j].timestamp);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+        if (end <= start) continue;
+
+        // add each calendar day covered by the session
+        let cur = new Date(start);
+        cur.setHours(0, 0, 0, 0);
+
+        const endDay = new Date(end);
+        endDay.setHours(0, 0, 0, 0);
+
+        while (cur <= endDay) {
+            days.add(ymdLocal(cur));
+            cur = addOneDay(cur);
+            cur.setHours(0, 0, 0, 0);
+        }
+
+        i = j; // skip forward to the signout we used
+    }
+
+    return days.size;
+}
+
+
 class DataManager {
     constructor() {
         // const baseDataDir = app?.getPath('userData') || path.join(__dirname, 'data');
@@ -447,7 +525,12 @@ class DataManager {
                 name,
                 email,
                 active: true,
-                addedDate: new Date().toISOString()
+                addedDate: new Date().toISOString(),
+
+                // NEW
+                role: meta.role || 'volunteer',
+                expectedHoursPerWeek: Number(meta.expectedHoursPerWeek ?? 0),
+                expectedDaysPerWeek: Number(meta.expectedDaysPerWeek ?? 0),
             };
 
             const existingIndex = students.findIndex(s => s.ufid === ufid);
@@ -478,22 +561,53 @@ class DataManager {
 
     getStudents() {
         try {
-            const data = fs.readFileSync(this.studentsFile, 'utf8');
-            let students = JSON.parse(data);
-            const decryptedStudents = this.decryptSensitiveFields(students, ['name', 'email']);
+            if (!fs.existsSync(this.studentsFile)) return [];
 
-            if (this.logger) {
-                this.logger.info('student', `Retrieved ${decryptedStudents.length} students from database`, 'system');
-            }
+            const encrypted = JSON.parse(fs.readFileSync(this.studentsFile, 'utf8'));
+            const students = this.decryptSensitiveFields(encrypted, ['name', 'email']);
 
-            return decryptedStudents;
+            // Normalize old records (backwards compatible)
+            return students.map(s => ({
+                ...s,
+                role: (s.role || 'volunteer').toLowerCase(),
+                expectedHoursPerWeek: Number(s.expectedHoursPerWeek ?? 0),
+                expectedDaysPerWeek: Number(s.expectedDaysPerWeek ?? 0),
+            }));
         } catch (error) {
-            if (this.logger) {
-                this.logger.error('student', `Error retrieving students: ${error.message}`, 'system');
-            }
+            console.error('Error loading students:', error);
             return [];
         }
     }
+
+
+    updateStudent(ufid, updates = {}) {
+        try {
+            const students = this.getStudents();
+            const idx = students.findIndex(s => s.ufid === ufid);
+            if (idx === -1) return { success: false, error: 'Student not found' };
+
+            const prev = students[idx];
+
+            students[idx] = {
+                ...prev,
+                name: updates.name ?? prev.name,
+                email: updates.email ?? prev.email,
+                active: (typeof updates.active === 'boolean') ? updates.active : prev.active,
+
+                role: (updates.role ?? prev.role ?? 'volunteer').toLowerCase(),
+                expectedHoursPerWeek: Number(updates.expectedHoursPerWeek ?? prev.expectedHoursPerWeek ?? 0),
+                expectedDaysPerWeek: Number(updates.expectedDaysPerWeek ?? prev.expectedDaysPerWeek ?? 0),
+            };
+
+            const dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
+            fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
+
+            return { success: true, student: students[idx] };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+
 
     removeStudent(ufid) {
         try {
@@ -963,7 +1077,7 @@ class DataManager {
         // const {
         //     // Optional: useful for tests or "as of" reporting
         const now = new Date();
-            // Optional: clamp totals so you don't count beyond a certain hour on that day
+        // Optional: clamp totals so you don't count beyond a certain hour on that day
         const closeOpenAtHour = null;
         // } = options;
 
@@ -1273,58 +1387,141 @@ class DataManager {
                 this.logger.info('report', 'Generating weekly report data', 'admin');
             }
 
-            const endDate = new Date();
-            const startDate = new Date(endDate);
-            startDate.setDate(startDate.getDate() - 7);
+            // ---------- Helpers (local, consistent with UI-like week logic) ----------
+            const startOfWeek = (d) => {
+                const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                const day = (x.getDay() + 6) % 7; // Monday = 0
+                x.setDate(x.getDate() - day);
+                x.setHours(0, 0, 0, 0);
+                return x;
+            };
 
+            const addDays = (d, n) => {
+                const x = new Date(d);
+                x.setDate(x.getDate() + n);
+                return x;
+            };
+
+            const startOfDayLocal = (d) => {
+                const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                x.setHours(0, 0, 0, 0);
+                return x;
+            };
+
+            // Pair signins->signouts within ONE DAY for ONE STUDENT
+            // Ignores extra signins/signouts safely.
+            const computeTotalHoursFromEvents = (events) => {
+                const sorted = [...events].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                let totalMs = 0;
+                let openIn = null;
+
+                for (const e of sorted) {
+                    const t = new Date(e.timestamp);
+                    if (Number.isNaN(t.getTime())) continue;
+
+                    if (e.action === 'signin') {
+                        if (!openIn) openIn = t; // keep first open signin
+                    } else if (e.action === 'signout') {
+                        if (openIn && t > openIn) {
+                            totalMs += (t - openIn);
+                        }
+                        openIn = null; // close even if invalid ordering
+                    }
+                }
+
+                return totalMs / (1000 * 60 * 60);
+            };
+
+            // ---------- Define week range: Mon 00:00 → next Mon 00:00 ----------
+            const now = new Date();
+            const weekStart = startOfWeek(now);
+            const weekEndExclusive = startOfDayLocal(addDays(weekStart, 7)); // next Monday 00:00
+
+            // Return metadata: startDate/endDate (inclusive-ish) like before
+            const startDate = new Date(weekStart);
+            const endDate = new Date(weekEndExclusive);
+
+            // Fetch attendance for that exact week
             const weeklyAttendance = this.getAttendanceByDateRange(startDate, endDate);
+
+            // Students (ensure getStudents() already normalizes role/expected fields)
             const students = this.getStudents();
 
+            // ---------- Initialize reports ----------
             const studentReports = {};
             students.forEach(student => {
                 studentReports[student.ufid] = {
                     name: student.name,
                     email: student.email,
+
+                    role: (student.role || 'volunteer').toLowerCase(),
+                    expectedHoursPerWeek: Number(student.expectedHoursPerWeek ?? 0),
+                    expectedDaysPerWeek: Number(student.expectedDaysPerWeek ?? 0),
+
                     signIns: 0,
                     signOuts: 0,
+
+                    // week totals
                     totalHours: 0,
+                    daysAttended: 0,
+
+                    // keep raw records for debugging / optional email details
                     sessions: []
                 };
             });
 
+            // Put records into sessions + count signins/outs
             weeklyAttendance.forEach(record => {
-                if (studentReports[record.ufid]) {
-                    if (record.action === 'signin') {
-                        studentReports[record.ufid].signIns++;
-                    } else {
-                        studentReports[record.ufid].signOuts++;
-                    }
-                    studentReports[record.ufid].sessions.push(record);
-                }
+                const rep = studentReports[record.ufid];
+                if (!rep) return;
+
+                if (record.action === 'signin') rep.signIns++;
+                else if (record.action === 'signout') rep.signOuts++;
+
+                rep.sessions.push(record);
             });
 
-            // Calculate total hours for each student
+            // ---------- Compute hours/day-attended by summing daily totals ----------
+            // Build list of 7 local day windows (Mon..Sun)
+            const days = Array.from({ length: 7 }, (_, i) => startOfDayLocal(addDays(weekStart, i)));
+
             Object.keys(studentReports).forEach(ufid => {
-                const sessions = studentReports[ufid].sessions.sort((a, b) =>
-                    new Date(a.timestamp) - new Date(b.timestamp)
-                );
+                const rep = studentReports[ufid];
+                if (!rep.sessions.length) return;
 
-                let totalMinutes = 0;
-                for (let i = 0; i < sessions.length - 1; i += 2) {
-                    const signIn = sessions[i];
-                    const signOut = sessions[i + 1];
-                    if (signIn.action === 'signin' && signOut && signOut.action === 'signout') {
-                        const duration = new Date(signOut.timestamp) - new Date(signIn.timestamp);
-                        totalMinutes += duration / (1000 * 60);
-                    }
+                let weekHours = 0;
+                let daysAttended = 0;
+
+                // For each day, filter that student's events into the day's window
+                for (const dayStart of days) {
+                    const dayEnd = startOfDayLocal(addDays(dayStart, 1));
+
+                    const dayEvents = rep.sessions.filter(r => {
+                        const t = new Date(r.timestamp);
+                        return !Number.isNaN(t.getTime()) && t >= dayStart && t < dayEnd;
+                    });
+
+                    const dailyHours = computeTotalHoursFromEvents(dayEvents);
+
+                    weekHours += dailyHours;
+                    if (dailyHours > 0) daysAttended += 1; // non-zero days only (no strict threshold)
                 }
-                studentReports[ufid].totalHours = Math.round((totalMinutes / 60) * 100) / 100;
+
+                rep.totalHours = Math.round(weekHours * 100) / 100;
+                rep.daysAttended = daysAttended;
             });
 
-            const activeStudents = Object.values(studentReports).filter(s => s.signIns > 0).length;
+            // Students with activity: any signins OR any hours
+            const activeStudents = Object.values(studentReports)
+                .filter(s => (s.signIns > 0) || (s.totalHours > 0))
+                .length;
 
             if (this.logger) {
-                this.logger.info('report', `Weekly report generated - ${weeklyAttendance.length} records, ${activeStudents} active students`, 'admin');
+                this.logger.info(
+                    'report',
+                    `Weekly report generated - ${weeklyAttendance.length} records, ${activeStudents} active students`,
+                    'admin'
+                );
             }
 
             return {
@@ -1342,6 +1539,7 @@ class DataManager {
             return null;
         }
     }
+
 
     generateCSVReport(reportData) {
         try {
