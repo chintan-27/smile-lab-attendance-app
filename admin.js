@@ -117,7 +117,7 @@ async function loadDashboard() {
         document.getElementById('todaySignOuts').textContent = stats.todaySignOuts;
         document.getElementById('studentCount').textContent = stats.totalStudents;
 
-        loadRecentActivity(todaysAttendance.slice(-10));
+        //loadRecentActivity(todaysAttendance.slice(-10));
         loadCurrentlyPresent(stats.signedInStudents);
         await loadDashboardCharts();
     } catch (error) {
@@ -125,41 +125,41 @@ async function loadDashboard() {
     }
 }
 
-function loadRecentActivity(activities) {
-    const tbody = document.getElementById('recentActivityTable');
-    if (!activities || activities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No recent activity</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = activities.reverse().map(activity => `
-        <tr>
-            <td>
-                <div style="font-weight: 500;">${activity.name}</div>
-                <div style="font-size: 0.75rem; color: #64748b;">${activity.ufid}</div>
-            </td>
-            <td>
-                <span class="badge ${activity.action === 'signin' ? 'success' : 'warning'}">
-                    ${activity.action === 'signin' ? 'Sign In' : 'Sign Out'}
-                </span>
-            </td>
-            <td style="font-size: 0.875rem;">${new Date(activity.timestamp).toLocaleTimeString()}</td>
-            <td>
-                <button class="btn btn-secondary delete-record-btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" data-record-id="${activity.id}">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
-        </tr>
-    `).join('');
-
-    // Add event listeners to delete buttons
-    document.querySelectorAll('.delete-record-btn').forEach(btn => {
-        btn.addEventListener('click', function () {
-            const recordId = parseInt(this.getAttribute('data-record-id'));
-            deleteRecord(recordId);
-        });
-    });
-}
+// function loadRecentActivity(activities) {
+//     const tbody = document.getElementById('recentActivityTable');
+//     if (!activities || activities.length === 0) {
+//         tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No recent activity</td></tr>';
+//         return;
+//     }
+// 
+//     tbody.innerHTML = activities.reverse().map(activity => `
+//         <tr>
+//             <td>
+//                 <div style="font-weight: 500;">${activity.name}</div>
+//                 <div style="font-size: 0.75rem; color: #64748b;">${activity.ufid}</div>
+//             </td>
+//             <td>
+//                 <span class="badge ${activity.action === 'signin' ? 'success' : 'warning'}">
+//                     ${activity.action === 'signin' ? 'Sign In' : 'Sign Out'}
+//                 </span>
+//             </td>
+//             <td style="font-size: 0.875rem;">${new Date(activity.timestamp).toLocaleTimeString()}</td>
+//             <td>
+//                 <button class="btn btn-secondary delete-record-btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" data-record-id="${activity.id}">
+//                     <i class="fas fa-trash"></i>
+//                 </button>
+//             </td>
+//         </tr>
+//     `).join('');
+// 
+//     // Add event listeners to delete buttons
+//     document.querySelectorAll('.delete-record-btn').forEach(btn => {
+//         btn.addEventListener('click', function () {
+//             const recordId = parseInt(this.getAttribute('data-record-id'));
+//             deleteRecord(recordId);
+//         });
+//     });
+// }
 
 function loadCurrentlyPresent(presentStudents) {
     const container = document.getElementById('currentlyPresentList');
@@ -194,6 +194,37 @@ function waitForChart() {
         }
     });
 }
+
+function initStudentsNav() {
+    const dayPrev = document.getElementById('hoursPrevBtn');
+    const dayNext = document.getElementById('hoursNextBtn');
+
+    if (!dayPrev || !dayNext) {
+        console.warn('Student Hours nav buttons not found');
+        return;
+    }
+
+    // ---- Daily student hours (left chart) ----
+    dayPrev.onclick = async () => {
+        analyticsCurrentDay = addDays(analyticsCurrentDay, -1);
+        await renderStudentHoursForDay(analyticsCurrentDay);
+    };
+
+    dayNext.onclick = async () => {
+        const candidate = addDays(analyticsCurrentDay, 1);
+
+        const now = new Date();
+        const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        todayOnly.setHours(0, 0, 0, 0);
+
+        // don’t go past today
+        if (candidate <= todayOnly) {
+            analyticsCurrentDay = candidate;
+            await renderStudentHoursForDay(analyticsCurrentDay);
+        }
+    };
+}
+
 
 async function loadDashboardCharts() {
     try {
@@ -261,6 +292,8 @@ async function loadDashboardCharts() {
                 }
             }
         });
+        await renderStudentHoursForDay(analyticsCurrentDay);
+        initStudentsNav();
     } catch (error) {
         console.error('Error loading charts:', error);
         const chartContainer = document.getElementById('attendanceChart');
@@ -1043,8 +1076,6 @@ async function loadAnalyticsCharts() {
         analyticsCurrentDay.setDate(analyticsCurrentDay.getDate() - 1);
         analyticsCurrentDay.setHours(0, 0, 0, 0);
         analyticsCurrentWeekStart = startOfWeek(new Date());
-
-        await renderStudentHoursForDay(analyticsCurrentDay);
         await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
 
         initAnalyticsDetailNav();
@@ -1088,35 +1119,13 @@ function escapeHtml(text) {
 
 // Hours per student (today)
 function initAnalyticsDetailNav() {
-    const dayPrev = document.getElementById('hoursPrevBtn');
-    const dayNext = document.getElementById('hoursNextBtn');
     const weekPrev = document.getElementById('bandsPrevBtn');
     const weekNext = document.getElementById('bandsNextBtn');
 
-    if (!dayPrev || !dayNext || !weekPrev || !weekNext) {
+    if (!weekPrev || !weekNext) {
         console.warn('Analytics nav buttons not found');
         return;
     }
-
-    // ---- Daily student hours (left chart) ----
-    dayPrev.onclick = async () => {
-        analyticsCurrentDay = addDays(analyticsCurrentDay, -1);
-        await renderStudentHoursForDay(analyticsCurrentDay);
-    };
-
-    dayNext.onclick = async () => {
-        const candidate = addDays(analyticsCurrentDay, 1);
-
-        const now = new Date();
-        const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        todayOnly.setHours(0, 0, 0, 0);
-
-        // don’t go past today
-        if (candidate <= todayOnly) {
-            analyticsCurrentDay = candidate;
-            await renderStudentHoursForDay(analyticsCurrentDay);
-        }
-    };
 
     // ---- Weekly time bands (right chart) ----
     weekPrev.onclick = async () => {
@@ -1137,6 +1146,7 @@ function initAnalyticsDetailNav() {
 
 
 async function renderStudentHoursForDay(day = new Date()) {
+    console.log("rendering start")
     const ctx = document.getElementById('studentHoursChart');
     if (!ctx) return;
 
@@ -1158,9 +1168,15 @@ async function renderStudentHoursForDay(day = new Date()) {
     }
     // disable next if we’d go into the future
     nextBtn.disabled = d.getTime() >= todayOnly.getTime();
-
     const dateISO = d.toISOString();
-    const res = await window.electronAPI.getDailySummary(dateISO, 'autosignout'); // or 'autosignout' if you prefer
+    let res = {"summaries": []};
+
+    if (d.getTime() == todayOnly.getTime()) {   
+        res = await window.electronAPI.computeHoursWorkedToday(dateISO);
+    } else {
+        res = await window.electronAPI.getDailySummary(dateISO, 'autosignout'); // or 'autosignout' if you prefer
+    }
+    console.log(res)
     const summaries = (res && Array.isArray(res.summaries)) ? res.summaries : [];
 
     const rows = summaries.slice().sort((a, b) =>

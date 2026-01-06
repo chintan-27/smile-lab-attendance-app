@@ -958,6 +958,134 @@ class DataManager {
         return { date: dateOnly, summaries };
     }
 
+    computeHoursWorkedToday(dateLike) {
+        const {
+            // Optional: useful for tests or "as of" reporting
+            now = new Date(),
+            // Optional: clamp totals so you don't count beyond a certain hour on that day
+            closeOpenAtHour = null
+        } = options;
+
+        const records = this.getAttendanceForDate(dateLike)
+            .slice()
+            .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        const students = this.getStudents();
+        const nameOf = (ufid) => (students.find(s => s.ufid === ufid)?.name || 'Unknown');
+
+        // Bucket events by student
+        const byStudent = new Map();
+        for (const r of records) {
+            if (!byStudent.has(r.ufid)) {
+                byStudent.set(r.ufid, { ufid: r.ufid, name: nameOf(r.ufid), events: [] });
+            }
+            byStudent.get(r.ufid).events.push(r);
+        }
+
+        // Day boundaries/cutoffs (same day as dateLike)
+        const day = new Date(dateLike);
+        const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+
+        const cutoffAtHour = (h) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, 0, 0, 0);
+
+        // "Now" should not exceed end of the target day
+        let effectiveNow = new Date(now);
+        if (effectiveNow > endOfDay) effectiveNow = endOfDay;
+        if (effectiveNow < startOfDay) effectiveNow = startOfDay;
+
+        // Optional clamp for open sessions (and only open sessions) — e.g., cap at 17:00
+        const openSessionCap = (closeOpenAtHour != null) ? cutoffAtHour(closeOpenAtHour) : null;
+
+        const summaries = [];
+
+        for (const [, entry] of byStudent) {
+            const evs = entry.events;
+
+            const sessions = [];
+            let open = null;
+
+            // Pair sessions in order (same as your daily summary logic)
+            for (const ev of evs) {
+                if (ev.action === 'signin') {
+                    // double signin replaces open start
+                    open = ev;
+                } else if (ev.action === 'signout') {
+                    if (open) {
+                        sessions.push({ in: open.timestamp, out: ev.timestamp, closed: true });
+                        open = null;
+                    }
+                }
+            }
+
+            // If still signed in, count until current time (optionally capped)
+            if (open) {
+                let out = effectiveNow;
+
+                if (openSessionCap) {
+                    // If cap is earlier than now, cap it (but don't go before the signin time)
+                    if (out > openSessionCap) out = openSessionCap;
+                }
+
+                // Prevent negative durations if something weird happens
+                const openedAt = new Date(open.timestamp);
+                if (out < openedAt) out = openedAt;
+
+                sessions.push({ in: open.timestamp, out: out.toISOString(), closed: false, running: true });
+            }
+
+            // Sum minutes across sessions
+            let totalMin = 0;
+            for (const s of sessions) {
+                if (s.in && s.out) {
+                    totalMin += (new Date(s.out) - new Date(s.in)) / 60000;
+                }
+            }
+
+            const totalMinutes = Math.round(totalMin);
+            const totalHours = Math.round((totalMin / 60) * 100) / 100;
+
+            summaries.push({
+                ufid: entry.ufid,
+                name: entry.name,
+                sessions,
+                totalMinutes,
+                totalHours,
+                absent: totalMin === 0
+            });
+        }
+
+        // Include zero-activity students
+        for (const s of students) {
+            if (!summaries.find(x => x.ufid === s.ufid)) {
+                summaries.push({
+                    ufid: s.ufid,
+                    name: s.name,
+                    sessions: [],
+                    totalMinutes: 0,
+                    totalHours: 0,
+                    absent: true
+                });
+            }
+        }
+
+        summaries.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        const totalMinutesAll = summaries.reduce((acc, x) => acc + (x.totalMinutes || 0), 0);
+        const totalHoursAll = Math.round((totalMinutesAll / 60) * 100) / 100;
+
+        const dateOnly = new Date(day.getFullYear(), day.getMonth(), day.getDate()).toISOString();
+
+        return {
+            date: dateOnly,
+            asOf: effectiveNow.toISOString(),
+            totalMinutesAll,
+            totalHoursAll,
+            summaries
+        };
+    }
+
+
 
     saveDailySummaryCSV(dateLike, options = {}) {
         try {

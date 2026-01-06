@@ -1135,6 +1135,15 @@ ipcMain.handle('get-daily-summary', async (event, { dateLike, policy = 'cap' } =
   }
 });
 
+ipcMain.handle('compute-hours-worked-today', async (event, { dateLike } = {}) => {
+  try {
+    const { date, summaries } = dataManager.computeHoursWorkedToday(dateLike || new Date());
+    return { success: true, date, summaries };
+  } catch (err) {
+    dataManager.logger?.error('report', `compute-hours-worked-today failed: ${err.message}`, 'admin');
+    return { success: false, error: err.message, summaries: [] };
+  }
+});
 // Dropbox service handlers
 
 ipcMain.handle('update-dropbox-config', async (event, partial) => {

@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDailySummary: (dateLike, policy) => ipcRenderer.invoke('get-daily-summary', { dateLike, policy }),
   pushDailySummaryToSheets: (dateLike, summarySheetName) => ipcRenderer.invoke('push-daily-summary-to-sheets', { dateLike, summarySheetName }),
   backfillDailySummary: (opts) => ipcRenderer.invoke('sheets-backfill-daily-summary', opts),
+  computeHoursWorkedToday: (dateLike) => ipcRenderer.invoke('compute-hours-worked-today', dateLike),
 
   // Dropbox Service
   dropboxOAuthConnect: () => ipcRenderer.invoke('dropbox-oauth-connect'),
