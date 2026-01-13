@@ -1192,6 +1192,11 @@
                 <i class="fas fa-chart-bar"></i>
                 <span>Analytics</span>
             </div>
+            <div class="nav-item" data-section="pending">
+                <i class="fas fa-hourglass-half"></i>
+                <span>Pending Sign-Outs</span>
+                <span class="badge warning" id="pendingCount" style="margin-left: auto;">0</span>
+            </div>
         </div>
         <div class="nav-section">
             <div class="nav-section-title">General</div>
@@ -1309,46 +1314,8 @@
                         </div>
                     </div>
                 </div>
-                <!-- Content Grid -->
-                <div class="content-grid">
-                    <!-- Recent Activity -->
-                    <!-- <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">Recent Activity</h3>
-                            <button class="btn btn-secondary" id="refreshActivityBtn">
-                                <i class="fas fa-refresh"></i>
-                                Refresh
-                            </button>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-container">
-                                <table class="table">
-                                    <thead>
-                                        <tr>
-                                            <th>Student</th>
-                                            <th>Action</th>
-                                            <th>Time</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="recentActivityTable">
-                                        Dynamic content -> COMMENT IF YOU UNCOMMENT THE BLOCK
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div> -->
-                    <!-- Currently Present -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">Currently Present</h3>
-                        </div>
-                        <div class="card-body">
-                            <div id="currentlyPresentList">
-                                <!-- Dynamic content -->
-                            </div>
-                        </div>
-                    </div>
+                <!-- Content Grid: Student Hours, Currently Present, Recent Activity -->
+                <div class="content-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                     <!-- Student Hours Chart -->
                     <div class="card">
                         <div class="card-header">
@@ -1364,6 +1331,43 @@
                         <div class="card-body">
                             <div class="chart-container">
                                 <canvas id="studentHoursChart" height="280"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Currently Present -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Currently Present</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="currentlyPresentList" style="max-height: 300px; overflow-y: auto;">
+                                <!-- Dynamic content -->
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Recent Activity -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Recent Activity</h3>
+                            <button class="btn btn-secondary" id="refreshActivityBtn">
+                                <i class="fas fa-refresh"></i>
+                                Refresh
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Action</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentActivityTable">
+                                        <!-- Dynamic content -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1432,6 +1436,7 @@
                             <table class="table">
                                 <thead>
                                     <tr>
+                                        <th></th>
                                         <th>UF ID</th>
                                         <th>Name</th>
                                         <th>Email</th>
@@ -1439,6 +1444,7 @@
                                         <th>Expected hrs/wk</th>
                                         <th>Expected days/wk</th>
                                         <th>Status</th>
+                                        <th>Added Date</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -1718,6 +1724,163 @@
                     </div> -->
                 </div>
             </div>
+            <!-- Pending Sign-Outs Section -->
+            <div class="page-section" id="pending-section">
+                <div class="page-header">
+                    <h1 class="page-title">Pending Sign-Outs</h1>
+                    <p class="page-subtitle">Students who signed in but didn't sign out. They have until 5 PM the next day to submit their sign-out time.</p>
+                    <div class="page-actions">
+                        <button class="btn btn-primary" id="triggerPendingBtn">
+                            <i class="fas fa-paper-plane"></i>
+                            Send Pending Emails Now
+                        </button>
+                        <button class="btn btn-secondary" id="refreshPendingBtn">
+                            <i class="fas fa-refresh"></i>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid" style="margin-bottom: 2rem;">
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Pending</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-hourglass-half"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="pendingTotal">0</div>
+                        <div class="stat-change neutral">
+                            <span>Awaiting response</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Expiring Today</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="expiringToday">0</div>
+                        <div class="stat-change neutral">
+                            <span>Deadline today at 5 PM</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Resolved</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="pendingResolved">0</div>
+                        <div class="stat-change positive">
+                            <span>Students responded</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Expired (0 Hours)</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-times-circle"></i>
+                            </div>
+                        </div>
+                        <div class="stat-value" id="pendingExpired">0</div>
+                        <div class="stat-change neutral">
+                            <span>No response received</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Server Status -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div class="card-body">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <span class="badge" id="pendingServerStatus">Server: Checking...</span>
+                            <span style="color: #64748b; font-size: 0.875rem;">
+                                Students access the sign-out form at <code id="serverUrl">http://localhost:3847/signout/...</code>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pending Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Pending Records</h3>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <select class="form-input" id="pendingStatusFilter" style="width: auto;">
+                                <option value="pending">Pending Only</option>
+                                <option value="all">All Records</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="expired">Expired</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Student</th>
+                                        <th>Email</th>
+                                        <th>Sign-In Date</th>
+                                        <th>Sign-In Time</th>
+                                        <th>Deadline</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pendingTableBody">
+                                    <!-- Dynamic content -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="noPendingMessage" style="text-align: center; padding: 2rem; color: #64748b; display: none;">
+                            <i class="fas fa-check-circle" style="font-size: 3rem; margin-bottom: 1rem; color: #10b981;"></i>
+                            <p>No pending sign-outs. All students have signed out properly!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resolve Pending Modal -->
+            <div class="modal" id="resolvePendingModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">Resolve Pending Sign-Out</h3>
+                        <button class="modal-close" id="closeResolvePendingModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Student: <strong id="resolveStudentName"></strong></p>
+                        <p>Sign-in: <strong id="resolveSignInTime"></strong></p>
+                        <p>Deadline: <strong id="resolveDeadline"></strong></p>
+
+                        <div class="form-group" style="margin-top: 1.5rem;">
+                            <label class="form-label">Sign-Out Time</label>
+                            <input type="time" class="form-input" id="adminSignOutTime">
+                            <small style="color: #64748b;">Enter the actual sign-out time for this student</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="markPresentOnly">
+                                <span>Mark as "Present Only" (0 hours)</span>
+                            </label>
+                            <small style="color: #64748b;">Use this if the student should get attendance credit but no hours</small>
+                        </div>
+
+                        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                            <button class="btn btn-primary" id="submitResolveBtn">Resolve</button>
+                            <button class="btn btn-secondary" id="cancelResolveBtn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Settings Section -->
             <div class="page-section" id="settings-section">
                 <div class="page-header">

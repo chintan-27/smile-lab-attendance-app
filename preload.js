@@ -68,6 +68,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createEncryptedBackup: (password) => ipcRenderer.invoke('create-encrypted-backup', password),
   getEncryptionStatus: () => ipcRenderer.invoke('get-encryption-status'),
 
+  // Pending Sign-Outs
+  getPendingSignouts: () => ipcRenderer.invoke('get-pending-signouts'),
+  adminResolvePending: (id, signOutTime, presentOnly) => ipcRenderer.invoke('admin-resolve-pending', { id, signOutTime, presentOnly }),
+  resendPendingEmail: (id) => ipcRenderer.invoke('resend-pending-email', id),
+  getPendingServerStatus: () => ipcRenderer.invoke('get-pending-server-status'),
+  triggerPendingProcessing: () => ipcRenderer.invoke('trigger-pending-processing'),
+
   // Configuration
   updateEmailConfig: (emailConfig) => ipcRenderer.invoke('update-email-config', emailConfig),
   updateSheetsConfig: (sheetsConfig) => ipcRenderer.invoke('update-sheets-config', sheetsConfig),

@@ -7,6 +7,7 @@ const EmailService = require('./emailService.js')
 delete require.cache[require.resolve('./googleSheetsService.js')];
 const GoogleSheetsService = require('./googleSheetsService.js');
 const DropboxService = require('./dropboxService.js')
+const PendingSignoutService = require('./pendingSignoutService.js')
 const Logger = require('./logger.js')
 const cron = require('node-cron')
 const log = require('electron-log');
@@ -17,6 +18,7 @@ let dataManager;
 let emailService;
 let googleSheetsService;
 let dropboxService;
+let pendingSignoutService;
 
 let syncTimer = null;
 let syncing = false;
@@ -215,10 +217,14 @@ app.whenReady().then(async () => {
   emailService = new EmailService(dataManager);
   googleSheetsService = new GoogleSheetsService(dataManager);
   dropboxService = new DropboxService(dataManager);
+  pendingSignoutService = new PendingSignoutService(dataManager, emailService);
 
   if (!dataManager.logger) {
     dataManager.logger = new Logger(dataManager);
   }
+
+  // Start the pending sign-out web server
+  pendingSignoutService.startServer();
 
   // Log application startup
   dataManager.logger.info('system', 'Lab Attendance System starting up', 'system');
@@ -370,23 +376,69 @@ app.whenReady().then(async () => {
     }
   }, { timezone: 'America/New_York' });
 
-  // Daily summary at 11:59 PM ET
+  // Daily summary at 11:59 PM ET - Now uses pending sign-out system
   if (!dailySummaryJobStarted) {
     cron.schedule('59 23 * * *', async () => {
       try {
         // Use the ET calendar date for the summary
         const dateIso = getNYDateIso(new Date());
 
-        // NEW hybrid policy:
-        const res = dataManager.saveDailySummaryCSV(dateIso, {
-          closeOpenAtHour: null,              // no cap-only
-          autoWriteSignOutAtHour: null,       // disable old single-cutoff writer
-          autoPolicy: {                       // hybrid: 5pm or +60min, clamped to 11:59pm
-            cutoffHour: 17,
-            eodHour: 23,
-            eodMinute: 59,
-            after5Minutes: 60
+        // Get students with open sessions (signed in but not signed out)
+        const openSessions = dataManager.getOpenSessionsForDate(dateIso);
+        dataManager.logger.info('pending', `Found ${openSessions.length} open sessions at end of day`, 'system');
+
+        // Process each open session
+        for (const signInRecord of openSessions) {
+          const students = dataManager.getStudents();
+          const student = students.find(s => s.ufid === signInRecord.ufid);
+
+          if (student && student.email) {
+            // Create pending sign-out and send email
+            const pendingResult = await pendingSignoutService.createPendingSignout(student, signInRecord);
+            if (pendingResult.success) {
+              dataManager.logger.info('pending',
+                `Pending sign-out created for ${student.name}, email sent to ${student.email}`, 'system');
+            } else {
+              dataManager.logger.warning('pending',
+                `Failed to create pending for ${student.name}: ${pendingResult.error}`, 'system');
+            }
+          } else {
+            // Fallback: No email - use existing auto-signout policy
+            dataManager.logger.warning('pending',
+              `Student ${signInRecord.name || signInRecord.ufid} has no email - using auto-signout`, 'system');
+
+            // Apply the old auto-signout for students without email
+            const signInTime = new Date(signInRecord.timestamp);
+            const cutoffHour = 17; // 5 PM
+            let effectiveOut;
+
+            if (signInTime.getHours() < cutoffHour) {
+              effectiveOut = new Date(signInTime);
+              effectiveOut.setHours(cutoffHour, 0, 0, 0);
+            } else {
+              effectiveOut = new Date(signInTime.getTime() + 60 * 60 * 1000); // +60 min
+              const eod = new Date(signInTime);
+              eod.setHours(23, 59, 0, 0);
+              if (effectiveOut > eod) effectiveOut = eod;
+            }
+
+            dataManager.addAttendanceRecord({
+              id: Date.now(),
+              ufid: signInRecord.ufid,
+              name: signInRecord.name,
+              action: 'signout',
+              timestamp: effectiveOut.toISOString(),
+              synthetic: true,
+              autoSignout: true
+            });
           }
+        }
+
+        // Generate daily summary for completed sessions (those with sign-outs)
+        const res = dataManager.saveDailySummaryCSV(dateIso, {
+          closeOpenAtHour: null,
+          autoWriteSignOutAtHour: null,
+          autoPolicy: null // Don't auto-signout - we handle it above
         });
 
         if (res.success) {
@@ -395,15 +447,15 @@ app.whenReady().then(async () => {
           dataManager.logger.error('report', `Daily summary failed: ${res.error}`, 'system');
         }
 
-        // (Optional) also push the hour/Absent column to a "Daily Summary" sheet
+        // Push to Google Sheets
         const { summaries } = dataManager.computeDailySummary(dateIso, {
           closeOpenAtHour: null,
           autoWriteSignOutAtHour: null,
-          autoPolicy: { cutoffHour: 17, eodHour: 23, eodMinute: 59, after5Minutes: 60 }
+          autoPolicy: null
         });
         await googleSheetsService.upsertDailyHours({ dateLike: dateIso, summaries, summarySheetName: 'Daily Summary' });
 
-        // Sort attendance after synthetic sign-outs were written
+        // Sort attendance after any synthetic sign-outs were written
         const sr = dataManager.sortAttendanceByTimestamp?.();
         if (!sr?.success) {
           dataManager.logger.warning('attendance', `Post-summary sort failed: ${sr?.error || 'unknown'}`, 'system');
@@ -414,6 +466,51 @@ app.whenReady().then(async () => {
     }, { scheduled: true, timezone: 'America/New_York' });
     dailySummaryJobStarted = true;
   }
+
+  // Process expired pending sign-outs at 5 PM ET (deadline)
+  cron.schedule('0 17 * * *', async () => {
+    try {
+      dataManager.logger.info('pending', 'Processing expired pending sign-outs (5 PM deadline)', 'system');
+
+      const result = await pendingSignoutService.processExpiredPending();
+
+      if (result.expiredCount > 0) {
+        dataManager.logger.info('pending',
+          `Expired ${result.expiredCount} pending sign-outs (marked as 0 hours, present only)`, 'system');
+
+        // Regenerate daily summaries for affected dates
+        for (const dateStr of result.affectedDates) {
+          const dateIso = new Date(dateStr + 'T00:00:00Z').toISOString();
+
+          // Regenerate CSV
+          dataManager.saveDailySummaryCSV(dateIso, {
+            closeOpenAtHour: null,
+            autoWriteSignOutAtHour: null,
+            autoPolicy: null
+          });
+
+          // Update Google Sheets
+          const config = dataManager.getConfig();
+          if (config.googleSheets?.enabled) {
+            const { summaries } = dataManager.computeDailySummary(dateIso, {
+              closeOpenAtHour: null,
+              autoWriteSignOutAtHour: null,
+              autoPolicy: null
+            });
+            await googleSheetsService.upsertDailyHours({
+              dateLike: dateIso,
+              summaries,
+              summarySheetName: 'Daily Summary'
+            });
+          }
+        }
+      } else {
+        dataManager.logger.info('pending', 'No expired pending sign-outs to process', 'system');
+      }
+    } catch (err) {
+      dataManager.logger.error('pending', `Expired pending processing error: ${err.message}`, 'system');
+    }
+  }, { scheduled: true, timezone: 'America/New_York' });
 
 
 
@@ -883,6 +980,97 @@ ipcMain.handle('start-test-scheduler', async (event) => {
     return result;
   } catch (error) {
     dataManager.logger.error('scheduler', `Test scheduler error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+// Pending Sign-Out handlers
+ipcMain.handle('get-pending-signouts', async () => {
+  try {
+    const pending = pendingSignoutService.getPendingSignouts();
+    const stats = pendingSignoutService.getPendingStats();
+    return { success: true, pending, stats };
+  } catch (error) {
+    dataManager.logger.error('pending', `Get pending signouts error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('admin-resolve-pending', async (event, { id, signOutTime, presentOnly }) => {
+  try {
+    dataManager.logger.info('pending', `Admin resolving pending ${id}`, 'admin');
+    const result = pendingSignoutService.adminResolvePending(id, signOutTime, presentOnly);
+
+    if (result.success) {
+      dataManager.logger.info('pending', `Admin resolved pending for ${result.record.name}`, 'admin');
+    } else {
+      dataManager.logger.error('pending', `Admin resolve failed: ${result.error}`, 'admin');
+    }
+
+    return result;
+  } catch (error) {
+    dataManager.logger.error('pending', `Admin resolve error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('resend-pending-email', async (event, id) => {
+  try {
+    const pending = pendingSignoutService.getPendingSignouts();
+    const record = pending.find(p => p.id === id);
+
+    if (!record) {
+      return { success: false, error: 'Pending record not found' };
+    }
+
+    dataManager.logger.info('pending', `Resending pending email to ${record.email}`, 'admin');
+    const result = await pendingSignoutService.sendPendingSignoutEmail(record);
+
+    if (result.success) {
+      dataManager.logger.info('pending', `Pending email resent to ${record.email}`, 'admin');
+    }
+
+    return result;
+  } catch (error) {
+    dataManager.logger.error('pending', `Resend pending email error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-pending-server-status', async () => {
+  try {
+    return {
+      success: true,
+      running: pendingSignoutService.isServerRunning(),
+      port: pendingSignoutService.port
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('trigger-pending-processing', async () => {
+  try {
+    dataManager.logger.info('pending', 'Manually triggering pending sign-out processing', 'admin');
+
+    // Get open sessions for today
+    const today = new Date();
+    const openSessions = dataManager.getOpenSessionsForDate(today);
+
+    let processed = 0;
+    for (const signInRecord of openSessions) {
+      const students = dataManager.getStudents();
+      const student = students.find(s => s.ufid === signInRecord.ufid);
+
+      if (student && student.email) {
+        const result = await pendingSignoutService.createPendingSignout(student, signInRecord);
+        if (result.success) processed++;
+      }
+    }
+
+    return { success: true, processedCount: processed, openSessionsCount: openSessions.length };
+  } catch (error) {
+    dataManager.logger.error('pending', `Manual pending processing error: ${error.message}`, 'admin');
     return { success: false, error: error.message };
   }
 });

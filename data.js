@@ -901,6 +901,48 @@ class DataManager {
     }
 
     /**
+     * Get students who have open sessions (signed in but not signed out) for a given date.
+     * Used by the pending sign-out feature to identify students who need reminder emails.
+     * @param {string|Date} dateLike - The date to check
+     * @returns {Array} - Array of sign-in records that don't have matching sign-outs
+     */
+    getOpenSessionsForDate(dateLike) {
+        const records = this.getAttendanceForDate(dateLike);
+        const byStudent = new Map();
+
+        // Group by student
+        for (const r of records) {
+            if (!byStudent.has(r.ufid)) {
+                byStudent.set(r.ufid, []);
+            }
+            byStudent.get(r.ufid).push(r);
+        }
+
+        const openSessions = [];
+
+        for (const [ufid, events] of byStudent) {
+            // Sort by timestamp
+            events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            // Find the last sign-in without a matching sign-out
+            let lastSignIn = null;
+            for (const e of events) {
+                if (e.action === 'signin') {
+                    lastSignIn = e;
+                } else if (e.action === 'signout') {
+                    lastSignIn = null; // Session closed
+                }
+            }
+
+            if (lastSignIn) {
+                openSessions.push(lastSignIn);
+            }
+        }
+
+        return openSessions;
+    }
+
+    /**
      * Hybrid policy:
      * - If a student never logs out -> treat sign-out as 5:00 PM for the *daily summary* (no record is written)
      * - If they do log out after 5 PM -> respect their actual sign-out (no cap)

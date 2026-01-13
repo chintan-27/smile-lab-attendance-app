@@ -102,6 +102,9 @@ async function loadSectionData(sectionName) {
         case 'logs':
             await loadLogs();
             break;
+        case 'pending':
+            await loadPending();
+            break;
     }
 }
 
@@ -118,7 +121,7 @@ async function loadDashboard() {
         document.getElementById('todaySignOuts').textContent = stats.todaySignOuts;
         document.getElementById('studentCount').textContent = stats.totalStudents;
 
-        //loadRecentActivity(todaysAttendance.slice(-10));
+        loadRecentActivity(todaysAttendance.slice(-15));
         loadCurrentlyPresent(stats.signedInStudents);
         await loadDashboardCharts();
     } catch (error) {
@@ -126,41 +129,41 @@ async function loadDashboard() {
     }
 }
 
-// function loadRecentActivity(activities) {
-//     const tbody = document.getElementById('recentActivityTable');
-//     if (!activities || activities.length === 0) {
-//         tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No recent activity</td></tr>';
-//         return;
-//     }
-// 
-//     tbody.innerHTML = activities.reverse().map(activity => `
-//         <tr>
-//             <td>
-//                 <div style="font-weight: 500;">${activity.name}</div>
-//                 <div style="font-size: 0.75rem; color: #64748b;">${activity.ufid}</div>
-//             </td>
-//             <td>
-//                 <span class="badge ${activity.action === 'signin' ? 'success' : 'warning'}">
-//                     ${activity.action === 'signin' ? 'Sign In' : 'Sign Out'}
-//                 </span>
-//             </td>
-//             <td style="font-size: 0.875rem;">${new Date(activity.timestamp).toLocaleTimeString()}</td>
-//             <td>
-//                 <button class="btn btn-secondary delete-record-btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" data-record-id="${activity.id}">
-//                     <i class="fas fa-trash"></i>
-//                 </button>
-//             </td>
-//         </tr>
-//     `).join('');
-// 
-//     // Add event listeners to delete buttons
-//     document.querySelectorAll('.delete-record-btn').forEach(btn => {
-//         btn.addEventListener('click', function () {
-//             const recordId = parseInt(this.getAttribute('data-record-id'));
-//             deleteRecord(recordId);
-//         });
-//     });
-// }
+function loadRecentActivity(activities) {
+    const tbody = document.getElementById('recentActivityTable');
+    if (!activities || activities.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #64748b;">No recent activity</td></tr>';
+        return;
+    }
+
+    // Show most recent first
+    const sorted = [...activities].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    tbody.innerHTML = sorted.map(activity => `
+        <tr>
+            <td>
+                <div style="font-weight: 500;">${activity.name}</div>
+                <div style="font-size: 0.75rem; color: #64748b;">${activity.ufid}</div>
+            </td>
+            <td>
+                <span class="badge ${activity.action === 'signin' ? 'success' : 'warning'}">
+                    ${activity.action === 'signin' ? 'Sign In' : 'Sign Out'}
+                </span>
+            </td>
+            <td style="font-size: 0.875rem;">${new Date(activity.timestamp).toLocaleTimeString()}</td>
+        </tr>
+    `).join('');
+}
+
+async function refreshActivity() {
+    try {
+        const todaysAttendance = await window.electronAPI.getTodaysAttendance();
+        loadRecentActivity(todaysAttendance.slice(-15));
+        showNotification('Activity refreshed', 'success');
+    } catch (error) {
+        showNotification('Error refreshing activity: ' + error.message, 'error');
+    }
+}
 
 function loadCurrentlyPresent(presentStudents) {
     const container = document.getElementById('currentlyPresentList');
@@ -333,7 +336,7 @@ function setupEditStudentModal() {
 function displayStudents(students) {
     const tbody = document.getElementById('studentsTableBody');
     if (!students || students.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #64748b;">No students found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #64748b;">No students found</td></tr>';
         return;
     }
 
@@ -883,9 +886,23 @@ async function renderWeeklyMatrix(weekStart) {
     nextBtn.disabled = addDays(weekStart, 7) > thisWeek;
 
     // Fetch summaries per day
+    // For today, use computeHoursWorkedToday (real-time); for past days, use getDailySummary with 'cap'
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const perDay = await Promise.all(days.map(async (d) => {
-        const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
-        const res = await window.electronAPI.getDailySummary(iso, 'cap');
+        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        dayStart.setHours(0, 0, 0, 0);
+        const iso = dayStart.toISOString();
+
+        let res;
+        if (dayStart.getTime() === today.getTime()) {
+            // Current day: use real-time hours
+            res = await window.electronAPI.computeHoursWorkedToday(iso);
+        } else {
+            // Past days: use cap policy
+            res = await window.electronAPI.getDailySummary(iso, 'cap');
+        }
         return (res && res.success && Array.isArray(res.summaries)) ? res.summaries : [];
     }));
 
@@ -3147,6 +3164,297 @@ setInterval(() => {
     }
 }, 30000);
 
+// ─────────────────────────────────────────────────────────────
+// Pending Sign-Outs Section
+// ─────────────────────────────────────────────────────────────
+
+let pendingData = [];
+let currentResolvingPending = null;
+
+async function loadPending() {
+    try {
+        // Load pending signouts
+        const result = await window.electronAPI.getPendingSignouts();
+        if (result.success) {
+            pendingData = result.pending;
+            updatePendingStats(result.stats);
+            renderPendingTable();
+        } else {
+            showNotification('Error loading pending sign-outs: ' + result.error, 'error');
+        }
+
+        // Check server status
+        const serverStatus = await window.electronAPI.getPendingServerStatus();
+        const statusEl = document.getElementById('pendingServerStatus');
+        const urlEl = document.getElementById('serverUrl');
+        if (serverStatus.success && serverStatus.running) {
+            statusEl.textContent = 'Server: Running';
+            statusEl.className = 'badge success';
+            urlEl.textContent = `http://localhost:${serverStatus.port}/signout/[token]`;
+        } else {
+            statusEl.textContent = 'Server: Not Running';
+            statusEl.className = 'badge error';
+        }
+
+        // Update sidebar badge
+        updatePendingBadge();
+    } catch (error) {
+        showNotification('Error loading pending data: ' + error.message, 'error');
+    }
+}
+
+function updatePendingStats(stats) {
+    document.getElementById('pendingTotal').textContent = stats?.total || 0;
+    document.getElementById('expiringToday').textContent = stats?.expiringToday || 0;
+    document.getElementById('pendingResolved').textContent = stats?.resolved || 0;
+    document.getElementById('pendingExpired').textContent = stats?.expired || 0;
+}
+
+function updatePendingBadge() {
+    const pending = pendingData.filter(p => p.status === 'pending');
+    const badge = document.getElementById('pendingCount');
+    if (badge) {
+        badge.textContent = pending.length;
+        badge.style.display = pending.length > 0 ? 'inline-flex' : 'none';
+    }
+}
+
+function renderPendingTable() {
+    const tbody = document.getElementById('pendingTableBody');
+    const noMessage = document.getElementById('noPendingMessage');
+    const filter = document.getElementById('pendingStatusFilter')?.value || 'pending';
+
+    // Filter data based on selection
+    let filtered = pendingData;
+    if (filter !== 'all') {
+        filtered = pendingData.filter(p => p.status === filter);
+    }
+
+    if (!filtered || filtered.length === 0) {
+        tbody.innerHTML = '';
+        if (noMessage) {
+            noMessage.style.display = filter === 'pending' ? 'block' : 'none';
+            if (filter !== 'pending') {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No records found</td></tr>';
+            }
+        }
+        return;
+    }
+
+    if (noMessage) noMessage.style.display = 'none';
+
+    // Sort by deadline (soonest first for pending, most recent first for others)
+    const sorted = [...filtered].sort((a, b) => {
+        if (a.status === 'pending' && b.status === 'pending') {
+            return new Date(a.deadline) - new Date(b.deadline);
+        }
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    tbody.innerHTML = sorted.map(record => {
+        const signInDate = new Date(record.signInTimestamp);
+        const deadline = new Date(record.deadline);
+        const now = new Date();
+        const isExpiringSoon = record.status === 'pending' && deadline - now < 4 * 60 * 60 * 1000; // < 4 hours
+
+        let statusBadge = '';
+        switch (record.status) {
+            case 'pending':
+                statusBadge = `<span class="badge ${isExpiringSoon ? 'warning' : 'info'}">Pending</span>`;
+                break;
+            case 'resolved':
+                statusBadge = `<span class="badge success">Resolved</span>`;
+                break;
+            case 'expired':
+                statusBadge = `<span class="badge error">Expired (0h)</span>`;
+                break;
+        }
+
+        const actions = record.status === 'pending' ? `
+            <button class="btn btn-secondary" onclick="openResolvePendingModal('${record.id}')" title="Resolve">
+                <i class="fas fa-check"></i>
+            </button>
+            <button class="btn btn-secondary" onclick="resendPendingEmail('${record.id}')" title="Resend Email">
+                <i class="fas fa-envelope"></i>
+            </button>
+        ` : `
+            <span style="color: #64748b; font-size: 0.875rem;">
+                ${record.resolvedBy === 'student' ? 'Self-reported' : record.resolvedBy === 'admin' ? 'Admin resolved' : 'Auto-expired'}
+            </span>
+        `;
+
+        return `
+            <tr>
+                <td>
+                    <div style="font-weight: 500;">${record.name}</div>
+                    <div style="font-size: 0.75rem; color: #64748b;">${record.ufid}</div>
+                </td>
+                <td style="font-size: 0.875rem;">${record.email || '-'}</td>
+                <td>${signInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                <td>${signInDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</td>
+                <td>
+                    <div>${deadline.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    <div style="font-size: 0.75rem; color: #64748b;">${deadline.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</div>
+                </td>
+                <td>${statusBadge}</td>
+                <td style="display: flex; gap: 0.5rem;">${actions}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openResolvePendingModal(id) {
+    const record = pendingData.find(p => p.id === id);
+    if (!record) {
+        showNotification('Pending record not found', 'error');
+        return;
+    }
+
+    currentResolvingPending = record;
+
+    const signInDate = new Date(record.signInTimestamp);
+    const deadline = new Date(record.deadline);
+
+    document.getElementById('resolveStudentName').textContent = record.name;
+    document.getElementById('resolveSignInTime').textContent = signInDate.toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+    });
+    document.getElementById('resolveDeadline').textContent = deadline.toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+    });
+
+    // Set default time to 5 PM
+    document.getElementById('adminSignOutTime').value = '17:00';
+    document.getElementById('markPresentOnly').checked = false;
+
+    document.getElementById('resolvePendingModal').classList.add('active');
+}
+
+function closeResolvePendingModal() {
+    document.getElementById('resolvePendingModal').classList.remove('active');
+    currentResolvingPending = null;
+}
+
+async function submitResolvePending() {
+    if (!currentResolvingPending) return;
+
+    const presentOnly = document.getElementById('markPresentOnly').checked;
+    const signOutTime = document.getElementById('adminSignOutTime').value;
+
+    if (!presentOnly && !signOutTime) {
+        showNotification('Please enter a sign-out time or mark as present only', 'error');
+        return;
+    }
+
+    try {
+        const result = await window.electronAPI.adminResolvePending(
+            currentResolvingPending.id,
+            signOutTime,
+            presentOnly
+        );
+
+        if (result.success) {
+            showNotification(`Resolved pending sign-out for ${currentResolvingPending.name}`, 'success');
+            closeResolvePendingModal();
+            await loadPending();
+        } else {
+            showNotification('Error: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error resolving pending: ' + error.message, 'error');
+    }
+}
+
+async function resendPendingEmail(id) {
+    try {
+        const result = await window.electronAPI.resendPendingEmail(id);
+        if (result.success) {
+            showNotification('Email resent successfully', 'success');
+        } else {
+            showNotification('Error resending email: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error: ' + error.message, 'error');
+    }
+}
+
+async function triggerPendingProcessing() {
+    try {
+        const result = await window.electronAPI.triggerPendingProcessing();
+        if (result.success) {
+            showNotification(`Processed ${result.processedCount} of ${result.openSessionsCount} open sessions`, 'success');
+            await loadPending();
+        } else {
+            showNotification('Error: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error: ' + error.message, 'error');
+    }
+}
+
+// Pending section event listeners (add to DOMContentLoaded)
+document.addEventListener('DOMContentLoaded', function() {
+    // Trigger pending processing button
+    const triggerPendingBtn = document.getElementById('triggerPendingBtn');
+    if (triggerPendingBtn) {
+        triggerPendingBtn.addEventListener('click', triggerPendingProcessing);
+    }
+
+    // Refresh pending button
+    const refreshPendingBtn = document.getElementById('refreshPendingBtn');
+    if (refreshPendingBtn) {
+        refreshPendingBtn.addEventListener('click', loadPending);
+    }
+
+    // Pending status filter
+    const pendingStatusFilter = document.getElementById('pendingStatusFilter');
+    if (pendingStatusFilter) {
+        pendingStatusFilter.addEventListener('change', renderPendingTable);
+    }
+
+    // Resolve modal buttons
+    const closeResolvePendingModalBtn = document.getElementById('closeResolvePendingModal');
+    if (closeResolvePendingModalBtn) {
+        closeResolvePendingModalBtn.addEventListener('click', closeResolvePendingModal);
+    }
+
+    const cancelResolveBtn = document.getElementById('cancelResolveBtn');
+    if (cancelResolveBtn) {
+        cancelResolveBtn.addEventListener('click', closeResolvePendingModal);
+    }
+
+    const submitResolveBtn = document.getElementById('submitResolveBtn');
+    if (submitResolveBtn) {
+        submitResolveBtn.addEventListener('click', submitResolvePending);
+    }
+
+    // Handle present only checkbox - disable time input when checked
+    const markPresentOnly = document.getElementById('markPresentOnly');
+    if (markPresentOnly) {
+        markPresentOnly.addEventListener('change', function() {
+            const timeInput = document.getElementById('adminSignOutTime');
+            if (timeInput) {
+                timeInput.disabled = this.checked;
+            }
+        });
+    }
+
+    // Load pending badge on startup
+    setTimeout(async () => {
+        try {
+            const result = await window.electronAPI.getPendingSignouts();
+            if (result.success) {
+                pendingData = result.pending;
+                updatePendingBadge();
+            }
+        } catch (e) {
+            console.log('Could not load pending badge:', e);
+        }
+    }, 1000);
+});
+
 // Export functions for potential use
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -3155,6 +3463,7 @@ if (typeof module !== 'undefined' && module.exports) {
         loadStudents,
         addStudent,
         deleteStudent,
-        showNotification
+        showNotification,
+        loadPending
     };
 }
