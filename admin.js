@@ -2377,6 +2377,7 @@ async function addStudent() {
             showNotification('Error adding student: ' + result.error, 'error');
         }
     } catch (error) {
+        console.log(error);
         showNotification('Error adding student: ' + error.message, 'error');
     }
 }

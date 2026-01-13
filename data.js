@@ -513,7 +513,7 @@ class DataManager {
         }
     }
 
-    addStudent(ufid, name, email = '') {
+    addStudent(ufid, name, email = '', meta = {}) {
         try {
             if (this.logger) {
                 this.logger.info('student', `Adding student: ${name} (${ufid})`, 'admin');
