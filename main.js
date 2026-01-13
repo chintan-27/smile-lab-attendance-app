@@ -987,8 +987,8 @@ ipcMain.handle('start-test-scheduler', async (event) => {
 // Pending Sign-Out handlers
 ipcMain.handle('get-pending-signouts', async () => {
   try {
-    const pending = pendingSignoutService.getPendingSignouts();
-    const stats = pendingSignoutService.getPendingStats();
+    const pending = await pendingSignoutService.getPendingSignouts();
+    const stats = await pendingSignoutService.getPendingStats();
     return { success: true, pending, stats };
   } catch (error) {
     dataManager.logger.error('pending', `Get pending signouts error: ${error.message}`, 'admin');
@@ -999,7 +999,7 @@ ipcMain.handle('get-pending-signouts', async () => {
 ipcMain.handle('admin-resolve-pending', async (event, { id, signOutTime, presentOnly }) => {
   try {
     dataManager.logger.info('pending', `Admin resolving pending ${id}`, 'admin');
-    const result = pendingSignoutService.adminResolvePending(id, signOutTime, presentOnly);
+    const result = await pendingSignoutService.adminResolvePending(id, signOutTime, presentOnly);
 
     if (result.success) {
       dataManager.logger.info('pending', `Admin resolved pending for ${result.record.name}`, 'admin');
@@ -1016,7 +1016,7 @@ ipcMain.handle('admin-resolve-pending', async (event, { id, signOutTime, present
 
 ipcMain.handle('resend-pending-email', async (event, id) => {
   try {
-    const pending = pendingSignoutService.getPendingSignouts();
+    const pending = await pendingSignoutService.getPendingSignouts();
     const record = pending.find(p => p.id === id);
 
     if (!record) {
