@@ -823,6 +823,76 @@ class DataManager {
         }
     }
 
+    /**
+     * Update an attendance record by its pendingRecordId
+     * Used when a pending signout is resolved to update the temporary record
+     * @param {string} pendingRecordId - The pending record ID to find
+     * @param {Object} updates - The fields to update (e.g., timestamp)
+     * @returns {Object} - { success, record?, error? }
+     */
+    updateAttendanceByPendingId(pendingRecordId, updates) {
+        try {
+            const attendance = this.getAttendance();
+            const idx = attendance.findIndex(r => r.pendingRecordId === pendingRecordId);
+
+            if (idx === -1) {
+                if (this.logger) {
+                    this.logger.warning('attendance', `No attendance record found with pendingRecordId: ${pendingRecordId}`, 'system');
+                }
+                return { success: false, error: 'Record not found' };
+            }
+
+            const oldRecord = attendance[idx];
+            attendance[idx] = {
+                ...oldRecord,
+                ...updates,
+                pendingTimestamp: false, // Clear the pending flag
+                resolvedAt: new Date().toISOString()
+            };
+
+            const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+
+            if (this.logger) {
+                this.logger.info('attendance',
+                    `Updated pending attendance record for ${oldRecord.name}: ${oldRecord.timestamp} -> ${attendance[idx].timestamp}`, 'system');
+            }
+
+            return { success: true, record: attendance[idx] };
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error updating attendance by pendingId: ${error.message}`, 'system');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Add a new attendance record directly (used by pending signout service)
+     * @param {Object} record - The attendance record to add
+     * @returns {Object} - { success, record?, error? }
+     */
+    addAttendanceRecord(record) {
+        try {
+            const attendance = this.getAttendance();
+            attendance.push(record);
+            const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+
+            if (this.logger) {
+                this.logger.info('attendance',
+                    `Added attendance record: ${record.name || record.ufid} - ${record.action} at ${record.timestamp}`, 'system');
+            }
+
+            return { success: true, record };
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error adding attendance record: ${error.message}`, 'system');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
     getCurrentlySignedIn() {
         try {
             if (this.logger) {

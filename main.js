@@ -398,6 +398,21 @@ app.whenReady().then(async () => {
             if (pendingResult.success) {
               dataManager.logger.info('pending',
                 `Pending sign-out created for ${student.name}, email sent to ${student.email}`, 'system');
+
+              // Write a temporary "pending" signout record at the sign-in time
+              // This marks them as signed out with 0 hours until they submit their actual time
+              dataManager.addAttendanceRecord({
+                id: Date.now() + Math.floor(Math.random() * 1000),
+                ufid: signInRecord.ufid,
+                name: signInRecord.name,
+                action: 'signout',
+                timestamp: signInRecord.timestamp, // Same as sign-in = 0 hours
+                synthetic: true,
+                pendingTimestamp: true, // Flag to indicate time is pending
+                pendingRecordId: pendingResult.record.id
+              });
+              dataManager.logger.info('pending',
+                `Temporary pending signout written for ${student.name} (0 hours until resolved)`, 'system');
             } else {
               dataManager.logger.warning('pending',
                 `Failed to create pending for ${student.name}: ${pendingResult.error}`, 'system');

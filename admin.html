@@ -1315,9 +1315,9 @@
                     </div>
                 </div>
                 <!-- Content Grid: Student Hours, Currently Present, Recent Activity -->
-                <div class="content-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="content-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items: stretch;">
                     <!-- Student Hours Chart -->
-                    <div class="card">
+                    <div class="card" style="display: flex; flex-direction: column;">
                         <div class="card-header">
                             <div class="card-title">Student Hours</div>
                             <div style="display:flex; gap:.5rem; align-items:center">
@@ -1328,25 +1328,25 @@
                                 <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
                             </div>
                         </div>
-                        <div class="card-body">
+                        <div class="card-body" style="flex: 1; min-height: 200px;">
                             <div class="chart-container">
                                 <canvas id="studentHoursChart" height="280"></canvas>
                             </div>
                         </div>
                     </div>
                     <!-- Currently Present -->
-                    <div class="card">
+                    <div class="card" style="display: flex; flex-direction: column;">
                         <div class="card-header">
                             <h3 class="card-title">Currently Present</h3>
                         </div>
-                        <div class="card-body">
-                            <div id="currentlyPresentList" style="max-height: 300px; overflow-y: auto;">
+                        <div class="card-body" style="flex: 1; min-height: 0; overflow: hidden;">
+                            <div id="currentlyPresentList" style="height: 100%; overflow-y: auto;">
                                 <!-- Dynamic content -->
                             </div>
                         </div>
                     </div>
                     <!-- Recent Activity -->
-                    <div class="card">
+                    <div class="card" style="display: flex; flex-direction: column;">
                         <div class="card-header">
                             <h3 class="card-title">Recent Activity</h3>
                             <button class="btn btn-secondary" id="refreshActivityBtn">
@@ -1354,8 +1354,8 @@
                                 Refresh
                             </button>
                         </div>
-                        <div class="card-body">
-                            <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                        <div class="card-body" style="flex: 1; min-height: 0; overflow: hidden;">
+                            <div class="table-container" style="height: 100%; overflow-y: auto;">
                                 <table class="table">
                                     <thead>
                                         <tr>

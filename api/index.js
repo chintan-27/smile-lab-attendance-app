@@ -191,25 +191,45 @@ app.post('/signout/:token', async (req, res) => {
     }
 
     // Parse and validate the sign-out time
+    // The signInTimestamp is stored in UTC, but we need to work in ET timezone
     const signInDate = new Date(record.signInTimestamp);
     let signOutDate;
 
     if (/^\d{2}:\d{2}$/.test(signOutTime)) {
       const [hours, minutes] = signOutTime.split(':').map(Number);
-      signOutDate = new Date(signInDate);
-      signOutDate.setHours(hours, minutes, 0, 0);
+
+      // Get the sign-in date components in ET timezone
+      const signInET = new Date(signInDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const signInYear = signInET.getFullYear();
+      const signInMonth = signInET.getMonth();
+      const signInDay = signInET.getDate();
+
+      // Create a date string for the sign-out time in ET
+      // Format: "YYYY-MM-DD HH:MM:SS" then interpret in ET
+      const signOutETString = `${signInYear}-${String(signInMonth + 1).padStart(2, '0')}-${String(signInDay).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+
+      // Parse as ET by getting the offset and adjusting
+      // Create a temporary date to figure out the ET offset for that day
+      const tempET = new Date(signInDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const tempUTC = new Date(signInDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+      const etOffset = (tempUTC - tempET) / 60000; // ET offset in minutes (negative for behind UTC)
+
+      // Create the sign-out date: parse the ET time string, then adjust by offset to get UTC
+      signOutDate = new Date(`${signOutETString}`);
+      signOutDate.setMinutes(signOutDate.getMinutes() + signOutDate.getTimezoneOffset() - etOffset);
     } else {
       signOutDate = new Date(signOutTime);
     }
 
-    // Validation
+    // Validation - compare in ET timezone to ensure same calendar day
+    const signInETStr = signInDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+    const signOutETStr = signOutDate.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+
     if (signOutDate <= signInDate) {
       return res.send(generateFormHTML(record, 'Sign-out time must be after your sign-in time.'));
     }
 
-    const signInDay = signInDate.toDateString();
-    const signOutDay = signOutDate.toDateString();
-    if (signInDay !== signOutDay) {
+    if (signInETStr !== signOutETStr) {
       return res.send(generateFormHTML(record, 'Sign-out time must be on the same day as sign-in.'));
     }
 

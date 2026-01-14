@@ -1001,6 +1001,17 @@ async function renderMonthlyHeatmap(monthStart) {
 
     const ctx = document.getElementById('monthlyHeatmap');
     if (!ctx) return;
+
+    // Dynamically set chart container height based on number of students
+    const minHeightPerStudent = 30;
+    const minChartHeight = 200;
+    const calculatedHeight = Math.max(minChartHeight, names.length * minHeightPerStudent);
+
+    const container = ctx.parentElement;
+    if (container) {
+        container.style.height = `${calculatedHeight}px`;
+    }
+
     if (charts.monthHeatmap) charts.monthHeatmap.destroy();
 
     charts.monthHeatmap = new Chart(ctx, {
@@ -1034,7 +1045,13 @@ async function renderMonthlyHeatmap(monthStart) {
             },
             scales: {
                 x: { stacked: true, display: false },
-                y: { stacked: true }
+                y: {
+                    stacked: true,
+                    ticks: {
+                        autoSkip: false,
+                        font: { size: 11 }
+                    }
+                }
             }
         }
     });
@@ -1296,7 +1313,7 @@ async function renderStudentHoursForDay(day = new Date()) {
             weekday: 'short', month: 'short', day: 'numeric'
         });
     }
-    // disable next if we’d go into the future
+    // disable next if we'd go into the future
     nextBtn.disabled = d.getTime() >= todayOnly.getTime();
     const dateISO = d.toISOString();
     let res = { "summaries": [] };
@@ -1312,6 +1329,18 @@ async function renderStudentHoursForDay(day = new Date()) {
         (a.name || a.ufid).localeCompare(b.name || b.ufid)
     );
 
+    // Dynamically set chart container height based on number of students
+    // Minimum 30px per student bar, with a minimum height of 200px
+    const minHeightPerStudent = 30;
+    const minChartHeight = 200;
+    const calculatedHeight = Math.max(minChartHeight, rows.length * minHeightPerStudent);
+
+    // Set the parent container height (the canvas's container)
+    const container = ctx.parentElement;
+    if (container) {
+        container.style.height = `${calculatedHeight}px`;
+    }
+
     if (charts.studentHours) charts.studentHours.destroy();
     charts.studentHours = new Chart(ctx, {
         type: 'bar',
@@ -1320,17 +1349,25 @@ async function renderStudentHoursForDay(day = new Date()) {
             datasets: [{
                 label: 'Hours',
                 data: rows.map(r => r.totalHours),
-                borderWidth: 1
+                borderWidth: 1,
+                barThickness: 20, // Fixed bar thickness for consistent appearance
+                maxBarThickness: 25
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,  // like trendsChart
+            maintainAspectRatio: false,
             indexAxis: 'y',
             plugins: { legend: { display: false } },
             scales: {
                 x: { title: { display: true, text: 'Hours' } },
-                y: { title: { display: false } }
+                y: {
+                    title: { display: false },
+                    ticks: {
+                        autoSkip: false, // Show all labels
+                        font: { size: 11 } // Smaller font if needed
+                    }
+                }
             }
         }
     });
@@ -1469,6 +1506,16 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
     }));
 
     // ----- build chart -----
+    // Dynamically set chart container height based on number of students
+    const minHeightPerStudent = 30;
+    const minChartHeight = 250;
+    const calculatedHeight = Math.max(minChartHeight, names.length * minHeightPerStudent);
+
+    const container = ctx.parentElement;
+    if (container) {
+        container.style.height = `${calculatedHeight}px`;
+    }
+
     if (charts.timeBands) charts.timeBands.destroy();
 
     charts.timeBands = new Chart(ctx, {

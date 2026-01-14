@@ -116,18 +116,29 @@ class PendingSignoutService {
 
         // If cloud record is resolved but local isn't, sync it
         if (cloudRecord.status === 'resolved' && (!localRecord || localRecord.status === 'pending')) {
-          // Add the sign-out record to attendance
+          // Update the existing temporary attendance record with the actual sign-out time
           if (cloudRecord.submittedSignOutTime && cloudRecord.submittedSignOutTime !== cloudRecord.signInTimestamp) {
-            this.dataManager.addAttendanceRecord({
-              id: Date.now(),
-              ufid: cloudRecord.ufid,
-              name: cloudRecord.name,
-              action: 'signout',
+            // Try to update existing temporary record first
+            const updateResult = this.dataManager.updateAttendanceByPendingId(cloudRecord.id, {
               timestamp: cloudRecord.submittedSignOutTime,
               synthetic: false,
               fromPendingResolution: true,
-              pendingRecordId: cloudRecord.id
+              resolvedBy: cloudRecord.resolvedBy || 'student'
             });
+
+            if (!updateResult.success) {
+              // Fallback: add new record if no temporary record exists (legacy/edge case)
+              this.dataManager.addAttendanceRecord({
+                id: Date.now(),
+                ufid: cloudRecord.ufid,
+                name: cloudRecord.name,
+                action: 'signout',
+                timestamp: cloudRecord.submittedSignOutTime,
+                synthetic: false,
+                fromPendingResolution: true,
+                pendingRecordId: cloudRecord.id
+              });
+            }
 
             this.dataManager.logger?.info('pending',
               `Synced resolved sign-out for ${cloudRecord.name} from cloud`, 'system');
@@ -261,17 +272,28 @@ class PendingSignoutService {
         record.submittedSignOutTime = record.signInTimestamp;
         record.presentOnly = true;
 
-        this.dataManager.addAttendanceRecord({
-          id: Date.now(),
-          ufid: record.ufid,
-          name: record.name,
-          action: 'signout',
+        // Try to update existing temporary record, fallback to adding new
+        const updateResult = this.dataManager.updateAttendanceByPendingId(record.id, {
           timestamp: record.signInTimestamp,
           synthetic: true,
           presentOnly: true,
           fromPendingResolution: true,
-          pendingRecordId: record.id
+          resolvedBy: 'admin'
         });
+
+        if (!updateResult.success) {
+          this.dataManager.addAttendanceRecord({
+            id: Date.now(),
+            ufid: record.ufid,
+            name: record.name,
+            action: 'signout',
+            timestamp: record.signInTimestamp,
+            synthetic: true,
+            presentOnly: true,
+            fromPendingResolution: true,
+            pendingRecordId: record.id
+          });
+        }
       } else {
         let signOutDate;
         if (/^\d{2}:\d{2}$/.test(signOutTime)) {
@@ -284,17 +306,28 @@ class PendingSignoutService {
 
         record.submittedSignOutTime = signOutDate.toISOString();
 
-        this.dataManager.addAttendanceRecord({
-          id: Date.now(),
-          ufid: record.ufid,
-          name: record.name,
-          action: 'signout',
+        // Try to update existing temporary record, fallback to adding new
+        const updateResult = this.dataManager.updateAttendanceByPendingId(record.id, {
           timestamp: signOutDate.toISOString(),
           synthetic: false,
           fromPendingResolution: true,
           adminResolved: true,
-          pendingRecordId: record.id
+          resolvedBy: 'admin'
         });
+
+        if (!updateResult.success) {
+          this.dataManager.addAttendanceRecord({
+            id: Date.now(),
+            ufid: record.ufid,
+            name: record.name,
+            action: 'signout',
+            timestamp: signOutDate.toISOString(),
+            synthetic: false,
+            fromPendingResolution: true,
+            adminResolved: true,
+            pendingRecordId: record.id
+          });
+        }
       }
 
       // Update in cloud
@@ -342,18 +375,29 @@ class PendingSignoutService {
           record.submittedSignOutTime = record.signInTimestamp;
           record.presentOnly = true;
 
-          // Add present-only sign-out record
-          this.dataManager.addAttendanceRecord({
-            id: Date.now() + Math.floor(Math.random() * 1000),
-            ufid: record.ufid,
-            name: record.name,
-            action: 'signout',
+          // Update existing temporary record to mark as expired (0 hours, present only)
+          const updateResult = this.dataManager.updateAttendanceByPendingId(record.id, {
             timestamp: record.signInTimestamp,
             synthetic: true,
             presentOnly: true,
             pendingExpired: true,
-            pendingRecordId: record.id
+            resolvedBy: 'system'
           });
+
+          if (!updateResult.success) {
+            // Fallback: add new record if no temporary exists
+            this.dataManager.addAttendanceRecord({
+              id: Date.now() + Math.floor(Math.random() * 1000),
+              ufid: record.ufid,
+              name: record.name,
+              action: 'signout',
+              timestamp: record.signInTimestamp,
+              synthetic: true,
+              presentOnly: true,
+              pendingExpired: true,
+              pendingRecordId: record.id
+            });
+          }
 
           // Update in cloud
           await this.updateInCloud(record.id, {
