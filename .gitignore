@@ -151,3 +151,5 @@ logo.png
 build/
 
 CLAUDE.md
+.vercel
+.env*.local

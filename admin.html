@@ -1263,19 +1263,6 @@
                 <div class="stats-grid">
                     <div class="stat-card primary">
                         <div class="stat-header">
-                            <span class="stat-title">Total Students</span>
-                            <div class="stat-icon">
-                                <i class="fas fa-users"></i>
-                            </div>
-                        </div>
-                        <div class="stat-value" id="totalStudents">0</div>
-                        <div class="stat-change positive">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>Active in system</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-header">
                             <span class="stat-title">Currently Present</span>
                             <div class="stat-icon">
                                 <i class="fas fa-user-check"></i>
@@ -1313,27 +1300,22 @@
                             <span>Total today</span>
                         </div>
                     </div>
-                </div>
-                <!-- Content Grid: Student Hours, Currently Present, Recent Activity -->
-                <div class="content-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items: stretch;">
-                    <!-- Student Hours Chart -->
-                    <div class="card" style="display: flex; flex-direction: column;">
-                        <div class="card-header">
-                            <div class="card-title">Student Hours</div>
-                            <div style="display:flex; gap:.5rem; align-items:center">
-                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
-                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
-                                    Today
-                                </div>
-                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Total Students</span>
+                            <div class="stat-icon">
+                                <i class="fas fa-users"></i>
                             </div>
                         </div>
-                        <div class="card-body" style="flex: 1; min-height: 200px;">
-                            <div class="chart-container">
-                                <canvas id="studentHoursChart" height="280"></canvas>
-                            </div>
+                        <div class="stat-value" id="totalStudents">0</div>
+                        <div class="stat-change positive">
+                            <i class="fas fa-arrow-up"></i>
+                            <span>Active in system</span>
                         </div>
                     </div>
+                </div>
+                <!-- Content Grid: Currently Present, Recent Activity, Student Hours -->
+                <div class="content-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items: stretch;">
                     <!-- Currently Present -->
                     <div class="card" style="display: flex; flex-direction: column;">
                         <div class="card-header">
@@ -1368,6 +1350,24 @@
                                         <!-- Dynamic content -->
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Student Hours Chart -->
+                    <div class="card" style="display: flex; flex-direction: column;">
+                        <div class="card-header">
+                            <div class="card-title">Student Hours</div>
+                            <div style="display:flex; gap:.5rem; align-items:center">
+                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
+                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
+                                    Today
+                                </div>
+                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
+                            </div>
+                        </div>
+                        <div class="card-body" style="flex: 1; min-height: 200px;">
+                            <div class="chart-container">
+                                <canvas id="studentHoursChart" height="280"></canvas>
                             </div>
                         </div>
                     </div>
