@@ -204,19 +204,17 @@ app.post('/signout/:token', async (req, res) => {
       const signInMonth = signInET.getMonth();
       const signInDay = signInET.getDate();
 
-      // Create a date string for the sign-out time in ET
-      // Format: "YYYY-MM-DD HH:MM:SS" then interpret in ET
-      const signOutETString = `${signInYear}-${String(signInMonth + 1).padStart(2, '0')}-${String(signInDay).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+      // Create the sign-out date in UTC by constructing it properly
+      // User input is in ET timezone, so we need to convert to UTC
+      // Use toLocaleString trick to get the ET offset for that specific date
+      const tempDate = new Date(Date.UTC(signInYear, signInMonth, signInDay, hours, minutes, 0));
+      const etString = tempDate.toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const utcString = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
+      const etOffset = (new Date(utcString) - new Date(etString)) / 60000; // minutes difference
 
-      // Parse as ET by getting the offset and adjusting
-      // Create a temporary date to figure out the ET offset for that day
-      const tempET = new Date(signInDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const tempUTC = new Date(signInDate.toLocaleString('en-US', { timeZone: 'UTC' }));
-      const etOffset = (tempUTC - tempET) / 60000; // ET offset in minutes (negative for behind UTC)
-
-      // Create the sign-out date: parse the ET time string, then adjust by offset to get UTC
-      signOutDate = new Date(`${signOutETString}`);
-      signOutDate.setMinutes(signOutDate.getMinutes() + signOutDate.getTimezoneOffset() - etOffset);
+      // The user entered time in ET, so create UTC by adding the offset
+      signOutDate = new Date(Date.UTC(signInYear, signInMonth, signInDay, hours, minutes, 0));
+      signOutDate.setMinutes(signOutDate.getMinutes() + etOffset);
     } else {
       signOutDate = new Date(signOutTime);
     }
