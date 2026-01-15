@@ -1,6 +1,6 @@
 {
   "name": "smile-lab-attendance-app",
-  "version": "1.0.60",
+  "version": "1.0.61",
   "description": "New Analytics and functions, autoupdate + sending canvas image to email",
   "main": "main.js",
   "scripts": {
