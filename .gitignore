@@ -153,3 +153,5 @@ build/
 CLAUDE.md
 .vercel
 .env*.local
+.DS_Store
+*/.DS_Store
