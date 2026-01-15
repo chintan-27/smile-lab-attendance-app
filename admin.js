@@ -104,6 +104,7 @@ async function loadSectionData(sectionName) {
             break;
         case 'pending':
             await loadPending();
+            await loadOpenSessions();
             break;
     }
 }
@@ -1325,9 +1326,23 @@ async function renderStudentHoursForDay(day = new Date()) {
     }
     const summaries = (res && Array.isArray(res.summaries)) ? res.summaries : [];
 
-    const rows = summaries.slice().sort((a, b) =>
-        (a.name || a.ufid).localeCompare(b.name || b.ufid)
-    );
+    // Get students to access role information
+    const studentsResult = await window.electronAPI.getStudents();
+    const students = studentsResult || [];
+
+    // Role priority order: postdoc, phd, ops, volunteer (default)
+    const rolePriority = { 'postdoc': 0, 'phd': 1, 'ops': 2, 'volunteer': 3 };
+
+    const rows = summaries.slice().map(r => {
+        const student = students.find(s => s.ufid === r.ufid);
+        return { ...r, role: student?.role || 'volunteer' };
+    }).sort((a, b) => {
+        // Sort by role priority first, then by name
+        const roleA = rolePriority[a.role?.toLowerCase()] ?? 3;
+        const roleB = rolePriority[b.role?.toLowerCase()] ?? 3;
+        if (roleA !== roleB) return roleA - roleB;
+        return (a.name || a.ufid).localeCompare(b.name || b.ufid);
+    });
 
     // Dynamically set chart container height based on number of students
     // Minimum 30px per student bar, with a minimum height of 200px
@@ -1358,7 +1373,35 @@ async function renderStudentHoursForDay(day = new Date()) {
             responsive: true,
             maintainAspectRatio: false,
             indexAxis: 'y',
-            plugins: { legend: { display: false } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const row = rows[context.dataIndex];
+                            const lines = [`Total: ${row.totalHours} hours`];
+
+                            if (row.sessions && row.sessions.length > 0) {
+                                row.sessions.forEach((session, i) => {
+                                    const inTime = new Date(session.in).toLocaleTimeString('en-US', {
+                                        hour: 'numeric', minute: '2-digit', hour12: true,
+                                        timeZone: 'America/New_York'
+                                    });
+                                    const outTime = session.closed || !session.running
+                                        ? new Date(session.out).toLocaleTimeString('en-US', {
+                                            hour: 'numeric', minute: '2-digit', hour12: true,
+                                            timeZone: 'America/New_York'
+                                        })
+                                        : 'now';
+                                    const prefix = row.sessions.length > 1 ? `Session ${i + 1}: ` : '';
+                                    lines.push(`${prefix}${inTime} - ${outTime}`);
+                                });
+                            }
+                            return lines;
+                        }
+                    }
+                }
+            },
             scales: {
                 x: { title: { display: true, text: 'Hours' } },
                 y: {
@@ -3442,6 +3485,151 @@ async function triggerPendingProcessing() {
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Open Sessions (Testing Panel)
+// ─────────────────────────────────────────────────────────────
+
+let openSessionsData = [];
+
+async function loadOpenSessions() {
+    try {
+        const result = await window.electronAPI.getOpenSessions();
+        if (result.success) {
+            openSessionsData = result.sessions;
+            renderOpenSessionsTable();
+            updateOpenSessionsCount();
+        } else {
+            showNotification('Error loading open sessions: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error loading open sessions: ' + error.message, 'error');
+    }
+}
+
+function updateOpenSessionsCount() {
+    const countEl = document.getElementById('openSessionCount');
+    const sendAllBtn = document.getElementById('sendAllPendingBtn');
+    const count = openSessionsData.filter(s => s.hasEmail).length;
+
+    if (countEl) countEl.textContent = count;
+    if (sendAllBtn) sendAllBtn.disabled = count === 0;
+}
+
+function renderOpenSessionsTable() {
+    const tbody = document.getElementById('openSessionsTableBody');
+    const noMessage = document.getElementById('noOpenSessionsMessage');
+    const tableContainer = tbody?.closest('.table-container');
+
+    if (!tbody) return;
+
+    if (openSessionsData.length === 0) {
+        tbody.innerHTML = '';
+        if (tableContainer) tableContainer.style.display = 'none';
+        if (noMessage) noMessage.style.display = 'block';
+        return;
+    }
+
+    if (tableContainer) tableContainer.style.display = 'block';
+    if (noMessage) noMessage.style.display = 'none';
+
+    const now = new Date();
+
+    tbody.innerHTML = openSessionsData.map(session => {
+        const signInTime = new Date(session.timestamp);
+        const hoursElapsed = ((now - signInTime) / (1000 * 60 * 60)).toFixed(1);
+
+        const hasEmail = session.hasEmail;
+        const emailDisplay = session.email || '<span style="color: #ef4444;">No email</span>';
+
+        return `
+            <tr>
+                <td>
+                    <div style="font-weight: 600;">${session.studentName || session.name}</div>
+                    <div style="color: #64748b; font-size: 0.75rem;">${session.ufid}</div>
+                </td>
+                <td>${emailDisplay}</td>
+                <td>${signInTime.toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                    timeZone: 'America/New_York'
+                })}</td>
+                <td>${hoursElapsed}h</td>
+                <td>
+                    <button class="btn btn-sm ${hasEmail ? 'btn-primary' : 'btn-secondary'} send-pending-btn"
+                            data-ufid="${session.ufid}"
+                            data-record-id="${session.id}"
+                            ${!hasEmail ? 'disabled title="No email address"' : ''}>
+                        <i class="fas fa-paper-plane"></i>
+                        ${hasEmail ? 'Send Email' : 'No Email'}
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    // Attach event listeners to send buttons
+    tbody.querySelectorAll('.send-pending-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const ufid = this.dataset.ufid;
+            const recordId = parseInt(this.dataset.recordId, 10);
+            await sendPendingForStudent(ufid, recordId);
+        });
+    });
+}
+
+async function sendPendingForStudent(ufid, signInRecordId) {
+    try {
+        showNotification('Creating pending sign-out...', 'info');
+        const result = await window.electronAPI.createPendingForStudent(ufid, signInRecordId);
+
+        if (result.success) {
+            if (result.emailSent) {
+                showNotification(`Pending email sent to ${result.record.email}`, 'success');
+            } else {
+                showNotification(`Pending created but email failed: ${result.emailError}`, 'warning');
+            }
+            // Refresh both open sessions and pending data
+            await loadOpenSessions();
+            await loadPending();
+        } else {
+            showNotification('Error: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error: ' + error.message, 'error');
+    }
+}
+
+async function sendAllPendingEmails() {
+    try {
+        const count = openSessionsData.filter(s => s.hasEmail).length;
+        if (count === 0) {
+            showNotification('No students with email addresses to send', 'warning');
+            return;
+        }
+
+        showNotification(`Sending ${count} pending emails...`, 'info');
+        const result = await window.electronAPI.triggerPendingProcessing();
+
+        if (result.success) {
+            let message = `Sent ${result.emailsSent} of ${result.openSessionsCount} pending emails`;
+            if (result.errors && result.errors.length > 0) {
+                message += ` (${result.errors.length} errors)`;
+                console.log('Pending email errors:', result.errors);
+            }
+            showNotification(message, result.errors ? 'warning' : 'success');
+
+            // Refresh both open sessions and pending data
+            await loadOpenSessions();
+            await loadPending();
+        } else {
+            showNotification('Error: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Error: ' + error.message, 'error');
+    }
+}
+
 // Pending section event listeners (add to DOMContentLoaded)
 document.addEventListener('DOMContentLoaded', function() {
     // Trigger pending processing button
@@ -3489,6 +3677,35 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Open Sessions (Testing) section event listeners
+    const refreshOpenSessionsBtn = document.getElementById('refreshOpenSessionsBtn');
+    if (refreshOpenSessionsBtn) {
+        refreshOpenSessionsBtn.addEventListener('click', loadOpenSessions);
+    }
+
+    const sendAllPendingBtn = document.getElementById('sendAllPendingBtn');
+    if (sendAllPendingBtn) {
+        sendAllPendingBtn.addEventListener('click', sendAllPendingEmails);
+    }
+
+    const syncFromCloudBtn = document.getElementById('syncFromCloudBtn');
+    if (syncFromCloudBtn) {
+        syncFromCloudBtn.addEventListener('click', async function() {
+            try {
+                showNotification('Syncing from cloud...', 'info');
+                const result = await window.electronAPI.syncPendingFromCloud();
+                if (result.success) {
+                    showNotification(`Synced ${result.synced} records from cloud`, 'success');
+                    await loadPending();
+                } else {
+                    showNotification('Sync failed: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Error: ' + error.message, 'error');
+            }
+        });
+    }
+
     // Load pending badge on startup
     setTimeout(async () => {
         try {
@@ -3512,6 +3729,9 @@ if (typeof module !== 'undefined' && module.exports) {
         addStudent,
         deleteStudent,
         showNotification,
-        loadPending
+        loadPending,
+        loadOpenSessions,
+        sendPendingForStudent,
+        sendAllPendingEmails
     };
 }

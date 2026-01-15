@@ -114,20 +114,27 @@ class PendingSignoutService {
       for (const cloudRecord of cloudPending) {
         const localRecord = localPending.find(p => p.id === cloudRecord.id);
 
-        // If cloud record is resolved but local isn't, sync it
-        if (cloudRecord.status === 'resolved' && (!localRecord || localRecord.status === 'pending')) {
-          // Update the existing temporary attendance record with the actual sign-out time
-          if (cloudRecord.submittedSignOutTime && cloudRecord.submittedSignOutTime !== cloudRecord.signInTimestamp) {
-            // Try to update existing temporary record first
-            const updateResult = this.dataManager.updateAttendanceByPendingId(cloudRecord.id, {
-              timestamp: cloudRecord.submittedSignOutTime,
-              synthetic: false,
-              fromPendingResolution: true,
-              resolvedBy: cloudRecord.resolvedBy || 'student'
-            });
+        // If cloud record is resolved, ensure we have the attendance record
+        if (cloudRecord.status === 'resolved' && cloudRecord.submittedSignOutTime &&
+            cloudRecord.submittedSignOutTime !== cloudRecord.signInTimestamp) {
 
-            if (!updateResult.success) {
-              // Fallback: add new record if no temporary record exists (legacy/edge case)
+          // Try to update existing temporary record first
+          const updateResult = this.dataManager.updateAttendanceByPendingId(cloudRecord.id, {
+            timestamp: cloudRecord.submittedSignOutTime,
+            synthetic: false,
+            fromPendingResolution: true,
+            resolvedBy: cloudRecord.resolvedBy || 'student'
+          });
+
+          if (!updateResult.success) {
+            // Check if a signout record already exists for this sign-in
+            const existingSignout = this.dataManager.findSignoutForSignin(
+              cloudRecord.ufid,
+              cloudRecord.signInTimestamp
+            );
+
+            if (!existingSignout) {
+              // Create new record if no signout exists
               this.dataManager.addAttendanceRecord({
                 id: Date.now(),
                 ufid: cloudRecord.ufid,
@@ -138,10 +145,13 @@ class PendingSignoutService {
                 fromPendingResolution: true,
                 pendingRecordId: cloudRecord.id
               });
-            }
 
+              this.dataManager.logger?.info('pending',
+                `Created sign-out record for ${cloudRecord.name} from cloud resolution`, 'system');
+            }
+          } else {
             this.dataManager.logger?.info('pending',
-              `Synced resolved sign-out for ${cloudRecord.name} from cloud`, 'system');
+              `Updated sign-out record for ${cloudRecord.name} from cloud`, 'system');
           }
         }
       }
@@ -226,15 +236,23 @@ class PendingSignoutService {
       pending.push(record);
       this.saveLocalPendingSignouts(pending);
 
-      // Send email
+      // Send email and track result
+      let emailSent = false;
+      let emailError = null;
       if (student.email) {
-        await this.sendPendingSignoutEmail(record);
+        const emailResult = await this.sendPendingSignoutEmail(record);
+        emailSent = emailResult.success;
+        if (!emailResult.success) {
+          emailError = emailResult.error;
+          this.dataManager.logger?.warning('email',
+            `Failed to send pending email to ${student.email}: ${emailError}`, 'system');
+        }
       }
 
       this.dataManager.logger?.info('pending',
-        `Created pending sign-out for ${student.name} (${student.ufid})`, 'system');
+        `Created pending sign-out for ${student.name} (${student.ufid})${emailSent ? ', email sent' : ''}`, 'system');
 
-      return { success: true, record };
+      return { success: true, record, emailSent, emailError };
     } catch (err) {
       console.error('Error creating pending signout:', err);
       return { success: false, error: err.message };

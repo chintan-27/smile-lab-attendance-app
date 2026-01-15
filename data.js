@@ -868,6 +868,34 @@ class DataManager {
     }
 
     /**
+     * Find a signout record that matches a signin for a given UFID
+     * @param {string} ufid - Student UFID
+     * @param {string} signInTimestamp - The signin timestamp to match
+     * @returns {Object|null} - The signout record or null if not found
+     */
+    findSignoutForSignin(ufid, signInTimestamp) {
+        try {
+            const attendance = this.getAttendance();
+            const signInDate = new Date(signInTimestamp).toDateString();
+
+            // Find signout records for this UFID on the same day as the signin
+            const signouts = attendance.filter(r =>
+                r.ufid === ufid &&
+                r.action === 'signout' &&
+                new Date(r.timestamp).toDateString() === signInDate
+            );
+
+            // Return the first matching signout (there should typically be one)
+            return signouts.length > 0 ? signouts[0] : null;
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('attendance', `Error finding signout for signin: ${error.message}`, 'system');
+            }
+            return null;
+        }
+    }
+
+    /**
      * Add a new attendance record directly (used by pending signout service)
      * @param {Object} record - The attendance record to add
      * @returns {Object} - { success, record?, error? }

@@ -1805,6 +1805,59 @@
                     </div>
                 </div>
 
+                <!-- Open Sessions (Testing Panel) -->
+                <div class="card" style="margin-bottom: 1.5rem; border: 2px solid #f59e0b;">
+                    <div class="card-header" style="background: linear-gradient(135deg, #fef3c7, #fde68a);">
+                        <h3 class="card-title" style="color: #92400e;">
+                            <i class="fas fa-flask"></i>
+                            Open Sessions (Testing)
+                        </h3>
+                        <button class="btn btn-secondary btn-sm" id="refreshOpenSessionsBtn">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <p style="color: #64748b; margin-bottom: 1rem;">
+                            Students currently signed in without a sign-out. Use this to test the pending sign-out email system without waiting for 11:59 PM.
+                        </p>
+                        <div id="openSessionsContainer">
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Email</th>
+                                            <th>Sign-In Time</th>
+                                            <th>Hours Elapsed</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="openSessionsTableBody">
+                                        <!-- Dynamic content -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="noOpenSessionsMessage" style="text-align: center; padding: 2rem; color: #64748b; display: none;">
+                                <i class="fas fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: #10b981;"></i>
+                                <p>No open sessions. All students have signed out.</p>
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button class="btn btn-primary" id="sendAllPendingBtn" disabled>
+                                <i class="fas fa-paper-plane"></i>
+                                Send Pending Emails to All (<span id="openSessionCount">0</span>)
+                            </button>
+                            <button class="btn btn-secondary" id="syncFromCloudBtn">
+                                <i class="fas fa-cloud-download-alt"></i>
+                                Sync from Cloud
+                            </button>
+                            <span style="color: #64748b; font-size: 0.875rem; align-self: center;">
+                                Sync updates attendance with student-submitted signout times.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Pending Table -->
                 <div class="card">
                     <div class="card-header">

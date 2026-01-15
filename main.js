@@ -527,7 +527,19 @@ app.whenReady().then(async () => {
     }
   }, { scheduled: true, timezone: 'America/New_York' });
 
-
+  // Hourly sync from cloud for pending signouts (12 AM to 5 PM ET)
+  // This ensures student-submitted signout times are synced to attendance
+  cron.schedule('0 0-17 * * *', async () => {
+    try {
+      dataManager.logger.info('pending', 'Hourly sync: checking for resolved pending signouts from cloud', 'system');
+      const result = await pendingSignoutService.syncResolvedFromCloud();
+      if (result.success) {
+        dataManager.logger.info('pending', `Hourly sync completed: ${result.synced} records checked`, 'system');
+      }
+    } catch (err) {
+      dataManager.logger.error('pending', `Hourly sync error: ${err.message}`, 'system');
+    }
+  }, { scheduled: true, timezone: 'America/New_York' });
 
   const cfg = dataManager.getConfig();
   if (cfg.dropbox?.enabled) {
@@ -1064,6 +1076,107 @@ ipcMain.handle('get-pending-server-status', async () => {
   }
 });
 
+ipcMain.handle('sync-pending-from-cloud', async () => {
+  try {
+    dataManager.logger.info('pending', 'Manually syncing resolved records from cloud', 'admin');
+    const result = await pendingSignoutService.syncResolvedFromCloud();
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get open sessions (students signed in but not signed out today)
+ipcMain.handle('get-open-sessions', async () => {
+  try {
+    const today = new Date();
+    const openSessions = dataManager.getOpenSessionsForDate(today);
+    const students = dataManager.getStudents();
+
+    // Enrich with student details
+    const enrichedSessions = openSessions.map(session => {
+      const student = students.find(s => s.ufid === session.ufid);
+      return {
+        ...session,
+        email: student?.email || null,
+        studentName: student?.name || session.name,
+        hasEmail: !!student?.email
+      };
+    });
+
+    return { success: true, sessions: enrichedSessions };
+  } catch (error) {
+    dataManager.logger.error('pending', `Get open sessions error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+// Create pending signout for a single student (for testing)
+ipcMain.handle('create-pending-for-student', async (event, { ufid, signInRecordId }) => {
+  try {
+    const students = dataManager.getStudents();
+    const student = students.find(s => s.ufid === ufid);
+
+    if (!student) {
+      return { success: false, error: 'Student not found' };
+    }
+
+    if (!student.email) {
+      return { success: false, error: 'Student has no email address' };
+    }
+
+    // Find the sign-in record
+    const today = new Date();
+    const openSessions = dataManager.getOpenSessionsForDate(today);
+    const signInRecord = openSessions.find(s => s.id === signInRecordId || s.ufid === ufid);
+
+    if (!signInRecord) {
+      return { success: false, error: 'Sign-in record not found' };
+    }
+
+    dataManager.logger.info('pending', `Manually creating pending for ${student.name}`, 'admin');
+
+    // Create pending signout and send email
+    const pendingResult = await pendingSignoutService.createPendingSignout(student, signInRecord);
+
+    if (pendingResult.success) {
+      // Write temporary signout record (same as cron does)
+      dataManager.addAttendanceRecord({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        ufid: signInRecord.ufid,
+        name: signInRecord.name,
+        action: 'signout',
+        timestamp: signInRecord.timestamp,
+        synthetic: true,
+        pendingTimestamp: true,
+        pendingRecordId: pendingResult.record.id
+      });
+
+      if (pendingResult.emailSent) {
+        dataManager.logger.info('pending',
+          `Pending sign-out created for ${student.name}, email sent to ${student.email}`, 'admin');
+      } else {
+        dataManager.logger.warning('pending',
+          `Pending sign-out created for ${student.name}, but email failed: ${pendingResult.emailError}`, 'admin');
+      }
+
+      return {
+        success: true,
+        record: pendingResult.record,
+        emailSent: pendingResult.emailSent,
+        emailError: pendingResult.emailError
+      };
+    } else {
+      dataManager.logger.warning('pending',
+        `Failed to create pending for ${student.name}: ${pendingResult.error}`, 'admin');
+      return pendingResult;
+    }
+  } catch (error) {
+    dataManager.logger.error('pending', `Create pending error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('trigger-pending-processing', async () => {
   try {
     dataManager.logger.info('pending', 'Manually triggering pending sign-out processing', 'admin');
@@ -1071,19 +1184,59 @@ ipcMain.handle('trigger-pending-processing', async () => {
     // Get open sessions for today
     const today = new Date();
     const openSessions = dataManager.getOpenSessionsForDate(today);
+    const students = dataManager.getStudents();
 
     let processed = 0;
+    let emailsSent = 0;
+    const errors = [];
+
     for (const signInRecord of openSessions) {
-      const students = dataManager.getStudents();
       const student = students.find(s => s.ufid === signInRecord.ufid);
 
       if (student && student.email) {
-        const result = await pendingSignoutService.createPendingSignout(student, signInRecord);
-        if (result.success) processed++;
+        const pendingResult = await pendingSignoutService.createPendingSignout(student, signInRecord);
+
+        if (pendingResult.success) {
+          processed++;
+
+          // Write temporary signout record (same as cron does)
+          dataManager.addAttendanceRecord({
+            id: Date.now() + Math.floor(Math.random() * 1000),
+            ufid: signInRecord.ufid,
+            name: signInRecord.name,
+            action: 'signout',
+            timestamp: signInRecord.timestamp,
+            synthetic: true,
+            pendingTimestamp: true,
+            pendingRecordId: pendingResult.record.id
+          });
+
+          if (pendingResult.emailSent) {
+            dataManager.logger.info('pending',
+              `Pending sign-out created for ${student.name}, email sent to ${student.email}`, 'admin');
+            emailsSent++;
+          } else {
+            errors.push(`${student.name}: Email failed - ${pendingResult.emailError}`);
+            dataManager.logger.warning('pending',
+              `Pending sign-out created for ${student.name}, but email failed: ${pendingResult.emailError}`, 'admin');
+          }
+        } else {
+          errors.push(`${student.name}: ${pendingResult.error}`);
+          dataManager.logger.warning('pending',
+            `Failed to create pending for ${student.name}: ${pendingResult.error}`, 'admin');
+        }
+      } else if (student && !student.email) {
+        errors.push(`${student.name}: No email address`);
       }
     }
 
-    return { success: true, processedCount: processed, openSessionsCount: openSessions.length };
+    return {
+      success: true,
+      processedCount: processed,
+      emailsSent,
+      openSessionsCount: openSessions.length,
+      errors: errors.length > 0 ? errors : null
+    };
   } catch (error) {
     dataManager.logger.error('pending', `Manual pending processing error: ${error.message}`, 'admin');
     return { success: false, error: error.message };

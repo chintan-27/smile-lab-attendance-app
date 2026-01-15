@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resendPendingEmail: (id) => ipcRenderer.invoke('resend-pending-email', id),
   getPendingServerStatus: () => ipcRenderer.invoke('get-pending-server-status'),
   triggerPendingProcessing: () => ipcRenderer.invoke('trigger-pending-processing'),
+  getOpenSessions: () => ipcRenderer.invoke('get-open-sessions'),
+  createPendingForStudent: (ufid, signInRecordId) => ipcRenderer.invoke('create-pending-for-student', { ufid, signInRecordId }),
+  syncPendingFromCloud: () => ipcRenderer.invoke('sync-pending-from-cloud'),
 
   // Configuration
   updateEmailConfig: (emailConfig) => ipcRenderer.invoke('update-email-config', emailConfig),
