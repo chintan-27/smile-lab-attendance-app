@@ -190,6 +190,8 @@ const createWindow = () => {
     closable: true
   })
 
+  mainWindow.maximize();
+
   mainWindow.loadFile('index.html')
 
   mainWindow.once('ready-to-show', () => {
