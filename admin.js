@@ -3630,6 +3630,43 @@ async function sendAllPendingEmails() {
     }
 }
 
+// Test the pending signouts cron job - simulates exactly what the 11:59 PM cron does
+async function testPendingCron() {
+    try {
+        showNotification('Testing pending cron job...', 'info');
+        const result = await window.electronAPI.testPendingCron();
+
+        if (result.success) {
+            let message = `Cron Test Complete:\n`;
+            message += `- Open sessions found: ${result.openSessionsFound}\n`;
+            message += `- Processed: ${result.processed.length}\n`;
+            message += `- Skipped: ${result.skipped.length}\n`;
+            message += `- Errors: ${result.errors.length}`;
+
+            // Log detailed results to console
+            console.log('Cron Test Results:', result);
+
+            if (result.errors.length > 0) {
+                console.log('Cron Test Errors:', result.errors);
+            }
+            if (result.skipped.length > 0) {
+                console.log('Cron Test Skipped:', result.skipped);
+            }
+
+            const notifType = result.errors.length > 0 ? 'warning' : 'success';
+            showNotification(message, notifType);
+
+            // Refresh the data
+            await loadPending();
+            await loadOpenSessions();
+        } else {
+            showNotification('Cron test failed: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showNotification('Cron test error: ' + error.message, 'error');
+    }
+}
+
 // Pending section event listeners (add to DOMContentLoaded)
 document.addEventListener('DOMContentLoaded', function() {
     // Trigger pending processing button
@@ -3686,6 +3723,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const sendAllPendingBtn = document.getElementById('sendAllPendingBtn');
     if (sendAllPendingBtn) {
         sendAllPendingBtn.addEventListener('click', sendAllPendingEmails);
+    }
+
+    // Test pending cron job button
+    const testPendingCronBtn = document.getElementById('testPendingCronBtn');
+    if (testPendingCronBtn) {
+        testPendingCronBtn.addEventListener('click', testPendingCron);
     }
 
     const syncFromCloudBtn = document.getElementById('syncFromCloudBtn');
