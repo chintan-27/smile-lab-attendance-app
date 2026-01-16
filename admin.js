@@ -982,7 +982,7 @@ async function renderMonthlyHeatmap(monthStart) {
     const perDay = await Promise.all(
         Array.from({ length: daysInMonth }, (_, i) => {
             const d = new Date(year, month, i + 1);
-            return window.electronAPI.getDailySummary(d.toISOString(), 'autosignout');
+            return window.electronAPI.getDailySummary(d.toISOString(), 'cap');
         })
     );
 
@@ -1322,7 +1322,7 @@ async function renderStudentHoursForDay(day = new Date()) {
     if (d.getTime() == todayOnly.getTime()) {
         res = await window.electronAPI.computeHoursWorkedToday(dateISO);
     } else {
-        res = await window.electronAPI.getDailySummary(dateISO, 'autosignout'); // or 'autosignout' if you prefer
+        res = await window.electronAPI.getDailySummary(dateISO, 'cap'); // or 'autosignout' if you prefer
     }
     const summaries = (res && Array.isArray(res.summaries)) ? res.summaries : [];
 
