@@ -1019,8 +1019,15 @@ class DataManager {
         const openSessions = [];
 
         for (const [ufid, events] of byStudent) {
-            // Sort by timestamp
-            events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            // Sort by timestamp, with signin before signout for same timestamp
+            events.sort((a, b) => {
+                const timeDiff = new Date(a.timestamp) - new Date(b.timestamp);
+                if (timeDiff !== 0) return timeDiff;
+                // Same timestamp: signin comes before signout
+                if (a.action === 'signin' && b.action === 'signout') return -1;
+                if (a.action === 'signout' && b.action === 'signin') return 1;
+                return 0;
+            });
 
             // Find the last sign-in without a matching sign-out
             let lastSignIn = null;
