@@ -492,6 +492,8 @@ class PendingSignoutService {
     try {
       const config = this.dataManager.getConfig();
       if (!config.emailSettings?.enabled || !config.emailSettings?.email) {
+        this.dataManager.logger?.warning('email',
+          `Email not configured - skipping email to ${record.email}`, 'system');
         return { success: false, error: 'Email not configured' };
       }
 

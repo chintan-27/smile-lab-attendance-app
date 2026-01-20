@@ -234,6 +234,7 @@ app.whenReady().then(async () => {
 
   let backupJobStarted = false;
   let dailySummaryJobStarted = false;
+  let dailySummaryRunning = false; // Lock to prevent concurrent runs
 
   function getNYDateIso(when = new Date()) {
     // Convert "now" to America/New_York calendar date (midnight) in ISO
@@ -378,9 +379,16 @@ app.whenReady().then(async () => {
     }
   }, { timezone: 'America/New_York' });
 
-  // Daily summary at 11:59 PM ET - Now uses pending sign-out system
+  // Daily summary at 11:45 PM ET - Now uses pending sign-out system
   if (!dailySummaryJobStarted) {
-    cron.schedule('59 23 * * *', async () => {
+    cron.schedule('45 23 * * *', async () => {
+      // Prevent concurrent runs
+      if (dailySummaryRunning) {
+        dataManager.logger.warning('pending', 'Daily summary job already running, skipping duplicate trigger', 'system');
+        return;
+      }
+      dailySummaryRunning = true;
+
       try {
         // Use the ET calendar date for the summary
         const dateIso = getNYDateIso(new Date());
@@ -389,8 +397,19 @@ app.whenReady().then(async () => {
         const openSessions = dataManager.getOpenSessionsForDate(dateIso);
         dataManager.logger.info('pending', `Found ${openSessions.length} open sessions at end of day`, 'system');
 
+        // Track processed sign-in IDs to prevent duplicates within this run
+        const processedSignInIds = new Set();
+
         // Process each open session
         for (const signInRecord of openSessions) {
+          // Skip if already processed in this run (guard against duplicate entries)
+          if (processedSignInIds.has(signInRecord.id)) {
+            dataManager.logger.warning('pending',
+              `Skipping duplicate sign-in record ${signInRecord.id} for ${signInRecord.name}`, 'system');
+            continue;
+          }
+          processedSignInIds.add(signInRecord.id);
+
           const students = dataManager.getStudents();
           const student = students.find(s => s.ufid === signInRecord.ufid);
 
@@ -398,8 +417,9 @@ app.whenReady().then(async () => {
             // Create pending sign-out and send email
             const pendingResult = await pendingSignoutService.createPendingSignout(student, signInRecord);
             if (pendingResult.success) {
+              const emailStatus = pendingResult.emailSent ? `email sent to ${student.email}` : `email FAILED: ${pendingResult.emailError || 'unknown'}`;
               dataManager.logger.info('pending',
-                `Pending sign-out created for ${student.name}, email sent to ${student.email}`, 'system');
+                `Pending sign-out created for ${student.name}, ${emailStatus}`, 'system');
 
               // Write a temporary "pending" signout record at the sign-in time
               // This marks them as signed out with 0 hours until they submit their actual time
@@ -479,6 +499,8 @@ app.whenReady().then(async () => {
         }
       } catch (err) {
         dataManager.logger.error('report', `Daily summary job error: ${err.message}`, 'system');
+      } finally {
+        dailySummaryRunning = false;
       }
     }, { scheduled: true, timezone: 'America/New_York' });
     dailySummaryJobStarted = true;
