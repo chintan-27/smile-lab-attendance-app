@@ -4,6 +4,64 @@ const signInBtn = document.getElementById('signInBtn');
 const signOutBtn = document.getElementById('signOutBtn');
 const statusMessage = document.getElementById('statusMessage');
 const adminLink = document.getElementById('adminLink');
+const themeToggle = document.getElementById('themeToggle');
+
+// ==================== DARK MODE ====================
+
+/**
+ * Initialize theme based on localStorage or system preference
+ */
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    } else if (systemPrefersDark) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    updateThemeIcon();
+}
+
+/**
+ * Toggle between light and dark themes
+ */
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcon();
+}
+
+/**
+ * Update the theme toggle button icon
+ */
+function updateThemeIcon() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const icon = themeToggle.querySelector('i');
+
+    if (icon) {
+        icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+    }
+    themeToggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+}
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    if (!localStorage.getItem('theme')) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        updateThemeIcon();
+    }
+});
+
+// Theme toggle click handler
+themeToggle.addEventListener('click', toggleTheme);
+
+// Initialize theme on load
+initTheme();
 
 // Setup UFID input handling
 setupUfidInputs();
@@ -106,7 +164,7 @@ signInBtn.addEventListener('click', async () => {
 
     try {
         signInBtn.disabled = true;
-        signInBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
+        signInBtn.classList.add('loading');
 
         const result = await window.electronAPI.signIn({ ufid, name: '' });
 
@@ -124,7 +182,7 @@ signInBtn.addEventListener('click', async () => {
         showUfidError();
     } finally {
         signInBtn.disabled = false;
-        signInBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+        signInBtn.classList.remove('loading');
         validateUfid();
     }
 });
@@ -141,7 +199,7 @@ signOutBtn.addEventListener('click', async () => {
 
     try {
         signOutBtn.disabled = true;
-        signOutBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing Out...';
+        signOutBtn.classList.add('loading');
 
         const result = await window.electronAPI.signOut({ ufid, name: '' });
 
@@ -159,7 +217,7 @@ signOutBtn.addEventListener('click', async () => {
         showUfidError();
     } finally {
         signOutBtn.disabled = false;
-        signOutBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> Sign Out';
+        signOutBtn.classList.remove('loading');
         validateUfid();
     }
 });
@@ -276,13 +334,19 @@ function showAdminError(message) {
 
 // Status message functionality
 function showStatus(message, type) {
-    statusMessage.textContent = message;
-    statusMessage.className = `status-message ${type}`;
-    statusMessage.style.display = 'block';
+    const icon = type === 'success'
+        ? '<i class="fas fa-check-circle"></i>'
+        : '<i class="fas fa-exclamation-circle"></i>';
+
+    statusMessage.innerHTML = `${icon} ${message}`;
+    statusMessage.className = `status-message ${type} show`;
 
     // Auto-hide after 5 seconds
     setTimeout(() => {
-        statusMessage.style.display = 'none';
+        statusMessage.classList.remove('show');
+        setTimeout(() => {
+            statusMessage.className = 'status-message';
+        }, 300);
     }, 5000);
 }
 

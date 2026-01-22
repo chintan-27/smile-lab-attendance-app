@@ -4,18 +4,66 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self';">
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self';">
     <title>UF SMILE Lab Attendance</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
+            /* UF Brand */
             --uf-blue: #0021A5;
-            --uf-blue-dark: #001A85;
-            --uf-blue-light: #E6F3FF;
+            --uf-blue-rgb: 0, 33, 165;
             --uf-orange: #FA4616;
-            --uf-orange-light: #FFF4E6;
-            --uf-gray: #64748B;
-            --uf-gray-light: #F8FAFC;
+            --uf-orange-rgb: 250, 70, 22;
+
+            /* Light theme */
+            --bg-base: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-elevated: #ffffff;
+            --bg-subtle: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border: rgba(0, 33, 165, 0.08);
+            --border-subtle: rgba(0, 0, 0, 0.06);
+            --glow-blue: rgba(0, 33, 165, 0.12);
+            --glow-orange: rgba(250, 70, 22, 0.12);
+            --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+            --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+            --shadow-glow: 0 0 0 1px rgba(0, 33, 165, 0.05), 0 8px 40px rgba(0, 33, 165, 0.08);
+            --success: #059669;
+            --success-bg: #ecfdf5;
+            --error: #dc2626;
+            --error-bg: #fef2f2;
+        }
+
+        [data-theme="dark"] {
+            --bg-base: #030712;
+            --bg-surface: #0f172a;
+            --bg-elevated: #1e293b;
+            --bg-subtle: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-subtle: rgba(255, 255, 255, 0.04);
+            --glow-blue: rgba(59, 130, 246, 0.2);
+            --glow-orange: rgba(251, 146, 60, 0.2);
+            --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.5);
+            --shadow-glow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 8px 40px rgba(59, 130, 246, 0.1);
+            --uf-blue: #3b82f6;
+            --uf-blue-rgb: 59, 130, 246;
+            --uf-orange: #fb923c;
+            --uf-orange-rgb: 251, 146, 60;
+            --success: #34d399;
+            --success-bg: rgba(52, 211, 153, 0.1);
+            --error: #f87171;
+            --error-bg: rgba(248, 113, 113, 0.1);
         }
 
         * {
@@ -24,578 +72,781 @@
             box-sizing: border-box;
         }
 
-        html {
+        html, body {
             height: 100%;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            background: #ffffff;
-            color: #333333;
-            min-height: 100vh;
-            line-height: 1.6;
+            transition: background-color 0.4s ease, color 0.3s ease;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Subtle grid pattern background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(var(--uf-blue-rgb), 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(var(--uf-blue-rgb), 0.02) 1px, transparent 1px);
+            background-size: 64px 64px;
+            pointer-events: none;
+            z-index: 0;
         }
 
         /* Header */
         .header {
-            padding: 2rem 2rem 1rem;
+            position: relative;
+            z-index: 10;
+            padding: 1.25rem 2rem;
             display: flex;
-            /* flex-direction: row; */
             justify-content: space-between;
             align-items: center;
-            min-width: 1200px;
-            max-width: 1200px;
+            max-width: 1100px;
+            width: 100%;
             margin: 0 auto;
         }
 
         .logo {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--uf-blue);
+            gap: 0.875rem;
+            text-decoration: none;
         }
 
-        .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--uf-orange);
-            border-radius: 10px;
+        .logo-mark {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--uf-blue) 0%, #1e40af 100%);
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
+            font-size: 1.125rem;
+            box-shadow: 0 2px 8px rgba(var(--uf-blue-rgb), 0.3);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .admin-link {
-            color: var(--uf-gray);
-            text-decoration: none;
-            font-size: 0.9rem;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            transition: all 0.2s;
+        .logo:hover .logo-mark {
+            transform: scale(1.02);
+            box-shadow: 0 4px 16px rgba(var(--uf-blue-rgb), 0.4);
+        }
+
+        .logo-text {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        .logo-text span {
+            color: var(--uf-blue);
+        }
+
+        .header-actions {
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
 
-        .admin-link:hover {
-            background: var(--uf-gray-light);
-            color: var(--uf-blue);
-        }
-
-        /* Main Container */
-        .main-container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 4rem 2rem;
-            text-align: center;
-            flex: 1;
-            /* This makes it take up available space */
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--border);
+            background: var(--bg-surface);
+            border-radius: 10px;
             display: flex;
-            flex-direction: column;
+            align-items: center;
             justify-content: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
         }
 
-        /* Welcome Section */
-        .welcome-title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 1rem;
+        .icon-btn:hover {
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            border-color: var(--border-subtle);
+            transform: translateY(-1px);
         }
 
-        .welcome-subtitle {
-            font-size: 1.125rem;
-            color: var(--uf-gray);
-            margin-bottom: 3rem;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        /* UFID Input Section */
-        .ufid-section {
-            background: var(--uf-gray-light);
-            border-radius: 16px;
-            padding: 3rem 2rem;
-            margin-bottom: 3rem;
-            border: 1px solid #e2e8f0;
-        }
-
-        .ufid-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 0.5rem;
-        }
-
-        .ufid-description {
-            color: var(--uf-gray);
-            margin-bottom: 2rem;
-        }
-
-        .ufid-label {
-            display: block;
-            font-size: 0.9rem;
+        .admin-btn {
+            height: 40px;
+            padding: 0 1rem;
+            border: 1px solid var(--border);
+            background: var(--bg-surface);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
             font-weight: 500;
-            color: var(--uf-gray);
-            margin-bottom: 1rem;
-            text-align: left;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
+            text-decoration: none;
+            transition: all 0.2s ease;
         }
 
-        /* OTP Style Input */
-        .ufid-inputs {
+        .admin-btn:hover {
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            transform: translateY(-1px);
+        }
+
+        /* Main */
+        .main {
+            position: relative;
+            z-index: 10;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 440px;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.875rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--uf-blue);
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-xs);
+        }
+
+        .hero-badge i {
+            font-size: 0.7rem;
+        }
+
+        .hero-title {
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.025em;
+            line-height: 1.2;
+            margin-bottom: 0.75rem;
+        }
+
+        .hero-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: var(--shadow-glow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle gradient accent at top of card */
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--uf-blue) 0%, var(--uf-orange) 100%);
+            opacity: 0.8;
+        }
+
+        .card-header {
+            text-align: center;
+            margin-bottom: 1.75rem;
+        }
+
+        .card-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .card-desc {
+            font-size: 0.875rem;
+            color: var(--text-tertiary);
+        }
+
+        /* Input */
+        .input-label {
+            display: block;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.75rem;
+        }
+
+        .ufid-grid {
             display: flex;
             justify-content: center;
-            gap: 0.75rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
+            gap: 0.375rem;
+            margin-bottom: 1.5rem;
         }
 
         .ufid-digit {
-            width: 50px;
-            height: 60px;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
+            width: 44px;
+            height: 52px;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
             text-align: center;
-            font-size: 1.5rem;
+            font-size: 1.375rem;
             font-weight: 600;
-            font-family: 'Monaco', 'Menlo', monospace;
-            background: white;
-            transition: all 0.2s;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            transition: all 0.15s ease;
             outline: none;
+        }
+
+        .ufid-digit::placeholder {
+            color: var(--text-tertiary);
+            opacity: 0.5;
         }
 
         .ufid-digit:focus {
             border-color: var(--uf-blue);
-            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
-            transform: scale(1.05);
+            background: var(--bg-surface);
+            box-shadow: 0 0 0 3px var(--glow-blue);
         }
 
         .ufid-digit.filled {
             border-color: var(--uf-blue);
-            background: var(--uf-blue-light);
+            background: rgba(var(--uf-blue-rgb), 0.04);
             color: var(--uf-blue);
         }
 
         .ufid-digit.error {
-            border-color: #ef4444;
-            background: #fee2e2;
+            border-color: var(--error);
+            background: var(--error-bg);
+            animation: shake 0.3s ease;
         }
 
-        /* Status Message */
-        .status-message {
-            padding: 1rem;
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-3px); }
+            75% { transform: translateX(3px); }
+        }
+
+        /* Status */
+        .status {
+            margin-bottom: 1.25rem;
+            padding: 0.875rem 1rem;
             border-radius: 10px;
-            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
             font-weight: 500;
             display: none;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
+            align-items: center;
+            gap: 0.625rem;
+            animation: slideDown 0.25s ease;
         }
 
-        .status-message.success {
-            background: #d1fae5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-6px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        .status-message.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border: 1px solid #fca5a5;
+        .status.show { display: flex; }
+
+        .status.success {
+            background: var(--success-bg);
+            color: var(--success);
+            border: 1px solid rgba(5, 150, 105, 0.15);
         }
 
-        /* Action Buttons */
-        .action-buttons {
+        .status.error {
+            background: var(--error-bg);
+            color: var(--error);
+            border: 1px solid rgba(220, 38, 38, 0.15);
+        }
+
+        /* Buttons */
+        .btn-row {
             display: flex;
-            justify-content: center;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            flex-wrap: wrap;
+            gap: 0.625rem;
         }
 
-        .action-btn {
-            padding: 0.875rem 2rem;
+        .btn {
+            flex: 1;
+            height: 48px;
             border: none;
             border-radius: 10px;
-            font-size: 1rem;
+            font-size: 0.9rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            min-width: 140px;
             justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
         }
 
-        .sign-in-btn {
-            background: var(--uf-blue);
+        .btn-blue {
+            background: linear-gradient(180deg, #0033cc 0%, var(--uf-blue) 100%);
             color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(var(--uf-blue-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
-        .sign-in-btn:hover:not(:disabled) {
-            background: var(--uf-blue-dark);
+        .btn-blue:hover:not(:disabled) {
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(var(--uf-blue-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             transform: translateY(-1px);
         }
 
-        .sign-out-btn {
-            background: var(--uf-orange);
-            color: white;
+        .btn-blue:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(var(--uf-blue-rgb), 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
-        .sign-out-btn:hover:not(:disabled) {
-            background: #e63e00;
+        .btn-orange {
+            background: linear-gradient(180deg, #ff5722 0%, var(--uf-orange) 100%);
+            color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(var(--uf-orange-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-orange:hover:not(:disabled) {
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(var(--uf-orange-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             transform: translateY(-1px);
         }
 
-        .action-btn:disabled {
-            opacity: 0.6;
+        .btn-orange:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(var(--uf-orange-rgb), 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
             cursor: not-allowed;
             transform: none !important;
         }
 
-        /* Features Section */
-        /* .features-section {
-            margin-top: 4rem;
-        }
+        .btn.loading .btn-label { opacity: 0; }
 
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-
-        .feature {
-            text-align: center;
-            padding: 1.5rem;
-        }
-
-        .feature-icon {
-            width: 80px;
-            height: 80px;
+        .btn .spinner {
+            display: none;
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            border-top-color: white;
             border-radius: 50%;
-            background: var(--uf-orange-light);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 1.5rem;
-            color: var(--uf-orange);
-            font-size: 2rem;
+            animation: spin 0.7s linear infinite;
         }
 
-        .feature-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 0.75rem;
-        }
+        .btn.loading .spinner { display: block; }
 
-        .feature-description {
-            color: var(--uf-gray);
-            line-height: 1.5;
-        } */
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Footer */
         .footer {
+            position: relative;
+            z-index: 10;
             text-align: center;
-            padding: 2rem;
-            color: var(--uf-gray);
-            font-size: 0.875rem;
-            border-top: 1px solid #e2e8f0;
-            max-width: 800px;
-            /* margin-top: 25%; */
+            padding: 1.5rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
         }
 
-        /* Admin Modal */
-        .admin-modal {
+        /* Modal */
+        .modal-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            inset: 0;
             background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
+            z-index: 100;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 380px;
+            box-shadow: var(--shadow-lg);
+            animation: modalIn 0.25s ease;
+        }
+
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.96) translateY(8px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.25rem 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: var(--bg-subtle);
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .modal-close:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.25rem;
+        }
+
+        .modal-body label {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .modal-input {
+            width: 100%;
+            height: 44px;
+            padding: 0 0.875rem;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--uf-blue);
+            background: var(--bg-surface);
+            box-shadow: 0 0 0 3px var(--glow-blue);
+        }
+
+        .modal-error {
+            margin-top: 0.5rem;
+            font-size: 0.8125rem;
+            color: var(--error);
+            display: none;
+        }
+
+        .modal-footer {
+            padding: 0 1.25rem 1.25rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .modal-btn {
+            flex: 1;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .modal-btn-cancel {
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .modal-btn-cancel:hover {
+            background: var(--border);
+        }
+
+        .modal-btn-submit {
+            background: var(--uf-blue);
+            color: white;
+        }
+
+        .modal-btn-submit:hover {
+            opacity: 0.9;
+        }
+
+        /* Admin Modal (dynamically created) */
+        .admin-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            animation: fadeIn 0.2s ease;
         }
 
         .admin-modal-content {
-            background: white;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
             border-radius: 16px;
             width: 90%;
-            max-width: 400px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            max-width: 380px;
+            box-shadow: var(--shadow-lg);
+            animation: modalIn 0.25s ease;
+            overflow: hidden;
         }
 
         .admin-modal-header {
-            padding: 1.5rem 1.5rem 0;
+            padding: 1.25rem 1.25rem 0;
             display: flex;
             align-items: center;
-            justify-content: space-evenly;
+            justify-content: space-between;
         }
 
         .admin-modal-header h3 {
-            margin: 0;
-            color: var(--uf-blue);
+            font-size: 1.125rem;
             font-weight: 600;
+            color: var(--text-primary);
         }
 
         .admin-modal-close {
-            background: none;
+            width: 32px;
+            height: 32px;
             border: none;
-            font-size: 1.5rem;
+            background: var(--bg-subtle);
+            border-radius: 8px;
             cursor: pointer;
-            color: #64748b;
-            padding: 0;
-            width: 30px;
-            height: 30px;
-            border-radius: 6px;
+            color: var(--text-tertiary);
+            font-size: 1.25rem;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.15s ease;
+            line-height: 1;
         }
 
         .admin-modal-close:hover {
-            background: #f1f5f9;
+            background: var(--border);
+            color: var(--text-primary);
         }
 
         .admin-modal-body {
-            padding: 1.5rem;
+            padding: 1.25rem;
         }
 
         .admin-modal-body label {
             display: block;
-            margin-bottom: 0.5rem;
+            font-size: 0.8125rem;
             font-weight: 500;
-            color: #374151;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
         }
 
         .admin-password-input {
             width: 100%;
-            padding: 0.75rem;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.2s;
+            height: 44px;
+            padding: 0 0.875rem;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            font-size: 0.9375rem;
+            font-family: inherit;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+        }
+
+        .admin-password-input::placeholder {
+            color: var(--text-tertiary);
         }
 
         .admin-password-input:focus {
             outline: none;
             border-color: var(--uf-blue);
-            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+            background: var(--bg-surface);
+            box-shadow: 0 0 0 3px var(--glow-blue);
         }
 
         .admin-error {
             margin-top: 0.5rem;
-            color: #dc2626;
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
+            color: var(--error);
             display: none;
         }
 
         .admin-modal-footer {
-            padding: 0 1.5rem 1.5rem;
+            padding: 0 1.25rem 1.25rem;
             display: flex;
-            gap: 0.75rem;
-            justify-content: flex-end;
+            gap: 0.5rem;
         }
 
         .admin-cancel-btn,
         .admin-login-btn {
-            padding: 0.75rem 1.5rem;
+            flex: 1;
+            height: 44px;
             border: none;
-            border-radius: 8px;
-            font-weight: 500;
+            border-radius: 10px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
 
         .admin-cancel-btn {
-            background: #f3f4f6;
-            color: #374151;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
         }
 
         .admin-cancel-btn:hover {
-            background: #e5e7eb;
+            background: var(--border);
         }
 
         .admin-login-btn {
-            background: var(--uf-blue);
+            background: linear-gradient(180deg, #0033cc 0%, var(--uf-blue) 100%);
             color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(var(--uf-blue-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
         .admin-login-btn:hover {
-            background: var(--uf-blue-dark);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(var(--uf-blue-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
         }
 
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .header {
-                padding: 1.5rem 1rem 1rem;
-                flex-direction: column;
-                gap: 1rem;
-                text-align: center;
-            }
-
-            .main-container {
-                padding: 2rem 1rem;
-            }
-
-            .welcome-title {
-                font-size: 2rem;
-            }
-
-            .ufid-section {
-                padding: 2rem 1rem;
-            }
-
-            .ufid-inputs {
-                gap: 0.5rem;
-            }
-
-            .ufid-digit {
-                width: 45px;
-                height: 55px;
-                font-size: 1.25rem;
-            }
-
-            .action-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
-
-            .action-btn {
-                width: 100%;
-                max-width: 300px;
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
-                gap: 1.5rem;
-            }
+        .admin-login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
         }
 
-        @media (max-width: 480px) {
-            .ufid-inputs {
-                gap: 0.25rem;
-            }
-
-            .ufid-digit {
-                width: 40px;
-                height: 50px;
-                font-size: 1.125rem;
-            }
+        /* Responsive */
+        @media (max-width: 520px) {
+            .header { padding: 1rem; }
+            .logo-text { display: none; }
+            .main { padding: 1rem; }
+            .card { padding: 1.5rem; border-radius: 16px; }
+            .hero-title { font-size: 1.75rem; }
+            .ufid-digit { width: 38px; height: 46px; font-size: 1.125rem; }
+            .btn-row { flex-direction: column; }
+            .btn { width: 100%; }
         }
     </style>
 </head>
 
 <body>
-    <!-- Header -->
-    <div class="header">
-        <div class="logo">
-            <div class="logo-icon">
-                <i class="fas fa-graduation-cap"></i>
+    <header class="header">
+        <a href="#" class="logo">
+            <div class="logo-mark">
+                <i class="fas fa-flask"></i>
             </div>
-            <span>UF SMILE Lab</span>
-        </div>
-        <a href="#" class="admin-link" id="adminLink">
-            <i class="fas fa-cog"></i>
-            Admin Access
+            <div class="logo-text">SMILE <span>Lab</span></div>
         </a>
-    </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="themeToggle" title="Toggle theme">
+                <i class="fas fa-moon"></i>
+            </button>
+            <a href="#" class="admin-btn" id="adminLink">
+                <i class="fas fa-lock"></i>
+                Admin
+            </a>
+        </div>
+    </header>
 
-    <!-- Main Container -->
-    <div class="main-container">
-        <!-- Welcome Section -->
-        <h1 class="welcome-title">Welcome to UF SMILE Lab!</h1>
-        <p class="welcome-subtitle">
-            Your secure lab attendance system for the University of Florida.<br>
-            Simple, fast, and reliable check-in and check-out process.
-        </p>
-
-        <!-- UFID Input Section -->
-        <div class="ufid-section">
-            <h2 class="ufid-title">Student Check-In</h2>
-            <p class="ufid-description">Enter your 8-digit UF ID to sign in or out</p>
-
-            <label class="ufid-label">UF ID (8 digits)</label>
-            <div class="ufid-inputs">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="0">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="1">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="2">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="3">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="4">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="5">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="6">
-                <input type="text" class="ufid-digit" maxlength="1" data-index="7">
+    <main class="main">
+        <div class="container">
+            <div class="hero">
+                <div class="hero-badge">
+                    <i class="fas fa-circle"></i>
+                    University of Florida
+                </div>
+                <h1 class="hero-title">Lab Attendance</h1>
+                <p class="hero-subtitle">Quick check-in for SMILE Lab members</p>
             </div>
 
-            <div id="statusMessage" class="status-message"></div>
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Sign In or Out</h2>
+                    <p class="card-desc">Enter your 8-digit UF ID</p>
+                </div>
 
-            <div class="action-buttons">
-                <button class="action-btn sign-in-btn" id="signInBtn">
-                    <i class="fas fa-sign-in-alt"></i>
-                    Sign In
-                </button>
-                <button class="action-btn sign-out-btn" id="signOutBtn">
-                    <i class="fas fa-sign-out-alt"></i>
-                    Sign Out
-                </button>
+                <label class="input-label">UF ID Number</label>
+                <div class="ufid-grid">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="0" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="1" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="2" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="3" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="4" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="5" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="6" inputmode="numeric" autocomplete="off">
+                    <input type="text" class="ufid-digit" maxlength="1" data-index="7" inputmode="numeric" autocomplete="off">
+                </div>
+
+                <div id="statusMessage" class="status"></div>
+
+                <div class="btn-row">
+                    <button class="btn btn-blue" id="signInBtn">
+                        <span class="btn-label"><i class="fas fa-arrow-right-to-bracket"></i> Sign In</span>
+                        <span class="spinner"></span>
+                    </button>
+                    <button class="btn btn-orange" id="signOutBtn">
+                        <span class="btn-label"><i class="fas fa-arrow-right-from-bracket"></i> Sign Out</span>
+                        <span class="spinner"></span>
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-    <!-- Footer -->
-    <div class="main-container">
-        <div class="footer">
-            © 2024 University of Florida - SMILE Lab Attendance System
-        </div>
-    </div>
-    <!-- Features Section -->
-    <!-- <div class="features-section">
-            <div class="features-grid">
-                <div class="feature">
-                    <div class="feature-icon">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                    <h3 class="feature-title">Quick Check-in</h3>
-                    <p class="feature-description">
-                        Simply enter your 8-digit UF ID to sign in and out of the lab instantly.
-                    </p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">
-                        <i class="fas fa-shield-alt"></i>
-                    </div>
-                    <h3 class="feature-title">Secure & Private</h3>
-                    <p class="feature-description">
-                        Your attendance data is securely stored and only accessible to authorized personnel.
-                    </p>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <h3 class="feature-title">Track Your Time</h3>
-                    <p class="feature-description">
-                        Automatically track your lab hours for research, work-study, or course requirements.
-                    </p>
-                </div>
-            </div>
-        </div>-->
+    </main>
 
-
+    <footer class="footer">
+        &copy; 2024 University of Florida &middot; SMILE Lab
+    </footer>
 
     <script src="./index.js"></script>
 </body>

@@ -4,6 +4,235 @@ let attendanceData = [];
 let logsData = [];
 let charts = window.charts || (window.charts = {});
 
+// ==================== DARK MODE ====================
+
+/**
+ * Initialize theme based on localStorage or system preference
+ */
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    } else if (systemPrefersDark) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    updateThemeIcon();
+}
+
+/**
+ * Toggle between light and dark themes
+ */
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcon();
+
+    // Update charts with new theme colors if they exist
+    updateChartsForTheme();
+}
+
+/**
+ * Update the theme toggle button icon
+ */
+function updateThemeIcon() {
+    const themeToggle = document.getElementById('themeToggle');
+    if (!themeToggle) return;
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const icon = themeToggle.querySelector('i');
+
+    if (icon) {
+        icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+    }
+    themeToggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+}
+
+/**
+ * Update chart colors when theme changes
+ */
+function updateChartsForTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDark ? '#e2e8f0' : '#64748b';
+    const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+    Object.values(charts).forEach(chart => {
+        if (chart && chart.options) {
+            if (chart.options.scales) {
+                Object.values(chart.options.scales).forEach(scale => {
+                    if (scale.ticks) scale.ticks.color = textColor;
+                    if (scale.grid) scale.grid.color = gridColor;
+                });
+            }
+            if (chart.options.plugins && chart.options.plugins.legend) {
+                chart.options.plugins.legend.labels = chart.options.plugins.legend.labels || {};
+                chart.options.plugins.legend.labels.color = textColor;
+            }
+            chart.update('none');
+        }
+    });
+}
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    if (!localStorage.getItem('theme')) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        updateThemeIcon();
+        updateChartsForTheme();
+    }
+});
+
+// Initialize theme on load
+initTheme();
+
+// ==================== END DARK MODE ====================
+
+// Pagination state
+const PAGE_SIZE = 25;
+let studentsCurrentPage = 1;
+let studentsTotalCount = 0;
+let attendanceCurrentPage = 1;
+let attendanceTotalCount = 0;
+
+// Chart cache with 5-minute TTL
+const chartCache = new Map();
+const CHART_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Debounce function to limit how often a function can be called
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} - Debounced function
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return (...args) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn(...args), delay);
+    };
+}
+
+/**
+ * Get cached chart data or fetch new data
+ * @param {string} cacheKey - Cache key
+ * @param {Function} fetchFn - Function to fetch data if not cached
+ * @returns {Promise<any>} - Cached or fresh data
+ */
+async function getCachedChartData(cacheKey, fetchFn) {
+    const cached = chartCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CHART_CACHE_TTL) {
+        return cached.data;
+    }
+    const data = await fetchFn();
+    chartCache.set(cacheKey, { data, timestamp: Date.now() });
+    return data;
+}
+
+/**
+ * Clear chart cache (call when data changes)
+ */
+function clearChartCache() {
+    chartCache.clear();
+}
+
+/**
+ * Render pagination controls
+ * @param {string} containerId - ID of the pagination container
+ * @param {number} currentPage - Current page number
+ * @param {number} totalCount - Total number of items
+ * @param {Function} onPageChange - Callback when page changes
+ */
+function renderPagination(containerId, currentPage, totalCount, onPageChange) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+    if (totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const startItem = (currentPage - 1) * PAGE_SIZE + 1;
+    const endItem = Math.min(currentPage * PAGE_SIZE, totalCount);
+
+    let html = `
+        <div class="pagination-controls" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-top: 1px solid var(--border-color);">
+            <div style="color: var(--text-secondary); font-size: 0.875rem;">
+                Showing ${startItem}-${endItem} of ${totalCount}
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+    `;
+
+    // Previous button
+    html += `
+        <button class="btn btn-secondary pagination-btn" ${currentPage === 1 ? 'disabled' : ''} data-page="${currentPage - 1}" style="padding: 0.5rem 0.75rem;">
+            <i class="fas fa-chevron-left"></i> Prev
+        </button>
+    `;
+
+    // Page numbers
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    if (startPage > 1) {
+        html += `<button class="btn btn-secondary pagination-btn" data-page="1" style="padding: 0.5rem 0.75rem;">1</button>`;
+        if (startPage > 2) {
+            html += `<span style="padding: 0 0.5rem;">...</span>`;
+        }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        const isActive = i === currentPage;
+        html += `
+            <button class="btn ${isActive ? 'btn-primary' : 'btn-secondary'} pagination-btn"
+                    data-page="${i}"
+                    style="padding: 0.5rem 0.75rem; min-width: 40px;">
+                ${i}
+            </button>
+        `;
+    }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            html += `<span style="padding: 0 0.5rem;">...</span>`;
+        }
+        html += `<button class="btn btn-secondary pagination-btn" data-page="${totalPages}" style="padding: 0.5rem 0.75rem;">${totalPages}</button>`;
+    }
+
+    // Next button
+    html += `
+        <button class="btn btn-secondary pagination-btn" ${currentPage === totalPages ? 'disabled' : ''} data-page="${currentPage + 1}" style="padding: 0.5rem 0.75rem;">
+            Next <i class="fas fa-chevron-right"></i>
+        </button>
+    `;
+
+    html += `
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Add event listeners
+    container.querySelectorAll('.pagination-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const page = parseInt(btn.dataset.page, 10);
+            if (!isNaN(page) && page >= 1 && page <= totalPages) {
+                onPageChange(page);
+            }
+        });
+    });
+}
+
 // Reporting state (Attendance)
 let currentWeekStart = startOfWeek(new Date());          // Monday of current week
 let currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -234,28 +463,37 @@ function initStudentsNav() {
 async function loadDashboardCharts() {
     try {
         await waitForChart(); // Wait for Chart.js to load
-        const attendance = await window.electronAPI.getAttendance();
         const ctx = document.getElementById('chart');
         if (!ctx) return;
 
-        const last7Days = [];
-        for (let i = dashboardChartDaysCount - 1; i >= 0; i--) {
-            const date = new Date();
-            date.setDate(date.getDate() - i);
-            last7Days.push(date.toDateString());
-        }
+        // Use cached chart data with 5-minute TTL
+        const cacheKey = `dashboard-chart-${dashboardChartDaysCount}`;
+        const chartData = await getCachedChartData(cacheKey, async () => {
+            const attendance = await window.electronAPI.getAttendance();
 
-        const signInsByDay = last7Days.map(day => {
-            return attendance.filter(record =>
-                new Date(record.timestamp).toDateString() === day && record.action === 'signin'
-            ).length;
+            const last7Days = [];
+            for (let i = dashboardChartDaysCount - 1; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                last7Days.push(date.toDateString());
+            }
+
+            const signInsByDay = last7Days.map(day => {
+                return attendance.filter(record =>
+                    new Date(record.timestamp).toDateString() === day && record.action === 'signin'
+                ).length;
+            });
+
+            const signOutsByDay = last7Days.map(day => {
+                return attendance.filter(record =>
+                    new Date(record.timestamp).toDateString() === day && record.action === 'signout'
+                ).length;
+            });
+
+            return { last7Days, signInsByDay, signOutsByDay };
         });
 
-        const signOutsByDay = last7Days.map(day => {
-            return attendance.filter(record =>
-                new Date(record.timestamp).toDateString() === day && record.action === 'signout'
-            ).length;
-        });
+        const { last7Days, signInsByDay, signOutsByDay } = chartData;
 
         if (charts.attendance) {
             charts.attendance.destroy();
@@ -312,9 +550,24 @@ async function loadDashboardCharts() {
 // Students Management
 async function loadStudents() {
     try {
-        studentsData = await window.electronAPI.getStudents();
+        // Reset to page 1 and clear filters when loading fresh
+        studentsCurrentPage = 1;
+        const searchInput = document.getElementById('studentSearch');
+        const statusFilterEl = document.getElementById('statusFilter');
+        if (searchInput) searchInput.value = '';
+        if (statusFilterEl) statusFilterEl.value = '';
+
+        const result = await window.electronAPI.getStudentsPaginated(
+            studentsCurrentPage,
+            PAGE_SIZE,
+            { search: '', status: '' }
+        );
+
+        studentsData = result.students;
+        studentsTotalCount = result.totalCount;
         populateStudentFilter();
         displayStudents(studentsData);
+        renderPagination('studentsPagination', studentsCurrentPage, studentsTotalCount, loadStudentsPage);
     } catch (error) {
         showNotification('Error loading students: ' + error.message, 'error');
     }
@@ -433,35 +686,64 @@ function populateStudentFilter() {
     }
 }
 
+// Debounced filter function for students (300ms delay)
+const debouncedFilterStudents = debounce(filterStudents, 300);
+
 function setupStudentSearch() {
     const searchInput = document.getElementById('studentSearch');
     const statusFilter = document.getElementById('statusFilter');
 
     if (searchInput) {
-        searchInput.addEventListener('input', filterStudents);
+        searchInput.addEventListener('input', debouncedFilterStudents);
     }
     if (statusFilter) {
         statusFilter.addEventListener('change', filterStudents);
     }
 }
 
-function filterStudents() {
-    const searchTerm = document.getElementById('studentSearch')?.value.toLowerCase() || '';
+async function filterStudents() {
+    const searchTerm = document.getElementById('studentSearch')?.value || '';
     const statusFilter = document.getElementById('statusFilter')?.value || '';
 
-    let filtered = studentsData.filter(student => {
-        const matchesSearch = student.name.toLowerCase().includes(searchTerm) ||
-            student.ufid.includes(searchTerm) ||
-            (student.email && student.email.toLowerCase().includes(searchTerm));
+    // Reset to page 1 when filtering
+    studentsCurrentPage = 1;
 
-        const matchesStatus = !statusFilter ||
-            (statusFilter === 'active' && student.active) ||
-            (statusFilter === 'inactive' && !student.active);
+    try {
+        const result = await window.electronAPI.getStudentsPaginated(
+            studentsCurrentPage,
+            PAGE_SIZE,
+            { search: searchTerm, status: statusFilter }
+        );
 
-        return matchesSearch && matchesStatus;
-    });
+        studentsData = result.students;
+        studentsTotalCount = result.totalCount;
+        displayStudents(studentsData);
+        renderPagination('studentsPagination', studentsCurrentPage, studentsTotalCount, loadStudentsPage);
+    } catch (error) {
+        showNotification('Error filtering students: ' + error.message, 'error');
+    }
+}
 
-    displayStudents(filtered);
+async function loadStudentsPage(page) {
+    const searchTerm = document.getElementById('studentSearch')?.value || '';
+    const statusFilter = document.getElementById('statusFilter')?.value || '';
+
+    studentsCurrentPage = page;
+
+    try {
+        const result = await window.electronAPI.getStudentsPaginated(
+            studentsCurrentPage,
+            PAGE_SIZE,
+            { search: searchTerm, status: statusFilter }
+        );
+
+        studentsData = result.students;
+        studentsTotalCount = result.totalCount;
+        displayStudents(studentsData);
+        renderPagination('studentsPagination', studentsCurrentPage, studentsTotalCount, loadStudentsPage);
+    } catch (error) {
+        showNotification('Error loading students page: ' + error.message, 'error');
+    }
 }
 
 function editStudent(ufid) {
@@ -641,14 +923,52 @@ async function importStudents() {
 // Attendance Management
 async function loadAttendance() {
     try {
-        attendanceData = await window.electronAPI.getAttendance();
+        // Reset pagination state
+        attendanceCurrentPage = 1;
+
+        // Load paginated attendance
+        const result = await window.electronAPI.getAttendancePaginated(
+            attendanceCurrentPage,
+            PAGE_SIZE,
+            {}
+        );
+
+        attendanceData = result.records;
+        attendanceTotalCount = result.totalCount;
+
         await initAttendanceReporting();
-        // initAttendanceReportingNav();           // new
         populateStudentFilter();
         displayAttendance(attendanceData);
+        renderPagination('attendancePagination', attendanceCurrentPage, attendanceTotalCount, loadAttendancePage);
         setDefaultDateRange();
     } catch (error) {
         showNotification('Error loading attendance: ' + error.message, 'error');
+    }
+}
+
+async function loadAttendancePage(page) {
+    const studentFilter = document.getElementById('studentFilter')?.value || '';
+    const startDate = document.getElementById('startDate')?.value || null;
+
+    attendanceCurrentPage = page;
+
+    try {
+        const filters = {};
+        if (studentFilter) filters.ufid = studentFilter;
+        if (startDate) filters.date = startDate;
+
+        const result = await window.electronAPI.getAttendancePaginated(
+            attendanceCurrentPage,
+            PAGE_SIZE,
+            filters
+        );
+
+        attendanceData = result.records;
+        attendanceTotalCount = result.totalCount;
+        displayAttendance(attendanceData);
+        renderPagination('attendancePagination', attendanceCurrentPage, attendanceTotalCount, loadAttendancePage);
+    } catch (error) {
+        showNotification('Error loading attendance page: ' + error.message, 'error');
     }
 }
 
@@ -667,17 +987,27 @@ function displayAttendance(attendance) {
         return;
     }
 
-    const recordsWithDuration = attendance.map((record, index) => {
+    // Sort attendance by timestamp ascending for proper duration calculation
+    const sortedAttendance = [...attendance].sort((a, b) =>
+        new Date(a.timestamp) - new Date(b.timestamp)
+    );
+
+    const recordsWithDuration = sortedAttendance.map((record, index) => {
         let duration = '';
         if (record.action === 'signout') {
+            // Search backwards for the most recent signin from the same user
             for (let i = index - 1; i >= 0; i--) {
-                if (attendance[i].ufid === record.ufid && attendance[i].action === 'signin') {
-                    const signInTime = new Date(attendance[i].timestamp);
+                if (sortedAttendance[i].ufid === record.ufid && sortedAttendance[i].action === 'signin') {
+                    const signInTime = new Date(sortedAttendance[i].timestamp);
                     const signOutTime = new Date(record.timestamp);
                     const diffMs = signOutTime - signInTime;
-                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                    const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                    duration = `${diffHours}h ${diffMins}m`;
+
+                    // Only show duration if it's positive and reasonable (less than 24 hours)
+                    if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
+                        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                        const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        duration = `${diffHours}h ${diffMins}m`;
+                    }
                     break;
                 }
             }
@@ -2856,10 +3186,7 @@ function toggleSelectAll() {
     });
 }
 
-function toggleDarkMode() {
-    document.body.classList.toggle('dark-mode');
-    showNotification('Dark mode toggled', 'info');
-}
+// toggleDarkMode removed - using toggleTheme() from top of file
 
 function showNotifications() {
     showNotification('No new notifications', 'info');
@@ -2935,14 +3262,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Header buttons
     const notificationBtn = document.getElementById('notificationBtn');
-    const darkModeBtn = document.getElementById('darkModeBtn');
+    const themeToggleBtn = document.getElementById('themeToggle');
     const backToAppBtn = document.getElementById('backToAppBtn');
 
     if (notificationBtn) {
         notificationBtn.addEventListener('click', showNotifications);
     }
-    if (darkModeBtn) {
-        darkModeBtn.addEventListener('click', toggleDarkMode);
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener('click', toggleTheme);
     }
     if (backToAppBtn) {
         backToAppBtn.addEventListener('click', goBack);

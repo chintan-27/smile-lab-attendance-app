@@ -5,25 +5,96 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self';
     script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
-    style-src  'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
-    font-src   'self' https://cdnjs.cloudflare.com data:;
+    style-src  'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;
+    font-src   'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com data:;
     img-src    'self' data:;
     connect-src 'self' https://cdn.jsdelivr.net;
     ">
-
-    <!-- <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://cdn.jsdelivr.net;"> -->
     <title>Lab Attendance Dashboard</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
+            /* UF Brand */
             --uf-blue: #0021A5;
-            --uf-blue-dark: #001A85;
-            --uf-blue-light: #E6F3FF;
+            --uf-blue-rgb: 0, 33, 165;
             --uf-orange: #FA4616;
-            --uf-orange-light: #FFF4E6;
-            --uf-gray: #64748B;
-            --uf-gray-light: #F8FAFC;
+            --uf-orange-rgb: 250, 70, 22;
+
+            /* Light theme */
+            --bg-base: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-elevated: #ffffff;
+            --bg-subtle: #f1f5f9;
+            --bg-sidebar: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border: rgba(0, 33, 165, 0.08);
+            --border-subtle: rgba(0, 0, 0, 0.06);
+            --border-hover: #cbd5e1;
+            --glow-blue: rgba(0, 33, 165, 0.12);
+            --glow-orange: rgba(250, 70, 22, 0.12);
+            --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+            --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+            --shadow-glow: 0 0 0 1px rgba(0, 33, 165, 0.05), 0 8px 40px rgba(0, 33, 165, 0.08);
+            --input-bg: #ffffff;
+            --input-focus-ring: rgba(0, 33, 165, 0.15);
+            --table-header-bg: #f8fafc;
+            --table-row-hover: #f1f5f9;
+            --success: #059669;
+            --success-bg: #ecfdf5;
+            --success-text: #065f46;
+            --success-border: #a7f3d0;
+            --error: #dc2626;
+            --error-bg: #fef2f2;
+            --error-text: #991b1b;
+            --error-border: #fca5a5;
+            --warning-bg: #fffbeb;
+            --warning-text: #92400e;
+            --warning-border: #fcd34d;
+        }
+
+        [data-theme="dark"] {
+            --bg-base: #030712;
+            --bg-surface: #0f172a;
+            --bg-elevated: #1e293b;
+            --bg-subtle: #1e293b;
+            --bg-sidebar: #0f172a;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-subtle: rgba(255, 255, 255, 0.04);
+            --border-hover: #475569;
+            --glow-blue: rgba(59, 130, 246, 0.2);
+            --glow-orange: rgba(251, 146, 60, 0.2);
+            --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.5);
+            --shadow-glow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 8px 40px rgba(59, 130, 246, 0.1);
+            --uf-blue: #3b82f6;
+            --uf-blue-rgb: 59, 130, 246;
+            --uf-orange: #fb923c;
+            --uf-orange-rgb: 251, 146, 60;
+            --input-bg: #1e293b;
+            --input-focus-ring: rgba(59, 130, 246, 0.25);
+            --table-header-bg: #1e293b;
+            --table-row-hover: #334155;
+            --success: #34d399;
+            --success-bg: rgba(52, 211, 153, 0.1);
+            --success-text: #a7f3d0;
+            --success-border: #065f46;
+            --error: #f87171;
+            --error-bg: rgba(248, 113, 113, 0.1);
+            --error-text: #fca5a5;
+            --error-border: #991b1b;
+            --warning-bg: rgba(251, 191, 36, 0.1);
+            --warning-text: #fcd34d;
+            --warning-border: #78350f;
         }
 
         * {
@@ -33,10 +104,25 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
-            background: #f8fafc;
-            color: #334155;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-primary);
             overflow-x: hidden;
+            transition: background-color 0.4s ease, color 0.3s ease;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Subtle grid pattern background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(var(--uf-blue-rgb), 0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(var(--uf-blue-rgb), 0.015) 1px, transparent 1px);
+            background-size: 64px 64px;
+            pointer-events: none;
+            z-index: 0;
         }
 
         /* Sidebar */
@@ -46,49 +132,64 @@
             top: 0;
             height: 100vh;
             width: 280px;
-            background: white;
-            border-right: 1px solid #e2e8f0;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
             z-index: 1000;
             overflow-y: auto;
+            transition: all 0.3s ease;
         }
 
         .sidebar-header {
-            padding: 2rem 1.5rem 1rem;
-            border-bottom: 1px solid #f1f5f9;
+            padding: 1.5rem 1.5rem 1.25rem;
+            border-bottom: 1px solid var(--border);
         }
 
         .logo {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #0f172a;
+            gap: 0.875rem;
+            text-decoration: none;
         }
 
         .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--uf-blue) 0%, #1e40af 100%);
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
+            font-size: 1.125rem;
+            box-shadow: 0 2px 8px rgba(var(--uf-blue-rgb), 0.3);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .logo:hover .logo-icon {
+            transform: scale(1.02);
+            box-shadow: 0 4px 16px rgba(var(--uf-blue-rgb), 0.4);
+        }
+
+        .logo span {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
         }
 
         .nav-section {
-            padding: 0 1.5rem;
-            margin-top: 1.5rem;
+            padding: 0 1rem;
+            margin-top: 1.25rem;
         }
 
         .nav-section-title {
-            font-size: 0.75rem;
+            font-size: 0.6875rem;
             font-weight: 600;
-            color: #64748b;
+            color: var(--text-tertiary);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.75rem;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.625rem;
+            padding-left: 0.75rem;
         }
 
         .nav-item {
@@ -97,23 +198,24 @@
             gap: 0.75rem;
             padding: 0.75rem 1rem;
             margin-bottom: 0.25rem;
-            border-radius: 8px;
-            color: #64748b;
+            border-radius: 10px;
+            color: var(--text-secondary);
             text-decoration: none;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
             cursor: pointer;
             position: relative;
+            font-weight: 500;
+            font-size: 0.9rem;
         }
 
         .nav-item:hover {
-            background: #f1f5f9;
-            color: #334155;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
         }
 
         .nav-item.active {
-            background: var(--uf-blue-light);
+            background: rgba(var(--uf-blue-rgb), 0.08);
             color: var(--uf-blue);
-            font-weight: 500;
         }
 
         .nav-item.active::before {
@@ -131,22 +233,26 @@
         .nav-item i {
             width: 20px;
             text-align: center;
+            font-size: 0.95rem;
         }
 
         /* Main Content */
         .main-content {
             margin-left: 280px;
             min-height: 100vh;
+            position: relative;
+            z-index: 1;
         }
 
         /* Header */
         .header {
-            background: white;
-            border-bottom: 1px solid #e2e8f0;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
             padding: 1rem 2rem;
             position: sticky;
             top: 0;
             z-index: 100;
+            transition: all 0.3s ease;
         }
 
         .header-content {
@@ -162,78 +268,91 @@
 
         .search-input {
             width: 100%;
-            padding: 0.75rem 1rem 0.75rem 2.5rem;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: #f8fafc;
+            padding: 0.75rem 1rem 0.75rem 2.75rem;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-subtle);
+            color: var(--text-primary);
             font-size: 0.875rem;
-            transition: all 0.2s;
+            font-family: inherit;
+            transition: all 0.2s ease;
         }
 
         .search-input:focus {
             outline: none;
             border-color: var(--uf-blue);
-            background: white;
-            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+            background: var(--input-bg);
+            box-shadow: 0 0 0 3px var(--glow-blue);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-tertiary);
         }
 
         .search-bar i {
             position: absolute;
-            left: 0.75rem;
+            left: 1rem;
             top: 50%;
             transform: translateY(-50%);
-            color: #64748b;
+            color: var(--text-tertiary);
+            font-size: 0.875rem;
         }
 
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: 0.5rem;
         }
 
-        .action-btn {
+        .action-btn,
+        .theme-toggle {
             width: 40px;
             height: 40px;
-            border: none;
-            background: #f8fafc;
-            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-surface);
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #64748b;
             cursor: pointer;
-            transition: all 0.2s;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
         }
 
-        .action-btn:hover {
-            background: #e2e8f0;
-            color: #334155;
+        .action-btn:hover,
+        .theme-toggle:hover {
+            background: var(--bg-subtle);
+            color: var(--text-primary);
+            transform: translateY(-1px);
         }
 
         .user-profile {
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
+            margin-left: 0.5rem;
         }
 
         .user-profile:hover {
-            background: #f8fafc;
+            background: var(--bg-subtle);
         }
 
         .user-avatar {
             width: 36px;
             height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--uf-blue), #1e40af);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 600;
+            font-size: 0.875rem;
         }
 
         .user-info {
@@ -244,12 +363,12 @@
         .user-name {
             font-size: 0.875rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-primary);
         }
 
         .user-role {
             font-size: 0.75rem;
-            color: #64748b;
+            color: var(--text-tertiary);
         }
 
         /* Page Content */
@@ -262,89 +381,140 @@
         }
 
         .page-title {
-            font-size: 2rem;
+            font-size: 1.875rem;
             font-weight: 700;
-            color: #0f172a;
-            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            margin-bottom: 0.375rem;
+            letter-spacing: -0.025em;
         }
 
         .page-subtitle {
-            color: #64748b;
-            font-size: 1rem;
+            color: var(--text-secondary);
+            font-size: 0.9375rem;
         }
 
         .page-actions {
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             margin-top: 1.5rem;
         }
 
+        /* Buttons */
         .btn {
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
+            padding: 0.6875rem 1.25rem;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 0.875rem;
-            font-weight: 500;
+            font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
             text-decoration: none;
         }
 
         .btn-primary {
-            background: var(--uf-blue);
+            background: linear-gradient(180deg, #0033cc 0%, var(--uf-blue) 100%);
             color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(var(--uf-blue-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
         .btn-primary:hover {
-            background: var(--uf-blue-dark);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(var(--uf-blue-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 33, 165, 0.4);
         }
 
         .btn-secondary {
-            background: white;
-            color: #374151;
-            border: 1px solid #d1d5db;
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-xs);
         }
 
         .btn-secondary:hover {
-            background: #f9fafb;
-            border-color: #9ca3af;
+            background: var(--bg-subtle);
+            border-color: var(--border-hover);
+            transform: translateY(-1px);
         }
 
         .btn-danger {
-            background: #ef4444;
+            background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
             color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(220, 38, 38, 0.25);
         }
 
         .btn-danger:hover {
-            background: #dc2626;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 8px 20px rgba(220, 38, 38, 0.35);
+            transform: translateY(-1px);
+        }
+
+        .btn-warning {
+            background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(245, 158, 11, 0.25);
+        }
+
+        .btn-icon {
+            padding: 0.5rem 0.75rem;
+            min-width: auto;
+        }
+
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.8125rem;
         }
 
         /* Stats Cards */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+            gap: 1.25rem;
+            margin-bottom: 1.5rem;
         }
 
         .stat-card {
-            background: white;
+            background: var(--bg-surface);
             padding: 1.5rem;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            border: 1px solid var(--border);
             position: relative;
             overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--uf-blue) 0%, var(--uf-orange) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .stat-card:hover::before {
+            opacity: 0.6;
         }
 
         .stat-card.primary {
-            background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+            background: linear-gradient(135deg, var(--uf-blue), #1e40af);
             color: white;
             border: none;
+            box-shadow: 0 4px 20px rgba(var(--uf-blue-rgb), 0.3);
+        }
+
+        .stat-card.primary::before {
+            display: none;
         }
 
         .stat-header {
@@ -355,36 +525,40 @@
         }
 
         .stat-title {
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             font-weight: 500;
-            color: #64748b;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
 
         .stat-card.primary .stat-title {
-            color: rgba(255, 255, 255, 0.9);
+            color: rgba(255, 255, 255, 0.85);
         }
 
         .stat-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            background: #f1f5f9;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--bg-subtle);
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #64748b;
+            color: var(--uf-blue);
+            font-size: 1.1rem;
         }
 
         .stat-card.primary .stat-icon {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.15);
             color: white;
         }
 
         .stat-value {
             font-size: 2.25rem;
             font-weight: 700;
-            color: #0f172a;
+            color: var(--text-primary);
             margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
         }
 
         .stat-card.primary .stat-value {
@@ -396,6 +570,7 @@
             align-items: center;
             gap: 0.25rem;
             font-size: 0.75rem;
+            font-weight: 500;
         }
 
         .stat-change.positive {
@@ -403,7 +578,7 @@
         }
 
         .stat-change.neutral {
-            color: #64748b;
+            color: var(--text-tertiary);
         }
 
         .stat-card.primary .stat-change {
@@ -414,29 +589,36 @@
         .content-grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+            gap: 1.25rem;
+            margin-bottom: 1.5rem;
         }
 
         .card {
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
+            background: var(--bg-surface);
+            border-radius: 16px;
+            border: 1px solid var(--border);
             overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-md);
         }
 
         .card-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid #f1f5f9;
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: space-between;
+            background: var(--bg-surface);
         }
 
         .card-title {
-            font-size: 1.125rem;
+            font-size: 1rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-primary);
         }
 
         .card-body {
@@ -455,81 +637,95 @@
 
         .table th {
             text-align: left;
-            padding: 0.75rem;
-            font-size: 0.75rem;
+            padding: 0.875rem 0.75rem;
+            font-size: 0.6875rem;
             font-weight: 600;
-            color: #64748b;
+            color: var(--text-tertiary);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-bottom: 1px solid #f1f5f9;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--border);
+            background: var(--table-header-bg);
         }
 
         .table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid #f8fafc;
+            padding: 0.875rem 0.75rem;
+            border-bottom: 1px solid var(--border);
             font-size: 0.875rem;
+            color: var(--text-primary);
+        }
+
+        .table tbody tr {
+            transition: background-color 0.15s ease;
         }
 
         .table tbody tr:hover {
-            background: #f8fafc;
+            background: var(--table-row-hover);
         }
 
         /* Badge */
         .badge {
             display: inline-flex;
             align-items: center;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 500;
+            padding: 0.25rem 0.625rem;
+            border-radius: 100px;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
         }
 
         .badge.success {
-            background: var(--uf-orange-light);
-            color: var(--uf-orange);
+            background: var(--success-bg);
+            color: var(--success-text);
         }
 
         .badge.warning {
-            background: #fef3c7;
-            color: #d97706;
+            background: var(--warning-bg);
+            color: var(--warning-text);
         }
 
         .badge.error {
-            background: #fee2e2;
-            color: #dc2626;
+            background: var(--error-bg);
+            color: var(--error-text);
         }
 
         .badge.info {
-            background: var(--uf-blue-light);
+            background: rgba(var(--uf-blue-rgb), 0.1);
             color: var(--uf-blue);
         }
 
         /* Form Elements */
         .form-group {
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.25rem;
         }
 
         .form-label {
             display: block;
             margin-bottom: 0.5rem;
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             font-weight: 500;
-            color: #374151;
+            color: var(--text-primary);
         }
 
         .form-input {
             width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
             font-size: 0.875rem;
-            transition: all 0.2s;
+            font-family: inherit;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            transition: all 0.2s ease;
         }
 
         .form-input:focus {
             outline: none;
             border-color: var(--uf-blue);
-            box-shadow: 0 0 0 3px rgba(0, 33, 165, 0.1);
+            box-shadow: 0 0 0 3px var(--glow-blue);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-tertiary);
         }
 
         /* Modal */
@@ -540,6 +736,7 @@
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
             display: none;
             align-items: center;
             justify-content: center;
@@ -548,46 +745,68 @@
 
         .modal.active {
             display: flex;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .modal-content {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
+            background: var(--bg-surface);
+            border-radius: 20px;
+            padding: 0;
             width: 90%;
             max-width: 500px;
             max-height: 90vh;
             overflow-y: auto;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-lg);
+            animation: slideUp 0.3s ease-out;
         }
 
         .modal-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 1.5rem;
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
         }
 
         .modal-title {
-            font-size: 1.25rem;
+            font-size: 1.125rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-primary);
         }
 
         .modal-close {
-            width: 32px;
-            height: 32px;
+            width: 36px;
+            height: 36px;
             border: none;
-            background: #f8fafc;
-            border-radius: 6px;
+            background: var(--bg-subtle);
+            border-radius: 10px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #64748b;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            font-size: 1rem;
         }
 
         .modal-close:hover {
-            background: #e2e8f0;
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
         }
 
         /* Notification */
@@ -596,12 +815,13 @@
             top: 1rem;
             right: 1rem;
             padding: 1rem 1.5rem;
-            border-radius: 8px;
+            border-radius: 12px;
             color: white;
             font-weight: 500;
             transform: translateX(400px);
-            transition: transform 0.3s;
+            transition: transform 0.3s ease;
             z-index: 1001;
+            box-shadow: var(--shadow-lg);
         }
 
         .notification.show {
@@ -609,26 +829,26 @@
         }
 
         .notification.success {
-            background: var(--uf-orange);
+            background: linear-gradient(135deg, var(--uf-orange), #ea580c);
         }
 
         .notification.error {
-            background: #ef4444;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
         }
 
         .notification.info {
-            background: var(--uf-blue);
+            background: linear-gradient(135deg, var(--uf-blue), #1e40af);
         }
 
         /* Charts placeholder */
         .chart-container {
-            height: 300px;
+            min-height: 300px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: #f8fafc;
-            border-radius: 8px;
-            color: #64748b;
+            background: var(--bg-subtle);
+            border-radius: 12px;
+            color: var(--text-tertiary);
         }
 
         /* Hide content initially */
@@ -640,67 +860,34 @@
             display: block;
         }
 
-        /* Responsive */
-        @media (max-width: 1024px) {
-            .sidebar {
-                transform: translateX(-100%);
-                transition: transform 0.3s;
-            }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
-            .main-content {
-                margin-left: 0;
-            }
-
-            .content-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            }
-        }
-
-        @media (max-width: 768px) {
-            .page-content {
-                padding: 1rem;
-            }
-
-            .page-actions {
-                flex-direction: column;
-            }
-        }
-
         /* Special warning box */
         .warning-box {
-            margin-top: 1.5rem;
-            padding: 1rem;
-            background: #fef3c7;
-            border-radius: 6px;
-            border-left: 4px solid #f59e0b;
+            margin-top: 1rem;
+            padding: 1rem 1.25rem;
+            background: var(--warning-bg);
+            border-radius: 12px;
+            border: 1px solid var(--warning-border);
         }
 
         .warning-box h4 {
-            color: #92400e;
+            color: var(--warning-text);
             margin-bottom: 0.5rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: 0.875rem;
         }
 
         .warning-box ul {
-            color: #92400e;
+            color: var(--warning-text);
             margin-left: 1rem;
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
         }
 
         /* Settings grid */
         .settings-grid {
             display: grid;
-            gap: 1.5rem;
+            gap: 1.25rem;
         }
 
         /* Toggle switch */
@@ -708,7 +895,7 @@
             position: relative;
             display: inline-block;
             width: 50px;
-            height: 24px;
+            height: 26px;
         }
 
         .toggle-switch input {
@@ -724,29 +911,30 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 24px;
+            background-color: var(--border);
+            transition: .3s;
+            border-radius: 26px;
         }
 
         .slider:before {
             position: absolute;
             content: "";
-            height: 18px;
-            width: 18px;
+            height: 20px;
+            width: 20px;
             left: 3px;
             bottom: 3px;
             background-color: white;
-            transition: .4s;
+            transition: .3s;
             border-radius: 50%;
+            box-shadow: var(--shadow-sm);
         }
 
         input:checked+.slider {
-            background-color: var(--uf-blue);
+            background: linear-gradient(135deg, var(--uf-blue), #1e40af);
         }
 
         input:checked+.slider:before {
-            transform: translateX(26px);
+            transform: translateX(24px);
         }
 
         /* File upload */
@@ -754,17 +942,17 @@
             position: relative;
             display: inline-block;
             cursor: pointer;
-            background: #e2e8f0;
-            padding: 0.75rem;
-            border-radius: 6px;
-            border: 2px dashed #cbd5e0;
+            background: var(--bg-subtle);
+            padding: 1rem;
+            border-radius: 12px;
+            border: 2px dashed var(--border);
             text-align: center;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
 
         .file-upload:hover {
-            background: #edf2f7;
-            border-color: #a0aec0;
+            background: var(--bg-surface);
+            border-color: var(--uf-blue);
         }
 
         .file-upload input {
@@ -784,23 +972,23 @@
         }
 
         .section {
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            background: #fff;
-            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg-subtle);
+            padding: 1.25rem;
         }
 
         .section h4 {
             margin: 0 0 .25rem 0;
-            font-size: 1rem;
+            font-size: 0.9375rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-primary);
         }
 
         .section p.help {
-            margin: 0 0 .75rem 0;
-            color: var(--uf-gray);
-            font-size: .85rem;
+            margin: 0 0 1rem 0;
+            color: var(--text-tertiary);
+            font-size: .8125rem;
         }
 
         .row {
@@ -831,24 +1019,26 @@
 
         .card-help {
             margin-top: .5rem;
-            color: var(--uf-gray);
-            font-size: .85rem;
+            color: var(--text-tertiary);
+            font-size: .8125rem;
         }
 
         .disclosure {
-            border: 1px dashed #e5e7eb;
-            border-radius: 10px;
-            background: #ffffff;
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            background: var(--bg-surface);
         }
 
         .disclosure summary {
             list-style: none;
             cursor: pointer;
-            padding: .875rem 1rem;
+            padding: 1rem 1.25rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
             font-weight: 600;
+            font-size: 0.9375rem;
+            color: var(--text-primary);
         }
 
         .disclosure summary::-webkit-details-marker {
@@ -857,6 +1047,7 @@
 
         .disclosure .chev {
             transition: transform .2s ease;
+            color: var(--text-tertiary);
         }
 
         .disclosure[open] .chev {
@@ -864,300 +1055,98 @@
         }
 
         .disclosure .content {
-            padding: .5rem 1rem 1rem;
+            padding: .5rem 1.25rem 1.25rem;
         }
 
-        /* Dark mode support */
-        body.dark-mode .section {
-            background: #2d3748;
-            border-color: #4a5568;
+        .toolbar {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
-        body.dark-mode .section h4 {
-            color: #f7fafc;
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            }
         }
 
-        body.dark-mode .section p.help {
-            color: #a0aec0;
+        @media (max-width: 768px) {
+            .page-content {
+                padding: 1rem;
+            }
+
+            .page-actions {
+                flex-direction: column;
+            }
+
+            .search-bar {
+                width: 100%;
+                max-width: 300px;
+            }
         }
 
-        body.dark-mode .disclosure {
-            background: #2d3748;
-            border-color: #4a5568;
+        /* Pagination styles */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
         }
 
-        body.dark-mode .disclosure summary {
-            color: #f7fafc;
+        .pagination button {
+            min-width: 36px;
+            height: 36px;
+            border: 1px solid var(--border);
+            background: var(--bg-surface);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
-
-        /* Dark Mode Styles */
-        body.dark-mode {
-            background: #1a202c;
-            color: #e2e8f0;
+        .pagination button:hover:not(:disabled) {
+            background: var(--bg-subtle);
+            color: var(--text-primary);
         }
 
-        body.dark-mode .sidebar {
-            background: #2d3748;
-            border-right-color: #4a5568;
-        }
-
-        body.dark-mode .sidebar-header {
-            border-bottom-color: #4a5568;
-        }
-
-        body.dark-mode .logo {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .nav-item {
-            color: #a0aec0;
-        }
-
-        body.dark-mode .nav-item:hover {
-            background: #4a5568;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .nav-item.active {
+        .pagination button.active {
             background: var(--uf-blue);
-            color: var(--uf-blue-light);
-        }
-
-        body.dark-mode .nav-item.active::before {
-            background: var(--uf-orange);
-        }
-
-        body.dark-mode .header {
-            background: #2d3748;
-            border-bottom-color: #4a5568;
-        }
-
-        body.dark-mode .search-input {
-            background: #4a5568;
-            border-color: #718096;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .search-input:focus {
-            background: #2d3748;
+            color: white;
             border-color: var(--uf-blue);
         }
 
-        body.dark-mode .action-btn {
-            background: #4a5568;
-            color: #a0aec0;
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
-        body.dark-mode .action-btn:hover {
-            background: #718096;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .user-profile:hover {
-            background: #4a5568;
-        }
-
-        body.dark-mode .user-name {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .page-title {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .page-subtitle {
-            color: #a0aec0;
-        }
-
-        body.dark-mode .card {
-            background: #2d3748;
-            border-color: #4a5568;
-        }
-
-        body.dark-mode .card-header {
-            border-bottom-color: #4a5568;
-        }
-
-        body.dark-mode .card-title {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .stat-card {
-            background: #2d3748;
-            border-color: #4a5568;
-        }
-
-        body.dark-mode .stat-card {
-            background: #2d3748;
-            border-color: #4a5568;
-        }
-
-        body.dark-mode .stat-title {
-            color: #a0aec0;
-        }
-
-        body.dark-mode .stat-value {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .stat-icon {
-            background: #4a5568;
-            color: #a0aec0;
-        }
-
-        body.dark-mode .table th {
-            color: #a0aec0;
-            border-bottom-color: #4a5568;
-        }
-
-        body.dark-mode .table td {
-            border-bottom-color: #4a5568;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .table tbody tr:hover {
-            background: #4a5568;
-        }
-
-        body.dark-mode .form-input {
-            background: #4a5568;
-            border-color: #718096;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .form-input:focus {
-            background: #2d3748;
-            border-color: var(--uf-blue);
-        }
-
-        body.dark-mode .form-label {
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .btn-secondary {
-            background: #4a5568;
-            color: #e2e8f0;
-            border-color: #718096;
-        }
-
-        body.dark-mode .btn-secondary:hover {
-            background: #718096;
-            border-color: #a0aec0;
-        }
-
-        body.dark-mode .btn-primary {
-            background: var(--uf-blue);
-        }
-
-        body.dark-mode .btn-primary:hover {
-            background: var(--uf-blue-dark);
-        }
-
-        body.dark-mode .modal-content {
-            background: #2d3748;
-        }
-
-        body.dark-mode .modal-title {
-            color: #f7fafc;
-        }
-
-        body.dark-mode .modal-close {
-            background: #4a5568;
-            color: #a0aec0;
-        }
-
-        body.dark-mode .modal-close:hover {
-            background: #718096;
-        }
-
-        body.dark-mode .chart-container {
-            background: #4a5568;
-            color: #a0aec0;
-        }
-
-        body.dark-mode .warning-box {
-            background: #744210;
-            border-left-color: #d69e2e;
-        }
-
-        body.dark-mode .warning-box h4,
-        body.dark-mode .warning-box ul {
-            color: #fbb040;
-        }
-
-        body.dark-mode .badge.success {
-            background: rgba(250, 70, 22, 0.2);
-            color: var(--uf-orange);
-        }
-
-        body.dark-mode .badge.info {
-            background: rgba(0, 33, 165, 0.2);
-            color: var(--uf-blue-light);
-        }
-
-        body.dark-mode .badge.error {
-            background: rgba(239, 68, 68, 0.2);
-            color: #fca5a5;
-        }
-
-        body.dark-mode .badge.warning {
-            background: rgba(217, 119, 6, 0.2);
-            color: #fcd34d;
-        }
-
-        body.dark-mode .file-upload {
-            background: #4a5568;
-            border-color: #718096;
-            color: #e2e8f0;
-        }
-
-        body.dark-mode .file-upload:hover {
-            background: #718096;
-            border-color: #a0aec0;
-        }
-
-        /* Dark mode icon change */
-        body.dark-mode #darkModeBtn i:before {
-            content: "\f185";
-            /* sun icon */
-        }
-
-        /* Dark mode stat changes */
-        body.dark-mode .stat-change.positive {
-            color: var(--uf-orange);
-        }
-
-        body.dark-mode .stat-change.neutral {
-            color: #a0aec0;
-        }
-
-        /* Dark mode search bar */
-        body.dark-mode .search-bar i {
-            color: #a0aec0;
-        }
-
-        /* Dark mode navigation section titles */
-        body.dark-mode .nav-section-title {
-            color: #a0aec0;
-        }
-
-        /* Dark mode user role */
-        body.dark-mode .user-role {
-            color: #a0aec0;
-        }
-
-        /* Dark mode notifications in dark theme */
-        body.dark-mode .notification.success {
-            background: var(--uf-orange);
-        }
-
-        body.dark-mode .notification.info {
-            background: var(--uf-blue);
-        }
-
-        body.dark-mode .notification.error {
-            background: #dc2626;
+        .pagination-info {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            margin: 0 0.5rem;
         }
     </style>
 </head>
@@ -1168,9 +1157,9 @@
         <div class="sidebar-header">
             <div class="logo">
                 <div class="logo-icon">
-                    <i class="fas fa-graduation-cap"></i>
+                    <i class="fas fa-flask"></i>
                 </div>
-                <span>UF Lab</span>
+                <span>SMILE Lab</span>
             </div>
         </div>
         <div class="nav-section">
@@ -1225,10 +1214,10 @@
                         id="globalSearch">
                 </div>
                 <div class="header-actions">
-                    <button class="action-btn" id="notificationBtn">
+                    <button class="action-btn" id="notificationBtn" title="Notifications">
                         <i class="fas fa-bell"></i>
                     </button>
-                    <button class="action-btn" id="darkModeBtn">
+                    <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
                         <i class="fas fa-moon"></i>
                     </button>
                     <div class="user-profile">
@@ -1331,7 +1320,7 @@
                     <div class="card" style="display: flex; flex-direction: column;">
                         <div class="card-header">
                             <h3 class="card-title">Recent Activity</h3>
-                            <button class="btn btn-secondary" id="refreshActivityBtn">
+                            <button class="btn btn-secondary btn-sm" id="refreshActivityBtn">
                                 <i class="fas fa-refresh"></i>
                                 Refresh
                             </button>
@@ -1358,11 +1347,11 @@
                         <div class="card-header">
                             <div class="card-title">Student Hours</div>
                             <div style="display:flex; gap:.5rem; align-items:center">
-                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
+                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">&#9664;</button>
                                 <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
                                     Today
                                 </div>
-                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
+                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">&#9654;</button>
                             </div>
                         </div>
                         <div class="card-body" style="flex: 1; min-height: 200px;">
@@ -1378,8 +1367,8 @@
                     <div class="card-header">
                         <h3 class="card-title">Weekly Analytics</h3>
                         <div style="display: flex; gap: 0.5rem;">
-                            <button class="btn btn-secondary" id="weekChartBtn">Week</button>
-                            <button class="btn btn-secondary" id="monthChartBtn">Month</button>
+                            <button class="btn btn-secondary btn-sm" id="weekChartBtn">Week</button>
+                            <button class="btn btn-secondary btn-sm" id="monthChartBtn">Month</button>
                         </div>
                     </div>
                     <div class="card-body">
@@ -1410,7 +1399,7 @@
                     </div>
                 </div>
                 <!-- Search and Filters -->
-                <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card" style="margin-bottom: 1.25rem;">
                     <div class="card-body">
                         <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
                             <div style="flex: 1; min-width: 300px;">
@@ -1451,6 +1440,8 @@
                                 <tbody id="studentsTableBody"></tbody>
                             </table>
                         </div>
+                        <!-- Students Pagination -->
+                        <div id="studentsPagination"></div>
                     </div>
                 </div>
             </div>
@@ -1471,7 +1462,7 @@
                     </div>
                 </div>
                 <!-- Date Filters -->
-                <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card" style="margin-bottom: 1.25rem;">
                     <div class="card-body">
                         <div
                             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
@@ -1516,20 +1507,20 @@
                     <div class="card-header">
                         <div class="card-title">Reporting</div>
                         <div style="display:flex; gap:.5rem; align-items:center">
-                            <button class="btn btn-secondary" id="reportPrevBtn" title="Previous period">◀</button>
+                            <button class="btn btn-secondary btn-icon" id="reportPrevBtn" title="Previous period">&#9664;</button>
                             <div id="reportRangeLabel" style="min-width: 220px; text-align:center; font-weight:600">
                                 <!-- Filled by JS -->
                             </div>
-                            <button class="btn btn-secondary" id="reportNextBtn" title="Next period">▶</button>
+                            <button class="btn btn-secondary btn-icon" id="reportNextBtn" title="Next period">&#9654;</button>
 
-                            <button class="btn btn-secondary" id="reportModeToggle"
+                            <button class="btn btn-secondary btn-sm" id="reportModeToggle"
                                 style="margin-left:.75rem; min-width: 110px;">
                                 Week view
                             </button>
                         </div>
                     </div>
                     <div class="card-body">
-                        <!-- Weekly matrix (students x Mon–Sun) -->
+                        <!-- Weekly matrix (students x Mon-Sun) -->
                         <div id="weeklyMatrixPane">
                             <div style="overflow:auto;">
                                 <table class="table" id="weeklyMatrixTable">
@@ -1551,34 +1542,34 @@
                             <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
                                 <!-- Row 1: legend chips -->
                                 <div style="display:flex; align-items:center; flex-wrap:wrap; gap: 0.75rem;">
-                                    <span style="font-weight:600; color:#0f172a;">Hours legend:</span>
+                                    <span style="font-weight:600; color:var(--text-primary);">Hours legend:</span>
 
                                     <span
-                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-secondary);">
                                         <span
                                             style="width:14px; height:14px; border-radius:3px; background:#EFF6FF;"></span>
                                         0h
                                     </span>
                                     <span
-                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-secondary);">
                                         <span
                                             style="width:14px; height:14px; border-radius:3px; background:#DBEAFE;"></span>
                                         &lt;2h
                                     </span>
                                     <span
-                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-secondary);">
                                         <span
                                             style="width:14px; height:14px; border-radius:3px; background:#BFDBFE;"></span>
-                                        2–4h
+                                        2-4h
                                     </span>
                                     <span
-                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-secondary);">
                                         <span
                                             style="width:14px; height:14px; border-radius:3px; background:#93C5FD;"></span>
-                                        4–6h
+                                        4-6h
                                     </span>
                                     <span
-                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:#64748B;">
+                                        style="display:inline-flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-secondary);">
                                         <span
                                             style="width:14px; height:14px; border-radius:3px; background:#3B82F6;"></span>
                                         &gt;6h
@@ -1586,7 +1577,7 @@
                                 </div>
 
                                 <!-- Row 2: explanation text -->
-                                <p style="margin:0; font-size:0.9rem; color:#64748B;">
+                                <p style="margin:0; font-size:0.875rem; color:var(--text-tertiary);">
                                     Each bar shows the total hours recorded for that student in this month.
                                     Darker color = more hours.
                                 </p>
@@ -1618,6 +1609,8 @@
                                 </tbody>
                             </table>
                         </div>
+                        <!-- Attendance Pagination -->
+                        <div id="attendancePagination"></div>
                     </div>
                 </div>
             </div>
@@ -1627,70 +1620,19 @@
                     <h1 class="page-title">Analytics & Reports</h1>
                     <p class="page-subtitle">Advanced analytics and automated reporting system.</p>
                 </div>
-                <!-- Report Cards
-                <div class="stats-grid" style="margin-bottom: 2rem;">
-                    <div class="card">
-                        <div class="card-body" style="text-align: center;">
-                            <div class="stat-icon" style="margin: 0 auto 1rem;">
-                                <i class="fas fa-file-alt"></i>
-                            </div>
-                            <h3>Weekly Report</h3>
-                            <p style="color: #64748b; margin: 0.5rem 0;">Generate comprehensive weekly attendance report
-                            </p>
-                            <button class="btn btn-primary" id="generateWeeklyReportBtn">Generate</button>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-body" style="text-align: center;">
-                            <div class="stat-icon" style="margin: 0 auto 1rem;">
-                                <i class="fas fa-cloud-upload-alt"></i>
-                            </div>
-                            <h3>Cloud Backup</h3>
-                            <p style="color: #64748b; margin: 0.5rem 0;">Backup data to cloud storage</p>
-                            <button class="btn btn-primary" id="cloudBackupBtn">Backup Now</button>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-body" style="text-align: center;">
-                            <div class="stat-icon" style="margin: 0 auto 1rem;">
-                                <i class="fas fa-chart-line"></i>
-                            </div>
-                            <h3>Analytics Dashboard</h3>
-                            <p style="color: #64748b; margin: 0.5rem 0;">View detailed analytics and trends</p>
-                            <button class="btn btn-primary" id="openAnalyticsBtn">View Analytics</button>
-                        </div>
-                    </div>
-                </div> -->
                 <!-- Charts -->
                 <div class="content-grid">
 
-                    <!-- <div class="card">
-                        <div class="card-header">
-                            <div class="card-title">Student Hours</div>
-                            <div style="display:flex; gap:.5rem; align-items:center">
-                                <button class="btn btn-secondary btn-icon" id="hoursPrevBtn">◀</button>
-                                <div id="hoursRangeLabel" style="min-width: 160px; text-align:center; font-weight:600;">
-                                    Today
-                                </div>
-                                <button class="btn btn-secondary btn-icon" id="hoursNextBtn">▶</button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="chart-container">
-                                <canvas id="studentHoursChart" height="280"></canvas>
-                            </div>
-                        </div>
-                    </div> -->
                     <!-- Time Bands (Weekly dumbbell with nav) -->
                     <div class="card">
                         <div class="card-header">
-                            <div class="card-title">Time Bands (8am–8pm)</div>
+                            <div class="card-title">Time Bands (8am-8pm)</div>
                             <div style="display:flex; gap:.5rem; align-items:center">
-                                <button class="btn btn-secondary btn-icon" id="bandsPrevBtn">◀</button>
+                                <button class="btn btn-secondary btn-icon" id="bandsPrevBtn">&#9664;</button>
                                 <div id="bandsRangeLabel" style="min-width: 190px; text-align:center; font-weight:600;">
                                     This week
                                 </div>
-                                <button class="btn btn-secondary btn-icon" id="bandsNextBtn">▶</button>
+                                <button class="btn btn-secondary btn-icon" id="bandsNextBtn">&#9654;</button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -1712,16 +1654,6 @@
                             </div>
                         </div>
                     </div>
-                    <!-- <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">Attendance Trends</h3>
-                        </div>
-                        <div class="card-body">
-                            <div class="chart-container">
-                                <canvas id="trendsChart" width="600" height="300"></canvas>
-                            </div>
-                        </div>
-                    </div> -->
                 </div>
             </div>
             <!-- Pending Sign-Outs Section -->
@@ -1742,7 +1674,7 @@
                 </div>
 
                 <!-- Stats Cards -->
-                <div class="stats-grid" style="margin-bottom: 2rem;">
+                <div class="stats-grid" style="margin-bottom: 1.5rem;">
                     <div class="stat-card">
                         <div class="stat-header">
                             <span class="stat-title">Pending</span>
@@ -1794,21 +1726,21 @@
                 </div>
 
                 <!-- Server Status -->
-                <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card" style="margin-bottom: 1.25rem;">
                     <div class="card-body">
                         <div style="display: flex; align-items: center; gap: 1rem;">
                             <span class="badge" id="pendingServerStatus">Server: Checking...</span>
-                            <span style="color: #64748b; font-size: 0.875rem;">
-                                Students access the sign-out form at <code id="serverUrl">http://localhost:3847/signout/...</code>
+                            <span style="color: var(--text-secondary); font-size: 0.875rem;">
+                                Students access the sign-out form at <code id="serverUrl" style="background: var(--bg-subtle); padding: 0.125rem 0.5rem; border-radius: 4px;">http://localhost:3847/signout/...</code>
                             </span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Open Sessions (Testing Panel) -->
-                <div class="card" style="margin-bottom: 1.5rem; border: 2px solid #f59e0b;">
-                    <div class="card-header" style="background: linear-gradient(135deg, #fef3c7, #fde68a);">
-                        <h3 class="card-title" style="color: #92400e;">
+                <div class="card" style="margin-bottom: 1.25rem; border: 2px solid var(--uf-orange);">
+                    <div class="card-header" style="background: linear-gradient(135deg, var(--warning-bg), rgba(var(--uf-orange-rgb), 0.15));">
+                        <h3 class="card-title" style="color: var(--warning-text);">
                             <i class="fas fa-flask"></i>
                             Open Sessions (Testing)
                         </h3>
@@ -1817,7 +1749,7 @@
                         </button>
                     </div>
                     <div class="card-body">
-                        <p style="color: #64748b; margin-bottom: 1rem;">
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
                             Students currently signed in without a sign-out. Use this to test the pending sign-out email system without waiting for 11:59 PM.
                         </p>
                         <div id="openSessionsContainer">
@@ -1837,8 +1769,8 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div id="noOpenSessionsMessage" style="text-align: center; padding: 2rem; color: #64748b; display: none;">
-                                <i class="fas fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: #10b981;"></i>
+                            <div id="noOpenSessionsMessage" style="text-align: center; padding: 2rem; color: var(--text-secondary); display: none;">
+                                <i class="fas fa-check-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--success);"></i>
                                 <p>No open sessions. All students have signed out.</p>
                             </div>
                         </div>
@@ -1851,11 +1783,11 @@
                                 <i class="fas fa-cloud-download-alt"></i>
                                 Sync from Cloud
                             </button>
-                            <button class="btn btn-warning" id="testPendingCronBtn" style="background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706;">
+                            <button class="btn btn-warning" id="testPendingCronBtn">
                                 <i class="fas fa-clock"></i>
                                 Test Cron Job
                             </button>
-                            <span style="color: #64748b; font-size: 0.875rem; align-self: center;">
+                            <span style="color: var(--text-tertiary); font-size: 0.8125rem; align-self: center;">
                                 Test Cron simulates what the 11:59 PM job does. Sync updates attendance with student-submitted signout times.
                             </span>
                         </div>
@@ -1894,8 +1826,8 @@
                                 </tbody>
                             </table>
                         </div>
-                        <div id="noPendingMessage" style="text-align: center; padding: 2rem; color: #64748b; display: none;">
-                            <i class="fas fa-check-circle" style="font-size: 3rem; margin-bottom: 1rem; color: #10b981;"></i>
+                        <div id="noPendingMessage" style="text-align: center; padding: 2rem; color: var(--text-secondary); display: none;">
+                            <i class="fas fa-check-circle" style="font-size: 3rem; margin-bottom: 1rem; color: var(--success);"></i>
                             <p>No pending sign-outs. All students have signed out properly!</p>
                         </div>
                     </div>
@@ -1919,7 +1851,7 @@
                         <div class="form-group" style="margin-top: 1.5rem;">
                             <label class="form-label">Sign-Out Time</label>
                             <input type="time" class="form-input" id="adminSignOutTime">
-                            <small style="color: #64748b;">Enter the actual sign-out time for this student</small>
+                            <small style="color: var(--text-tertiary);">Enter the actual sign-out time for this student</small>
                         </div>
 
                         <div class="form-group">
@@ -1927,7 +1859,7 @@
                                 <input type="checkbox" id="markPresentOnly">
                                 <span>Mark as "Present Only" (0 hours)</span>
                             </label>
-                            <small style="color: #64748b;">Use this if the student should get attendance credit but no hours</small>
+                            <small style="color: var(--text-tertiary);">Use this if the student should get attendance credit but no hours</small>
                         </div>
 
                         <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
@@ -1950,7 +1882,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fas fa-envelope"></i>
+                                <i class="fas fa-envelope" style="margin-right: 0.5rem; color: var(--uf-blue);"></i>
                                 Email Configuration
                             </h3>
                             <div class="badge success" id="emailStatus">Disconnected</div>
@@ -1979,7 +1911,7 @@
                                         placeholder="recipient@ufl.edu">
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap;">
                                 <button class="btn btn-primary" id="saveEmailBtn">Save Settings</button>
                                 <button class="btn btn-secondary" id="testEmailBtn">Test Email</button>
                                 <button class="btn btn-secondary" id="sendReportBtn">Send Report Now</button>
@@ -1990,7 +1922,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fab fa-dropbox"></i> Dropbox
+                                <i class="fab fa-dropbox" style="margin-right: 0.5rem; color: #0061FF;"></i> Dropbox
                             </h3>
                             <div class="badge" id="dropboxStatus">Disconnected</div>
                         </div>
@@ -2029,7 +1961,7 @@
                                     </div>
 
                                     <div class="toolbar"
-                                        style="margin-top:.25rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+                                        style="margin-top:.5rem;">
                                         <button class="btn btn-primary" id="saveDropboxBtn">Save Settings</button>
                                         <button class="btn btn-secondary" id="testDropboxBtn">Test Connection</button>
                                         <button class="btn btn-primary" id="connectDropboxBtn">Connect Dropbox</button>
@@ -2041,8 +1973,8 @@
                                 <!-- Right: Team Sync -->
                                 <div class="section">
                                     <h4>Team Sync</h4>
-                                    <p class="help">Use Dropbox as the team’s shared source of truth. Safer,
-                                        minutes-scale sync — not real time.</p>
+                                    <p class="help">Use Dropbox as the team's shared source of truth. Safer,
+                                        minutes-scale sync - not real time.</p>
 
                                     <div class="form-group">
                                         <label class="form-label" for="dropboxMasterMode">Dropbox Master Mode</label>
@@ -2070,13 +2002,13 @@
                                             <label class="form-label">Status</label>
                                             <div class="kv">
                                                 <span id="dropboxSyncStatus" class="badge info">Status: Unknown</span>
-                                                <span id="dropboxNextRun" class="badge">Next pull: —</span>
+                                                <span id="dropboxNextRun" class="badge">Next pull: -</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div class="toolbar"
-                                        style="margin-top:.25rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+                                        style="margin-top:.5rem;">
                                         <button id="syncNowBtn" class="btn btn-secondary">
                                             <i class="fas fa-sync"></i> Sync Now
                                         </button>
@@ -2085,7 +2017,7 @@
                                         </button>
                                     </div>
 
-                                    <div class="warning-box" style="margin-top:1rem;">
+                                    <div class="warning-box">
                                         <h4><i class="fas fa-info-circle"></i> Notes</h4>
                                         <ul>
                                             <li>Only <strong>students.json</strong> and <strong>attendance.json</strong>
@@ -2104,22 +2036,22 @@
                                     <i class="fas fa-chevron-down chev"></i>
                                 </summary>
                                 <div class="content">
-                                    <div class="toolbar" style="margin-bottom:.5rem;">
+                                    <div class="toolbar" style="margin-bottom:.75rem;">
                                         <button class="btn btn-secondary" id="createDropboxFoldersBtn">Create Default
                                             Folders</button>
-                                        <button class="btn" id="spaceDropboxBtn">Space Usage</button>
-                                        <button class="btn" id="listDropboxBtn">List Files</button>
-                                        <button class="btn" id="uploadReportDropboxBtn">Upload Report</button>
-                                        <button class="btn" id="backupDropboxBtn">Backup Now</button>
+                                        <button class="btn btn-secondary" id="spaceDropboxBtn">Space Usage</button>
+                                        <button class="btn btn-secondary" id="listDropboxBtn">List Files</button>
+                                        <button class="btn btn-secondary" id="uploadReportDropboxBtn">Upload Report</button>
+                                        <button class="btn btn-secondary" id="backupDropboxBtn">Backup Now</button>
                                     </div>
 
                                     <div id="dropboxFilesWrap" style="display:none;">
-                                        <h4 style="margin:0 0 8px 0;">Files</h4>
+                                        <h4 style="margin:0 0 8px 0; color: var(--text-primary);">Files</h4>
                                         <div
-                                            style="overflow:auto;max-height:240px;border:1px solid #e5e7eb;border-radius:6px;">
+                                            style="overflow:auto;max-height:240px;border:1px solid var(--border);border-radius:8px;">
                                             <table id="dropboxFilesTable" class="table">
                                                 <thead>
-                                                    <tr style="background:#f8fafc;">
+                                                    <tr>
                                                         <th>Name</th>
                                                         <th>Path</th>
                                                         <th>Type</th>
@@ -2140,7 +2072,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fab fa-google"></i> Google Sheets
+                                <i class="fab fa-google" style="margin-right: 0.5rem; color: #34A853;"></i> Google Sheets
                             </h3>
                             <div class="badge" id="sheetsStatus">Disconnected</div>
                         </div>
@@ -2160,7 +2092,7 @@
                                         <div class="card-help">This JSON is stored locally with your app data.</div>
                                     </div>
 
-                                    <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                                    <div class="toolbar">
                                         <button class="btn btn-primary" id="sheetsSaveCredsBtn">Save
                                             Credentials</button>
                                         <button class="btn btn-secondary" id="sheetsTestBtn">Test Connection</button>
@@ -2211,13 +2143,13 @@
                                             <label class="form-label">Status</label>
                                             <div class="kv">
                                                 <span id="sheetsSyncStatus" class="badge info">Status: Unknown</span>
-                                                <span id="sheetsLastSync" class="badge">Last sync: —</span>
+                                                <span id="sheetsLastSync" class="badge">Last sync: -</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div class="toolbar"
-                                        style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem;">
+                                        style="margin-top:.5rem;">
                                         <button class="btn btn-secondary" id="sheetsSyncNowBtn"><i
                                                 class="fas fa-sync"></i> Sync Now</button>
                                         <button class="btn btn-primary" id="sheetsSaveCfgBtn"><i
@@ -2229,26 +2161,25 @@
                             <!-- Optional Advanced: quick actions -->
                             <details class="disclosure" style="margin-top:1rem;">
                                 <summary style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
-                                    <span class="card-title" style="font-size:1rem;">Google Sheets Tools</span>
+                                    <span style="font-size:0.9375rem;">Google Sheets Tools</span>
                                     <i class="fas fa-chevron-down chev" aria-hidden="true"></i>
                                 </summary>
 
                                 <div class="content" style="margin-top:0.75rem;display:grid;gap:1rem;">
                                     <!-- Rebuild Daily Summary -->
-                                    <div class="card"
-                                        style="border:none;background:var(--uf-gray-light);padding:1rem;border-radius:10px;">
+                                    <div class="section">
                                         <div class="form-group"
                                             style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
                                             <button id="rebuildSummaryBtn" class="btn btn-secondary">
                                                 <i class="fas fa-rotate"></i> Rebuild Daily Summary (last 30 days)
                                             </button>
 
-                                            <input type="date" id="rebuildStart" class="form-input"
+                                            <input type="date" id="rebuildStart" class="form-input" style="width: auto;"
                                                 aria-label="Start date" />
-                                            <input type="date" id="rebuildEnd" class="form-input"
+                                            <input type="date" id="rebuildEnd" class="form-input" style="width: auto;"
                                                 aria-label="End date" />
 
-                                            <select id="rebuildPolicy" class="form-input" aria-label="Policy">
+                                            <select id="rebuildPolicy" class="form-input" style="width: auto;" aria-label="Policy">
                                                 <option value="cap">Cap @ 5pm (no mutation)</option>
                                                 <option value="autosignout" selected>Auto sign-out @ 5pm</option>
                                             </select>
@@ -2256,19 +2187,19 @@
                                             <span id="rebuildSummaryStatus" class="badge info"
                                                 aria-live="polite">Idle</span>
                                         </div>
-                                        <small style="color:var(--uf-gray);display:block;margin-top:.25rem;">
-                                            Leave dates empty to rebuild the last 30 full days. “Cap @ 5pm” doesn’t
-                                            alter raw data; “Auto sign-out” writes a synthetic sign-out at 5pm for open
+                                        <small style="color:var(--text-tertiary);display:block;margin-top:.5rem;">
+                                            Leave dates empty to rebuild the last 30 full days. "Cap @ 5pm" doesn't
+                                            alter raw data; "Auto sign-out" writes a synthetic sign-out at 5pm for open
                                             sessions.
                                         </small>
                                     </div>
 
                                     <!-- Advanced Tools -->
-                                    <div class="card" style="border:1px solid #e2e8f0;padding:1rem;border-radius:10px;">
-                                        <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap;">
-                                            <button class="btn" id="sheetsEnableAutoBtn">Enable Auto Sync</button>
-                                            <button class="btn" id="sheetsDisableAutoBtn">Disable Auto Sync</button>
-                                            <button class="btn" id="sheetsSyncTodayBtn">Sync Today Only</button>
+                                    <div class="section">
+                                        <div class="toolbar">
+                                            <button class="btn btn-secondary" id="sheetsEnableAutoBtn">Enable Auto Sync</button>
+                                            <button class="btn btn-secondary" id="sheetsDisableAutoBtn">Disable Auto Sync</button>
+                                            <button class="btn btn-secondary" id="sheetsSyncTodayBtn">Sync Today Only</button>
                                         </div>
                                     </div>
                                 </div>
@@ -2282,14 +2213,14 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fas fa-lock"></i>
+                                <i class="fas fa-lock" style="margin-right: 0.5rem; color: var(--uf-blue);"></i>
                                 Data Encryption
                             </h3>
                             <div class="badge error" id="encryptionStatus">Disabled</div>
                         </div>
                         <div class="card-body">
                             <div style="margin-bottom: 1rem;">
-                                <p style="color: #64748b;">
+                                <p style="color: var(--text-secondary);">
                                     Encrypt sensitive student data (names, emails) using AES-256 encryption.
                                     <strong>Warning:</strong> If you forget the encryption password, your data cannot be
                                     recovered.
@@ -2317,7 +2248,7 @@
                                     <input type="password" class="form-input" id="currentEncryptionPassword"
                                         placeholder="Enter current password">
                                 </div>
-                                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
                                     <button class="btn btn-danger" id="disableEncryptionBtn">
                                         <i class="fas fa-unlock"></i>
                                         Disable Encryption
@@ -2351,7 +2282,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fas fa-shield-alt"></i>
+                                <i class="fas fa-shield-alt" style="margin-right: 0.5rem; color: var(--uf-orange);"></i>
                                 System Security
                             </h3>
                         </div>
@@ -2369,7 +2300,7 @@
                                         placeholder="University of Florida Lab">
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
                                 <button class="btn btn-primary" id="saveSystemBtn">Save Settings</button>
                                 <button class="btn btn-danger" id="changePasswordBtn">Change Password</button>
                                 <button class="btn btn-secondary" id="backupDataBtn">Backup Data</button>
@@ -2380,16 +2311,16 @@
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">
-                                <i class="fas fa-clock"></i>
+                                <i class="fas fa-clock" style="margin-right: 0.5rem; color: var(--uf-blue);"></i>
                                 Email Scheduler
                             </h3>
                         </div>
                         <div class="card-body">
                             <div id="schedulerInfo" style="margin-bottom: 1rem;">
-                                <p>Status: <span id="schedulerStatus">Checking...</span></p>
-                                <p>Next run: <span id="nextRunTime">Every Saturday at 8:00 AM</span></p>
+                                <p style="color: var(--text-secondary);">Status: <span id="schedulerStatus" style="font-weight: 600;">Checking...</span></p>
+                                <p style="color: var(--text-secondary);">Next run: <span id="nextRunTime" style="font-weight: 600;">Every Saturday at 8:00 AM</span></p>
                             </div>
-                            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
                                 <button class="btn btn-primary" id="startSchedulerBtn">Start Scheduler</button>
                                 <button class="btn btn-danger" id="stopSchedulerBtn">Stop Scheduler</button>
                                 <button class="btn btn-secondary" id="testSchedulerBtn">Test Scheduler (10s)</button>
@@ -2419,7 +2350,7 @@
                     </div>
                 </div>
                 <!-- Log Filters -->
-                <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card" style="margin-bottom: 1.25rem;">
                     <div class="card-body">
                         <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
                             <select class="form-input" style="width: auto;" id="logLevel">
@@ -2510,7 +2441,7 @@
                                 placeholder="e.g., 3">
                         </div>
                     </div>
-                    <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                    <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem;">
                         <button type="button" class="btn btn-secondary" id="cancelAddStudentBtn">Cancel</button>
                         <button type="submit" class="btn btn-primary">Add Student</button>
                     </div>
@@ -2518,12 +2449,11 @@
             </div>
         </div>
     </div>
-    <!-- Update Student Modal -->
     <!-- Edit Student Modal -->
     <div id="editStudentModal" class="modal">
         <div class="modal-content" style="max-width: 520px;">
             <div class="modal-header">
-                <h2 style="margin: 0;">Edit Student</h2>
+                <h3 class="modal-title">Edit Student</h3>
                 <button class="modal-close" id="closeEditStudentModal">&times;</button>
             </div>
 
@@ -2531,8 +2461,8 @@
                 <div class="form-group">
                     <label class="form-label">UF ID</label>
                     <input type="text" class="form-input" id="editUfid" disabled />
-                    <div style="font-size: 0.75rem; color:#64748b; margin-top:4px;">
-                        UF ID can’t be changed.
+                    <div style="font-size: 0.75rem; color:var(--text-tertiary); margin-top:4px;">
+                        UF ID can't be changed.
                     </div>
                 </div>
 
@@ -2570,19 +2500,13 @@
                     </div>
                 </div>
 
-                <div class="form-group" style="display:flex; align-items:center; gap: 0.5rem;">
-                    <input type="checkbox" id="editActive" />
-                    <label for="editActive" style="margin:0;">Active</label>
+                <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button type="button" class="btn btn-secondary" id="cancelEditStudentBtn">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveEditStudentBtn">Save Changes</button>
                 </div>
-            </div>
-
-            <div class="modal-footer" style="display:flex; justify-content:flex-end; gap: 0.75rem;">
-                <button class="btn btn-secondary" id="cancelEditStudentBtn">Cancel</button>
-                <button class="btn btn-primary" id="saveEditStudentBtn">Save</button>
             </div>
         </div>
     </div>
-
     <!-- Bulk Import Modal -->
     <div class="modal" id="bulkImportModal">
         <div class="modal-content">
@@ -2595,64 +2519,31 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label class="form-label">CSV File</label>
-                    <input type="file" class="form-input" id="csvFile" accept=".csv">
-                    <small style="color: #64748b; margin-top: 0.5rem; display: block;">
-                        Upload a CSV file with columns: UF_ID, Name, Email
-                    </small>
+                    <label class="file-upload" style="display: block; width: 100%;">
+                        <i class="fas fa-upload"></i>
+                        <span id="selectedFileName">Choose CSV file or drag here</span>
+                        <input type="file" id="csvFileInput" accept=".csv">
+                    </label>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Preview</label>
-                    <div id="csvPreview"
-                        style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1rem;">
-                        Select a CSV file to preview
-                    </div>
+                <div class="warning-box" style="margin-top: 1rem;">
+                    <h4><i class="fas fa-info-circle"></i> CSV Format</h4>
+                    <p style="font-size: 0.8125rem; color: var(--warning-text);">Required columns: ufid, name, email<br>
+                    Optional columns: role, expectedHoursPerWeek, expectedDaysPerWeek</p>
                 </div>
-                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
-                    <button type="button" class="btn btn-secondary" id="cancelBulkImportBtn">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="importStudentsBtn">Import Students</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    <!-- Dropbox Files Modal -->
-    <div class="modal" id="dropboxFilesModal">
-        <div class="modal-content" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3 class="modal-title">Dropbox Files</h3>
-                <button class="modal-close" id="closeDropboxFilesModal">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div style="margin-bottom: 1rem;">
-                    <button class="btn btn-secondary" id="refreshDropboxFilesBtn">
-                        <i class="fas fa-refresh"></i>
-                        Refresh
-                    </button>
-                </div>
-                <div class="table-container">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Size</th>
-                                <th>Modified</th>
-                                <th>Type</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dropboxFilesTable">
-                            <!-- Dynamic content -->
-                        </tbody>
-                    </table>
+                <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button class="btn btn-secondary" id="cancelBulkImportBtn">Cancel</button>
+                    <button class="btn btn-primary" id="importCsvBtn">Import</button>
                 </div>
             </div>
         </div>
     </div>
     <!-- Notification -->
-    <div class="notification" id="notification"></div>
-    <script src="./admin.js"></script>
+    <div class="notification" id="notification">
+        <span id="notificationText"></span>
+    </div>
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="./admin.js"></script>
 </body>
 
 </html>
