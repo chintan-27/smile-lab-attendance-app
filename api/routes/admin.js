@@ -21,6 +21,21 @@ const {
 const adminService = require('../services/adminService');
 
 /**
+ * POST /api/admin/init
+ * Initialize/reset credentials from environment (temporary setup endpoint)
+ * Remove after initial setup!
+ */
+router.post('/init', async (req, res) => {
+  try {
+    const result = await adminService.resetCredentialsFromEnv();
+    res.json(result);
+  } catch (error) {
+    console.error('Init error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /api/admin/login
  * Authenticate admin and set session cookie
  */
