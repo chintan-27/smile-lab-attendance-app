@@ -140,6 +140,45 @@ router.post('/change-password', requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /api/admin/reset-credentials
+ * Force reset credentials from environment variables (requires API key)
+ */
+router.post('/reset-credentials', async (req, res) => {
+  try {
+    // Verify API key for this sensitive operation
+    const apiKey = req.headers['x-api-key'];
+    const expectedKey = process.env.SYNC_API_KEY;
+
+    if (!expectedKey || apiKey !== expectedKey) {
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid API key'
+      });
+    }
+
+    const result = await adminService.resetCredentialsFromEnv();
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error
+      });
+    }
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    console.error('Reset credentials error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset credentials'
+    });
+  }
+});
+
+/**
  * POST /api/admin/sync-credentials
  * Sync credentials from Electron app (requires API key)
  * Used when admin changes password in Electron, sync to web

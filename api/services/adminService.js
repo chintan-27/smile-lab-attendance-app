@@ -28,13 +28,14 @@ function getRedis() {
 /**
  * Initialize admin credentials from environment variables if not already set
  * Called on first login attempt
+ * @param {boolean} force - If true, overwrite existing credentials
  */
-async function initializeFromEnv() {
+async function initializeFromEnv(force = false) {
   const r = getRedis();
 
   // Check if credentials already exist
   const existing = await r.get(ADMIN_KEY);
-  if (existing) {
+  if (existing && !force) {
     return { success: true, message: 'Credentials already exist' };
   }
 
@@ -51,11 +52,18 @@ async function initializeFromEnv() {
   await r.set(ADMIN_KEY, {
     username,
     passwordHash: hash,
-    createdAt: new Date().toISOString(),
+    createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
 
-  return { success: true, message: 'Credentials initialized from environment' };
+  return { success: true, message: force ? 'Credentials reset from environment' : 'Credentials initialized from environment' };
+}
+
+/**
+ * Force reset credentials from environment variables
+ */
+async function resetCredentialsFromEnv() {
+  return initializeFromEnv(true);
 }
 
 /**
@@ -228,5 +236,6 @@ module.exports = {
   getAdminInfo,
   syncCredentials,
   setAdminCredentials,
-  initializeFromEnv
+  initializeFromEnv,
+  resetCredentialsFromEnv
 };
