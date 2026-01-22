@@ -1,18 +1,55 @@
 /**
- * Pending Sign-Out Cloud API
+ * UF Lab Attendance Cloud API
  *
  * Deployed on Vercel, uses Upstash Redis for storage
- * Handles sign-out form submissions from students
+ * Handles:
+ * - Student sign-out form submissions
+ * - Secure web admin dashboard
  */
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const { Redis } = require('@upstash/redis');
 
+// Routes
+const adminRoutes = require('./routes/admin');
+const adminDataRoutes = require('./routes/adminData');
+
+// Auth middleware
+const { checkAuth, requireAuth } = require('./middleware/auth');
+
 const app = express();
+
+// Security headers (relaxed CSP for admin dashboard)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'"]
+    }
+  }
+}));
+
 app.use(cors());
+app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+// Serve static files from public directory
+app.use('/static', express.static(path.join(__dirname, 'public')));
+
+// Mount admin authentication routes
+app.use('/api/admin', adminRoutes);
+
+// Mount admin data routes (requires auth, handled in router)
+app.use('/api/admin/data', adminDataRoutes);
 
 // Initialize Upstash Redis (set these in Vercel environment variables)
 const redis = new Redis({
@@ -621,6 +658,28 @@ function generateErrorHTML(message) {
 </html>
   `;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Admin Dashboard Routes
+// ─────────────────────────────────────────────────────────────
+
+// Login page
+app.get('/login', checkAuth, (req, res) => {
+  // If already authenticated, redirect to dashboard
+  if (req.isAuthenticated) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// Root route - Admin Dashboard (requires auth)
+app.get('/', checkAuth, (req, res) => {
+  // If not authenticated, redirect to login
+  if (!req.isAuthenticated) {
+    return res.redirect('/login');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
 
 // ─────────────────────────────────────────────────────────────
 // Server Start

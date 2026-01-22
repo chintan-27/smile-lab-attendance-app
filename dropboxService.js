@@ -34,6 +34,7 @@ function writeJsonAtomic(p, obj) {
 
 // Only these files are team-shared (skip config.json)
 const SYNC_FILES = ['students.json', 'attendance.json'];
+const SQLITE_FILE = 'attendance.db';
 
 class DropboxService {
     constructor(dataManager) {
@@ -672,6 +673,75 @@ class DropboxService {
         catch (e) {
             if (String(e?.error)?.includes('path/not_found')) return null;
             throw e;
+        }
+    }
+
+    /**
+     * Detect what data format exists on Dropbox
+     * @returns {Promise<Object>} { format: 'sqlite' | 'json' | 'none', hasSqlite, hasJson }
+     */
+    async detectDropboxDataFormat() {
+        if (!this.dropbox) {
+            const init = this.initializeFromConfig();
+            if (!init.success) return { format: 'none', hasSqlite: false, hasJson: false, error: init.error };
+        }
+
+        try {
+            const sqlitePath = `${this.getDataFolder()}/${SQLITE_FILE}`;
+            const jsonPath = `${this.getDataFolder()}/attendance.json`;
+
+            const [sqliteMeta, jsonMeta] = await Promise.all([
+                this.getMeta(sqlitePath),
+                this.getMeta(jsonPath)
+            ]);
+
+            const hasSqlite = !!sqliteMeta;
+            const hasJson = !!jsonMeta;
+
+            // Prefer SQLite if it exists
+            const format = hasSqlite ? 'sqlite' : (hasJson ? 'json' : 'none');
+
+            return { format, hasSqlite, hasJson };
+        } catch (error) {
+            return { format: 'none', hasSqlite: false, hasJson: false, error: error.message };
+        }
+    }
+
+    /**
+     * Download SQLite database from Dropbox
+     * @param {string} localPath - Local path to save the file
+     * @returns {Promise<Object>} { success, localPath, size }
+     */
+    async downloadSqliteDb(localPath) {
+        if (!this.dropbox) {
+            const init = this.initializeFromConfig();
+            if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
+        }
+
+        try {
+            const dropboxPath = `${this.getDataFolder()}/${SQLITE_FILE}`;
+            return await this.downloadFile(dropboxPath, localPath);
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Upload SQLite database to Dropbox
+     * @param {string} localPath - Local path of the database file
+     * @returns {Promise<Object>} { success, path, size }
+     */
+    async uploadSqliteDb(localPath) {
+        if (!this.dropbox) {
+            const init = this.initializeFromConfig();
+            if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
+        }
+
+        try {
+            const dropboxPath = `${this.getDataFolder()}/${SQLITE_FILE}`;
+            return await this.uploadFile(localPath, dropboxPath);
+        } catch (error) {
+            return { success: false, error: error.message };
         }
     }
 

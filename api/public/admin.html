@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - UF Lab Attendance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --uf-blue: #0021A5;
+      --uf-blue-dark: #001A85;
+      --uf-orange: #FA4616;
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --border-color: #e2e8f0;
+      --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      --success-color: #10b981;
+      --error-color: #dc2626;
+      --warning-color: #f59e0b;
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --border-color: #334155;
+      --card-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--uf-blue), var(--uf-blue-dark));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .theme-toggle, .logout-btn {
+      padding: 8px 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .theme-toggle:hover, .logout-btn:hover {
+      background: var(--bg-primary);
+    }
+
+    .logout-btn {
+      color: var(--error-color);
+      border-color: var(--error-color);
+    }
+
+    /* Navigation */
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      overflow-x: auto;
+    }
+
+    .nav-tab {
+      padding: 10px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 8px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .nav-tab:hover {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .nav-tab.active {
+      background: var(--uf-blue);
+      color: white;
+    }
+
+    /* Main Content */
+    .main-content {
+      padding: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Stats Cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: var(--card-shadow);
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--uf-blue);
+    }
+
+    /* Tables */
+    .table-card {
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .table-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .table-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-width: 200px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--uf-blue);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--uf-blue-dark);
+    }
+
+    .btn-secondary {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-danger {
+      background: var(--error-color);
+      color: white;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-secondary);
+      background: var(--bg-primary);
+    }
+
+    td {
+      font-size: 14px;
+    }
+
+    tr:hover {
+      background: var(--bg-primary);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .badge-success {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success-color);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--warning-color);
+    }
+
+    .badge-error {
+      background: rgba(220, 38, 38, 0.1);
+      color: var(--error-color);
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .pagination-info {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .pagination-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.visible {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--bg-secondary);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal h2 {
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: var(--text-secondary);
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--border-color);
+      border-top-color: var(--uf-blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Toast notifications */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 2000;
+    }
+
+    .toast {
+      background: var(--bg-secondary);
+      padding: 16px 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast.success { border-left: 4px solid var(--success-color); }
+    .toast.error { border-left: 4px solid var(--error-color); }
+    .toast.warning { border-left: 4px solid var(--warning-color); }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .table-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .search-input {
+        width: 100%;
+      }
+
+      th, td {
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 4.354a4 4 0 1 1 0 5.292M15 21H3v-1a6 6 0 0 1 12 0v1zm0 0h6v-1a6 6 0 0 0-9-5.197M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/>
+        </svg>
+      </div>
+      <h1>UF Lab Attendance</h1>
+    </div>
+    <div class="header-right">
+      <span id="user-info">Admin</span>
+      <button class="theme-toggle" onclick="toggleTheme()">Toggle Theme</button>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <nav class="nav-tabs">
+    <button class="nav-tab active" data-tab="dashboard">Dashboard</button>
+    <button class="nav-tab" data-tab="students">Students</button>
+    <button class="nav-tab" data-tab="attendance">Attendance</button>
+    <button class="nav-tab" data-tab="pending">Pending Sign-Outs</button>
+  </nav>
+
+  <main class="main-content">
+    <!-- Dashboard Tab -->
+    <div id="dashboard-tab" class="tab-content active">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Students</div>
+          <div class="stat-value" id="stat-total-students">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Currently Signed In</div>
+          <div class="stat-value" id="stat-signed-in">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Today's Visits</div>
+          <div class="stat-value" id="stat-today-visits">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">This Week's Visits</div>
+          <div class="stat-value" id="stat-week-visits">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pending Sign-Outs</div>
+          <div class="stat-value" id="stat-pending">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Records</div>
+          <div class="stat-value" id="stat-total-records">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Students Tab -->
+    <div id="students-tab" class="tab-content">
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Student Management</h3>
+          <div class="table-actions">
+            <input type="text" class="search-input" id="students-search" placeholder="Search students...">
+            <button class="btn btn-primary" onclick="showAddStudentModal()">Add Student</button>
+          </div>
+        </div>
+        <div id="students-table-container">
+          <div class="loading"><div class="spinner"></div>Loading students...</div>
+        </div>
+        <div class="pagination" id="students-pagination"></div>
+      </div>
+    </div>
+
+    <!-- Attendance Tab -->
+    <div id="attendance-tab" class="tab-content">
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Attendance Records</h3>
+          <div class="table-actions">
+            <input type="text" class="search-input" id="attendance-search" placeholder="Search records...">
+            <input type="date" class="search-input" id="attendance-date" style="min-width: 150px;">
+          </div>
+        </div>
+        <div id="attendance-table-container">
+          <div class="loading"><div class="spinner"></div>Loading attendance...</div>
+        </div>
+        <div class="pagination" id="attendance-pagination"></div>
+      </div>
+    </div>
+
+    <!-- Pending Tab -->
+    <div id="pending-tab" class="tab-content">
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Pending Sign-Outs</h3>
+          <div class="table-actions">
+            <button class="btn btn-secondary" onclick="refreshPending()">Refresh</button>
+          </div>
+        </div>
+        <div id="pending-table-container">
+          <div class="loading"><div class="spinner"></div>Loading pending...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Add/Edit Student Modal -->
+  <div class="modal-overlay" id="student-modal">
+    <div class="modal">
+      <h2 id="student-modal-title">Add Student</h2>
+      <form id="student-form">
+        <div class="form-group">
+          <label for="student-ufid">UFID</label>
+          <input type="text" id="student-ufid" required pattern="\d{8}" maxlength="8" placeholder="12345678">
+        </div>
+        <div class="form-group">
+          <label for="student-name">Name</label>
+          <input type="text" id="student-name" required placeholder="Full Name">
+        </div>
+        <div class="form-group">
+          <label for="student-email">Email</label>
+          <input type="email" id="student-email" placeholder="student@ufl.edu">
+        </div>
+        <div class="form-group">
+          <label for="student-role">Role</label>
+          <select id="student-role">
+            <option value="volunteer">Volunteer</option>
+            <option value="member">Member</option>
+            <option value="lead">Lead</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="student-hours">Expected Hours/Week</label>
+          <input type="number" id="student-hours" min="0" max="40" value="0">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeStudentModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Resolve Pending Modal -->
+  <div class="modal-overlay" id="resolve-modal">
+    <div class="modal">
+      <h2>Resolve Pending Sign-Out</h2>
+      <div id="resolve-info"></div>
+      <form id="resolve-form">
+        <input type="hidden" id="resolve-id">
+        <div class="form-group">
+          <label for="resolve-time">Sign-Out Time</label>
+          <input type="time" id="resolve-time">
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="resolve-present-only">
+            Mark as "Present Only" (0 hours)
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeResolveModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Resolve</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

@@ -10,11 +10,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Admin
   verifyAdmin: (password) => ipcRenderer.invoke('verify-admin', password),
   changeAdminPassword: (newPassword) => ipcRenderer.invoke('change-admin-password', newPassword),
+  syncAdminToCloud: (password) => ipcRenderer.invoke('sync-admin-to-cloud', password),
   getStats: () => ipcRenderer.invoke('get-stats'),
   getEnhancedStats: () => ipcRenderer.invoke('get-enhanced-stats'),
 
   // Students
   getStudents: () => ipcRenderer.invoke('get-students'),
+  getStudentsPaginated: (page, pageSize, filters) =>
+    ipcRenderer.invoke('get-students-paginated', { page, pageSize, filters }),
   addStudent: (student) => ipcRenderer.invoke('add-student', student),
   updateStudent: (student) => ipcRenderer.invoke('update-student', student),
   removeStudent: (ufid) => ipcRenderer.invoke('remove-student', ufid),
@@ -22,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Reports & Records
   getAttendance: () => ipcRenderer.invoke('get-attendance'),
+  getAttendancePaginated: (page, pageSize, filters) =>
+    ipcRenderer.invoke('get-attendance-paginated', { page, pageSize, filters }),
+  getStorageInfo: () => ipcRenderer.invoke('get-storage-info'),
   getTodaysAttendance: () => ipcRenderer.invoke('get-todays-attendance'),
   deleteAttendanceRecord: (recordId) => ipcRenderer.invoke('delete-attendance-record', recordId),
   generateWeeklyReport: () => ipcRenderer.invoke('generate-weekly-report'),
@@ -60,6 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dropboxSyncNow: () => ipcRenderer.invoke('dropbox-sync-now'),
   getDropboxSyncStatus: () => ipcRenderer.invoke('get-dropbox-sync-status'),
   applyDropboxSyncConfig: () => ipcRenderer.invoke('apply-dropbox-sync-config'),
+  reloadSqliteFromJson: () => ipcRenderer.invoke('reload-sqlite-from-json'),
 
   // Encryption
   enableEncryption: (password) => ipcRenderer.invoke('enable-encryption', password),

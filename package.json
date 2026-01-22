@@ -15,6 +15,8 @@
     "test:verbose": "jest --verbose",
     "pretest": "node tests/setup/setupTests.js",
     "posttest": "node tests/setup/teardown.js",
+    "postinstall": "npx @electron/rebuild -f -w better-sqlite3 || true",
+    "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
     "pack": "electron-builder --dir",
     "dist": "electron-builder -mwl",
     "release": "electron-builder -mwl --publish always"
@@ -22,13 +24,15 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@electron/rebuild": "^4.0.2",
     "@playwright/test": "^1.47.0",
     "@testing-library/jest-dom": "^6.1.4",
     "electron": "^38.2.0",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.4.0",
     "jest-environment-jsdom": "^29.7.0"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "crypto-js": "^4.2.0",
     "dropbox": "^10.34.0",
     "dunder-proto": "^1.0.1",
@@ -41,6 +45,7 @@
     "has-proto": "^1.2.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.6",
+    "sql.js": "^1.13.0",
     "update-electron-app": "^3.1.1"
   },
   "jest": {

@@ -1,7 +1,7 @@
 {
-  "name": "pending-signout-api",
+  "name": "uf-lab-attendance-api",
   "version": "1.0.0",
-  "description": "Cloud API for UF Lab Attendance pending sign-outs",
+  "description": "Cloud API for UF Lab Attendance - pending sign-outs and admin dashboard",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,6 +10,11 @@
   "dependencies": {
     "express": "^4.18.2",
     "@upstash/redis": "^1.28.0",
-    "cors": "^2.8.5"
+    "@upstash/ratelimit": "^2.0.0",
+    "cors": "^2.8.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cookie-parser": "^1.4.6",
+    "helmet": "^7.1.0"
   }
 }

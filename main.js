@@ -27,9 +27,44 @@ async function safeSyncByMode(tag) {
   if (syncing) return; // single-flight
   syncing = true;
   try {
+    const cfg = dataManager.getConfig();
+    const isMasterMode = !!cfg.dropbox?.masterMode;
+
+    // Standard sync (pull or push based on mode)
     const res = await dropboxService.syncByMode(dataManager.dataDir);
-    // log under 'dropbox' so it's easier to filter
     dataManager.logger.info('dropbox', `${tag}: ${JSON.stringify(res)}`, 'system');
+
+    // After pull in master mode, handle SQLite reload from JSON
+    if (isMasterMode && res.success) {
+      // Detect what format is on Dropbox
+      const formatInfo = await dropboxService.detectDropboxDataFormat();
+      dataManager.logger.info('dropbox', `${tag}: Dropbox format detected: ${JSON.stringify(formatInfo)}`, 'system');
+
+      if (formatInfo.hasSqlite) {
+        // Dropbox has SQLite - download and replace local
+        const sqliteDbPath = path.join(dataManager.dataDir, 'attendance.db');
+        const dlResult = await dropboxService.downloadSqliteDb(sqliteDbPath);
+        if (dlResult.success) {
+          dataManager.logger.info('dropbox', `${tag}: Downloaded SQLite DB from Dropbox (${dlResult.size} bytes)`, 'system');
+          // Re-initialize the database manager with the new file
+          if (dataManager.dbManager) {
+            await dataManager.dbManager.initialize();
+            dataManager.logger.info('dropbox', `${tag}: Re-initialized SQLite from downloaded DB`, 'system');
+          }
+        } else {
+          dataManager.logger.warning('dropbox', `${tag}: Failed to download SQLite: ${dlResult.error}`, 'system');
+        }
+      } else if (formatInfo.hasJson) {
+        // Dropbox has only JSON - reload SQLite from the pulled JSON files
+        const reloadResult = await dataManager.reloadFromJson();
+        if (reloadResult.success) {
+          dataManager.logger.info('dropbox',
+            `${tag}: Reloaded SQLite from JSON (${reloadResult.students} students, ${reloadResult.attendance} records)`, 'system');
+        } else {
+          dataManager.logger.warning('dropbox', `${tag}: Failed to reload SQLite from JSON: ${reloadResult.error}`, 'system');
+        }
+      }
+    }
   } catch (e) {
     dataManager.logger.error('dropbox', `${tag} failed: ${e.message}`, 'system');
   } finally {
@@ -216,6 +251,7 @@ if (process.platform === 'darwin') {
 app.whenReady().then(async () => {
   // Initialize services
   dataManager = new DataManager();
+  await dataManager.initialize(); // Initialize SQLite asynchronously
   emailService = new EmailService(dataManager);
   googleSheetsService = new GoogleSheetsService(dataManager);
   dropboxService = new DropboxService(dataManager);
@@ -768,6 +804,18 @@ ipcMain.handle('change-admin-password', async (event, newPassword) => {
   }
 });
 
+// Sync admin credentials to cloud API
+ipcMain.handle('sync-admin-to-cloud', async (event, password) => {
+  try {
+    dataManager.logger.info('admin', 'Syncing admin credentials to cloud', 'admin');
+    const result = await dataManager.syncAdminToCloud(password);
+    return result;
+  } catch (error) {
+    dataManager.logger.error('admin', `Admin credential sync error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
 // Stats handlers
 ipcMain.handle('get-stats', async (event) => {
   try {
@@ -800,6 +848,19 @@ ipcMain.handle('get-students', async (event) => {
   } catch (error) {
     dataManager.logger.error('student', `Get students error: ${error.message}`, 'admin');
     return [];
+  }
+});
+
+// Paginated students endpoint for admin UI
+ipcMain.handle('get-students-paginated', async (event, { page, pageSize, filters }) => {
+  try {
+    const offset = (page - 1) * pageSize;
+    const result = dataManager.getStudentsPaginated(offset, pageSize, filters);
+    dataManager.logger.info('student', `Retrieved page ${page} of students (${result.students.length}/${result.totalCount})`, 'admin');
+    return result;
+  } catch (error) {
+    dataManager.logger.error('student', `Get students paginated error: ${error.message}`, 'admin');
+    return { students: [], totalCount: 0 };
   }
 });
 
@@ -876,6 +937,29 @@ ipcMain.handle('get-attendance', async (event) => {
   } catch (error) {
     dataManager.logger.error('attendance', `Get attendance error: ${error.message}`, 'admin');
     return [];
+  }
+});
+
+// Paginated attendance endpoint for admin UI
+ipcMain.handle('get-attendance-paginated', async (event, { page, pageSize, filters }) => {
+  try {
+    const offset = (page - 1) * pageSize;
+    const result = dataManager.getAttendancePaginated(offset, pageSize, filters);
+    dataManager.logger.info('attendance', `Retrieved page ${page} of attendance (${result.records.length}/${result.totalCount})`, 'admin');
+    return result;
+  } catch (error) {
+    dataManager.logger.error('attendance', `Get attendance paginated error: ${error.message}`, 'admin');
+    return { records: [], totalCount: 0 };
+  }
+});
+
+// Storage info endpoint
+ipcMain.handle('get-storage-info', async (event) => {
+  try {
+    return dataManager.getStorageInfo();
+  } catch (error) {
+    dataManager.logger.error('system', `Get storage info error: ${error.message}`, 'system');
+    return { mode: 'unknown', error: error.message };
   }
 });
 
@@ -1692,6 +1776,24 @@ ipcMain.handle('apply-dropbox-sync-config', async () => {
     if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   }
   return { success: true };
+});
+
+// Manual SQLite reload from JSON (for admin use)
+ipcMain.handle('reload-sqlite-from-json', async () => {
+  try {
+    dataManager.logger.info('system', 'Manual SQLite reload from JSON requested', 'admin');
+    const result = await dataManager.reloadFromJson();
+    if (result.success) {
+      dataManager.logger.info('system',
+        `Manual SQLite reload completed: ${result.students} students, ${result.attendance} records`, 'admin');
+    } else {
+      dataManager.logger.error('system', `Manual SQLite reload failed: ${result.error}`, 'admin');
+    }
+    return result;
+  } catch (error) {
+    dataManager.logger.error('system', `Manual SQLite reload error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
 });
 
 

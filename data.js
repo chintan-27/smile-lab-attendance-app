@@ -2,7 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Logger = require('./logger.js');
+const DatabaseManager = require('./databaseManager.js');
 
+// Storage modes: 'json' (legacy), 'sqlite' (new), 'hybrid' (sqlite + json backup)
+const STORAGE_MODE = process.env.STORAGE_MODE || 'hybrid';
 
 let electronApp = null;
 try {
@@ -115,6 +118,12 @@ class DataManager {
         this.encryptionEnabled = false;
         this.encryptionPassword = null;
 
+        // Storage mode: 'json', 'sqlite', or 'hybrid' (default)
+        this.storageMode = STORAGE_MODE;
+        this.useSqlite = this.storageMode === 'sqlite' || this.storageMode === 'hybrid';
+        this.dbManager = null;
+        this.sqliteInitPromise = null;
+
         // Initialize data directory and files first
         this.initializeData();
         this.loadEncryptionSettings();
@@ -123,7 +132,125 @@ class DataManager {
         this.logger = new Logger(this);
 
         // Log initialization
-        this.logger.info('system', 'DataManager initialized successfully', 'system');
+        this.logger.info('system', `DataManager initialized (storage mode: ${this.storageMode})`, 'system');
+    }
+
+    /**
+     * Async initialization - call this after construction to set up SQLite
+     * @returns {Promise<void>}
+     */
+    async initialize() {
+        if (this.useSqlite) {
+            await this.initializeSqlite();
+        }
+    }
+
+    /**
+     * Initialize SQLite database and migrate data if needed (async)
+     * @returns {Promise<void>}
+     */
+    async initializeSqlite() {
+        try {
+            this.dbManager = new DatabaseManager({ dataDir: this.dataDir });
+            const success = await this.dbManager.initialize();
+
+            if (success) {
+                // Check if we need to migrate existing JSON data
+                const stats = this.dbManager.getStats();
+                if (stats.students === 0 && stats.attendance === 0) {
+                    this.migrateJsonToSqlite();
+                }
+            } else {
+                console.error('Failed to initialize SQLite, falling back to JSON');
+                this.useSqlite = false;
+                this.dbManager = null;
+            }
+        } catch (error) {
+            console.error('SQLite initialization error:', error);
+            this.useSqlite = false;
+            this.dbManager = null;
+        }
+    }
+
+    /**
+     * Ensure SQLite is initialized (call this before using SQLite)
+     * @returns {Promise<boolean>}
+     */
+    async ensureSqliteReady() {
+        if (!this.useSqlite) return false;
+        if (this.dbManager && this.dbManager.isReady()) return true;
+
+        await this.initializeSqlite();
+        return this.dbManager && this.dbManager.isReady();
+    }
+
+    /**
+     * Migrate existing JSON data to SQLite
+     */
+    migrateJsonToSqlite() {
+        try {
+            // Migrate students
+            if (fs.existsSync(this.studentsFile)) {
+                const studentsJson = JSON.parse(fs.readFileSync(this.studentsFile, 'utf8'));
+                const students = this.decryptSensitiveFields(studentsJson, ['name', 'email']);
+                if (students.length > 0) {
+                    const result = this.dbManager.importStudents(students);
+                    console.log(`Migrated ${result.imported} students to SQLite`);
+                }
+            }
+
+            // Migrate attendance
+            if (fs.existsSync(this.attendanceFile)) {
+                const attendanceJson = JSON.parse(fs.readFileSync(this.attendanceFile, 'utf8'));
+                const attendance = this.decryptSensitiveFields(attendanceJson, ['name']);
+                if (attendance.length > 0) {
+                    const result = this.dbManager.importAttendance(attendance);
+                    console.log(`Migrated ${result.imported} attendance records to SQLite`);
+                }
+            }
+        } catch (error) {
+            console.error('Migration to SQLite failed:', error);
+        }
+    }
+
+    /**
+     * Reload SQLite database from JSON files
+     * Clears all SQLite data and re-imports from JSON
+     * Used after Dropbox pull in master mode
+     * @returns {Object} { success, students, attendance }
+     */
+    async reloadFromJson() {
+        if (!this.useSqlite || !this.dbManager) {
+            return { success: false, error: 'SQLite not enabled' };
+        }
+
+        try {
+            this.logger?.info('system', 'Reloading SQLite from JSON files...', 'system');
+
+            // Clear existing SQLite data
+            const clearResult = this.dbManager.clearAllTables();
+            if (!clearResult.success) {
+                this.logger?.error('system', `Failed to clear SQLite tables: ${clearResult.error}`, 'system');
+                return { success: false, error: clearResult.error };
+            }
+
+            // Re-import from JSON
+            this.migrateJsonToSqlite();
+
+            // Get counts for logging
+            const stats = this.dbManager.getStats();
+            this.logger?.info('system',
+                `SQLite reloaded: ${stats.students} students, ${stats.attendance} attendance records`, 'system');
+
+            return {
+                success: true,
+                students: stats.students,
+                attendance: stats.attendance
+            };
+        } catch (error) {
+            this.logger?.error('system', `Failed to reload SQLite from JSON: ${error.message}`, 'system');
+            return { success: false, error: error.message };
+        }
     }
 
     initializeData() {
@@ -300,6 +427,97 @@ class DataManager {
         } catch (error) {
             if (this.logger) {
                 this.logger.error('admin', `Admin password change failed: ${error.message}`, 'admin');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Sync admin credentials to cloud API
+     * Used to keep web admin dashboard in sync with Electron app
+     * @param {string} password - The plain text password to sync
+     * @param {Object} options - Options { apiUrl, apiKey }
+     * @returns {Promise<Object>} { success, error? }
+     */
+    async syncAdminToCloud(password, options = {}) {
+        try {
+            const bcrypt = require('bcryptjs');
+            const https = require('https');
+            const http = require('http');
+
+            const config = this.getConfig();
+            const apiUrl = options.apiUrl || config.cloudApi?.url || process.env.CLOUD_API_URL;
+            const apiKey = options.apiKey || config.cloudApi?.syncKey || process.env.SYNC_API_KEY;
+
+            if (!apiUrl) {
+                return { success: false, error: 'Cloud API URL not configured' };
+            }
+
+            if (!apiKey) {
+                return { success: false, error: 'Sync API key not configured' };
+            }
+
+            // Hash password with bcrypt for cloud storage
+            const passwordHash = await bcrypt.hash(password, 12);
+
+            // Prepare request data
+            const data = JSON.stringify({
+                username: 'admin',
+                passwordHash
+            });
+
+            // Parse URL
+            const url = new (require('url').URL)(apiUrl + '/api/admin/sync-credentials');
+            const isHttps = url.protocol === 'https:';
+
+            return new Promise((resolve) => {
+                const req = (isHttps ? https : http).request({
+                    hostname: url.hostname,
+                    port: url.port || (isHttps ? 443 : 80),
+                    path: url.pathname,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(data),
+                        'X-API-Key': apiKey
+                    }
+                }, (res) => {
+                    let body = '';
+                    res.on('data', chunk => body += chunk);
+                    res.on('end', () => {
+                        try {
+                            const response = JSON.parse(body);
+                            if (res.statusCode === 200 && response.success) {
+                                if (this.logger) {
+                                    this.logger.info('admin', 'Admin credentials synced to cloud', 'admin');
+                                }
+                                resolve({ success: true });
+                            } else {
+                                const error = response.error || `HTTP ${res.statusCode}`;
+                                if (this.logger) {
+                                    this.logger.warning('admin', `Failed to sync credentials to cloud: ${error}`, 'admin');
+                                }
+                                resolve({ success: false, error });
+                            }
+                        } catch (e) {
+                            resolve({ success: false, error: 'Invalid response from server' });
+                        }
+                    });
+                });
+
+                req.on('error', (e) => {
+                    if (this.logger) {
+                        this.logger.error('admin', `Cloud sync request failed: ${e.message}`, 'admin');
+                    }
+                    resolve({ success: false, error: e.message });
+                });
+
+                req.write(data);
+                req.end();
+            });
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('admin', `Admin credential sync error: ${error.message}`, 'admin');
             }
             return { success: false, error: error.message };
         }
@@ -519,35 +737,45 @@ class DataManager {
                 this.logger.info('student', `Adding student: ${name} (${ufid})`, 'admin');
             }
 
-            const students = this.getStudents();
             let student = {
                 ufid,
                 name,
                 email,
                 active: true,
                 addedDate: new Date().toISOString(),
-
-                // NEW
                 role: meta.role || 'volunteer',
                 expectedHoursPerWeek: Number(meta.expectedHoursPerWeek ?? 0),
                 expectedDaysPerWeek: Number(meta.expectedDaysPerWeek ?? 0),
             };
 
-            const existingIndex = students.findIndex(s => s.ufid === ufid);
-            if (existingIndex !== -1) {
-                if (this.logger) {
-                    this.logger.info('student', `Updating existing student: ${name} (${ufid})`, 'admin');
+            // Write to SQLite if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const result = this.dbManager.upsertStudent(student);
+                if (!result.success) {
+                    throw new Error(result.error);
                 }
-                students[existingIndex] = student;
-            } else {
-                students.push(student);
+                student = result.student;
             }
 
-            let dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
-            fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
+            // Also write to JSON (for hybrid mode and Dropbox backup)
+            if (this.storageMode !== 'sqlite') {
+                const students = this.useSqlite ? this.dbManager.getStudents() : this.getStudents();
+                const existingIndex = students.findIndex(s => s.ufid === ufid);
+                if (existingIndex !== -1) {
+                    if (this.logger) {
+                        this.logger.info('student', `Updating existing student: ${name} (${ufid})`, 'admin');
+                    }
+                    students[existingIndex] = student;
+                } else {
+                    students.push(student);
+                }
+
+                let dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
+                fs.writeFileSync(this.studentsFile, JSON.stringify(dataToSave, null, 2));
+            }
 
             if (this.logger) {
-                this.logger.info('student', `Student ${existingIndex !== -1 ? 'updated' : 'added'} successfully: ${name} (${ufid})`, 'admin');
+                this.logger.info('student', `Student added/updated successfully: ${name} (${ufid})`, 'admin');
             }
 
             return { success: true, student };
@@ -561,6 +789,12 @@ class DataManager {
 
     getStudents() {
         try {
+            // Use SQLite if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                return this.dbManager.getStudents();
+            }
+
+            // Fallback to JSON
             if (!fs.existsSync(this.studentsFile)) return [];
 
             const encrypted = JSON.parse(fs.readFileSync(this.studentsFile, 'utf8'));
@@ -577,6 +811,43 @@ class DataManager {
             console.error('Error loading students:', error);
             return [];
         }
+    }
+
+    /**
+     * Get students with pagination and filtering (for admin UI)
+     * @param {number} offset - Offset for pagination
+     * @param {number} limit - Number of records to return
+     * @param {Object} filters - { search, status }
+     * @returns {Object} { students, totalCount }
+     */
+    getStudentsPaginated(offset, limit, filters = {}) {
+        if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+            return this.dbManager.getStudentsPaginated(offset, limit, filters);
+        }
+
+        // Fallback: filter in memory
+        let students = this.getStudents();
+        const { search = '', status = '' } = filters;
+
+        if (search) {
+            const searchLower = search.toLowerCase();
+            students = students.filter(s =>
+                s.name.toLowerCase().includes(searchLower) ||
+                s.ufid.includes(search) ||
+                (s.email && s.email.toLowerCase().includes(searchLower))
+            );
+        }
+
+        if (status === 'active') {
+            students = students.filter(s => s.active);
+        } else if (status === 'inactive') {
+            students = students.filter(s => !s.active);
+        }
+
+        const totalCount = students.length;
+        const paginated = students.slice(offset, offset + limit);
+
+        return { students: paginated, totalCount };
     }
 
 
@@ -644,6 +915,22 @@ class DataManager {
 
     isStudentAuthorized(ufid) {
         try {
+            // Use SQLite for O(1) lookup if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const student = this.dbManager.isStudentAuthorized(ufid);
+
+                if (this.logger) {
+                    if (student) {
+                        this.logger.info('auth', `Student authorization check passed: ${student.name} (${ufid})`, 'system');
+                    } else {
+                        this.logger.warning('auth', `Student authorization check failed: ${ufid}`, 'system');
+                    }
+                }
+
+                return student;
+            }
+
+            // Fallback to JSON
             const students = this.getStudents();
             const student = students.find(s => s.ufid === ufid && s.active);
 
@@ -666,6 +953,16 @@ class DataManager {
 
     getAttendance() {
         try {
+            // Use SQLite if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const attendance = this.dbManager.getAttendance();
+                if (this.logger) {
+                    this.logger.info('attendance', `Retrieved ${attendance.length} attendance records from SQLite`, 'system');
+                }
+                return attendance;
+            }
+
+            // Fallback to JSON
             const data = fs.readFileSync(this.attendanceFile, 'utf8');
             let attendance = JSON.parse(data);
             const decryptedAttendance = this.decryptSensitiveFields(attendance, ['name']);
@@ -683,8 +980,56 @@ class DataManager {
         }
     }
 
+    /**
+     * Get attendance records with pagination (for admin UI)
+     * @param {number} offset - Offset for pagination
+     * @param {number} limit - Number of records to return
+     * @param {Object} filters - { ufid, date, action }
+     * @returns {Object} { records, totalCount }
+     */
+    getAttendancePaginated(offset, limit, filters = {}) {
+        if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+            return this.dbManager.getAttendancePaginated(offset, limit, filters);
+        }
+
+        // Fallback: filter in memory
+        let records = this.getAttendance();
+        const { ufid = '', date = null, action = '' } = filters;
+
+        if (ufid) {
+            records = records.filter(r => r.ufid === ufid);
+        }
+
+        if (date) {
+            const targetDate = new Date(date).toDateString();
+            records = records.filter(r => new Date(r.timestamp).toDateString() === targetDate);
+        }
+
+        if (action && ['signin', 'signout'].includes(action)) {
+            records = records.filter(r => r.action === action);
+        }
+
+        // Sort by timestamp descending
+        records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        const totalCount = records.length;
+        const paginated = records.slice(offset, offset + limit);
+
+        return { records: paginated, totalCount };
+    }
+
     getCurrentStatus(ufid) {
         try {
+            // Use SQLite for O(1) lookup if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const status = this.dbManager.getCurrentStatus(ufid);
+                if (this.logger) {
+                    this.logger.info('attendance', `Current status for ${ufid}: ${status}`, 'system');
+                }
+                return status;
+            }
+
+            // Fallback to JSON
             const attendance = this.getAttendance();
             const userRecords = attendance.filter(record => record.ufid === ufid);
 
@@ -902,10 +1247,21 @@ class DataManager {
      */
     addAttendanceRecord(record) {
         try {
-            const attendance = this.getAttendance();
-            attendance.push(record);
-            const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
-            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+            // Write to SQLite if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const result = this.dbManager.addAttendanceRecord(record);
+                if (!result.success) {
+                    throw new Error(result.error);
+                }
+            }
+
+            // Also write to JSON (for hybrid mode and Dropbox backup)
+            if (this.storageMode !== 'sqlite') {
+                const attendance = this.useSqlite ? this.dbManager.getAttendance() : this.getAttendance();
+                attendance.push(record);
+                const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
+                fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+            }
 
             if (this.logger) {
                 this.logger.info('attendance',
@@ -927,6 +1283,16 @@ class DataManager {
                 this.logger.info('attendance', 'Retrieving currently signed-in students', 'system');
             }
 
+            // Use SQLite for efficient query if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const signedIn = this.dbManager.getCurrentlySignedIn();
+                if (this.logger) {
+                    this.logger.info('attendance', `Found ${signedIn.length} currently signed-in students`, 'system');
+                }
+                return signedIn;
+            }
+
+            // Fallback to JSON
             const students = this.getStudents();
             const signedInStudents = [];
 
@@ -1987,6 +2353,61 @@ class DataManager {
         }
         if (!fs.existsSync(this.configFile)) {
             fs.writeFileSync(this.configFile, JSON.stringify({}, null, 2));
+        }
+    }
+
+    /**
+     * Export data to JSON files (for Dropbox backup compatibility)
+     * Used when SQLite is the primary storage but JSON files need to stay in sync
+     * @returns {Object} { success, error? }
+     */
+    exportToJson() {
+        try {
+            if (!this.useSqlite || !this.dbManager || !this.dbManager.isReady()) {
+                return { success: true, message: 'JSON is already primary storage' };
+            }
+
+            // Export students
+            const students = this.dbManager.exportStudents();
+            const studentsData = this.encryptSensitiveFields(students, ['name', 'email']);
+            fs.writeFileSync(this.studentsFile, JSON.stringify(studentsData, null, 2));
+
+            // Export attendance
+            const attendance = this.dbManager.exportAttendance();
+            const attendanceData = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(attendanceData, null, 2));
+
+            if (this.logger) {
+                this.logger.info('backup', `Exported ${students.length} students and ${attendance.length} attendance records to JSON`, 'system');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('backup', `Export to JSON failed: ${error.message}`, 'system');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Get storage mode information
+     * @returns {Object} { mode, usingSqlite, dbStats }
+     */
+    getStorageInfo() {
+        return {
+            mode: this.storageMode,
+            usingSqlite: this.useSqlite,
+            dbStats: this.dbManager ? this.dbManager.getStats() : null
+        };
+    }
+
+    /**
+     * Close database connections (for cleanup)
+     */
+    close() {
+        if (this.dbManager) {
+            this.dbManager.close();
         }
     }
 }
