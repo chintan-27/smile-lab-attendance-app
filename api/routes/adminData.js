@@ -572,6 +572,117 @@ router.get('/student-hours', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/data/weekly-matrix
+ * Get weekly hours matrix (hours per student per day)
+ */
+router.get('/weekly-matrix', async (req, res) => {
+  try {
+    const r = getRedis();
+    const [students, attendance] = await Promise.all([
+      r.get(STUDENTS_KEY) || [],
+      r.get(ATTENDANCE_KEY) || []
+    ]);
+
+    // Parse week start from query or use current week
+    let weekStart;
+    if (req.query.weekStart) {
+      weekStart = new Date(req.query.weekStart);
+    } else {
+      // Get Monday of current week
+      const now = new Date();
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      weekStart = new Date(now.setDate(diff));
+    }
+    weekStart.setHours(0, 0, 0, 0);
+
+    // Generate 7 days (Mon-Sun)
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      days.push(d);
+    }
+
+    // Calculate hours per student per day
+    const studentMap = new Map();
+
+    days.forEach((day, dayIdx) => {
+      const dayStart = new Date(day);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // Get records for this day
+      const dayRecords = attendance.filter(r => {
+        const ts = new Date(r.timestamp);
+        return ts >= dayStart && ts <= dayEnd;
+      }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      // Calculate hours per student for this day
+      const sessions = {};
+      dayRecords.forEach(record => {
+        const ufid = record.ufid;
+        if (!sessions[ufid]) {
+          sessions[ufid] = { signIn: null, totalHours: 0 };
+        }
+
+        if (record.action === 'signin') {
+          sessions[ufid].signIn = new Date(record.timestamp);
+        } else if (record.action === 'signout' && sessions[ufid].signIn) {
+          const hours = (new Date(record.timestamp) - sessions[ufid].signIn) / (1000 * 60 * 60);
+          sessions[ufid].totalHours += hours;
+          sessions[ufid].signIn = null;
+        }
+      });
+
+      // Add to student map
+      Object.keys(sessions).forEach(ufid => {
+        const student = students.find(s => s.ufid === ufid) || {};
+        const name = student.name || ufid;
+
+        if (!studentMap.has(name)) {
+          studentMap.set(name, {
+            name,
+            ufid,
+            role: student.role || 'volunteer',
+            days: [0, 0, 0, 0, 0, 0, 0]
+          });
+        }
+
+        studentMap.get(name).days[dayIdx] = Math.round(sessions[ufid].totalHours * 100) / 100;
+      });
+    });
+
+    // Convert to array and sort
+    const matrix = Array.from(studentMap.values());
+    const rolePriority = { 'postdoc': 0, 'phd': 1, 'lead': 2, 'member': 3, 'volunteer': 4 };
+    matrix.sort((a, b) => {
+      const roleA = rolePriority[a.role?.toLowerCase()] ?? 4;
+      const roleB = rolePriority[b.role?.toLowerCase()] ?? 4;
+      if (roleA !== roleB) return roleA - roleB;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Calculate totals
+    matrix.forEach(row => {
+      row.total = Math.round(row.days.reduce((sum, h) => sum + h, 0) * 100) / 100;
+    });
+
+    res.json({
+      success: true,
+      weekStart: weekStart.toISOString().split('T')[0],
+      weekEnd: days[6].toISOString().split('T')[0],
+      dayLabels: days.map(d => d.toLocaleDateString('en-US', { weekday: 'short' })),
+      matrix
+    });
+  } catch (error) {
+    console.error('Get weekly matrix error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get weekly matrix' });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Pending Sign-Outs API
 // ─────────────────────────────────────────────────────────────

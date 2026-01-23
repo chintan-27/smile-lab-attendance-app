@@ -573,6 +573,21 @@
           </div>
         </div>
       </div>
+
+      <!-- Weekly Matrix -->
+      <div class="table-card" style="margin-top: 20px;">
+        <div class="table-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Weekly Hours Matrix</h3>
+          <div class="chart-nav">
+            <button class="btn btn-secondary btn-sm" id="matrix-prev-btn">&lt;</button>
+            <span id="matrix-week-label" style="margin: 0 12px; font-weight: 500;">This Week</span>
+            <button class="btn btn-secondary btn-sm" id="matrix-next-btn" disabled>&gt;</button>
+          </div>
+        </div>
+        <div id="weekly-matrix-container" style="overflow-x: auto;">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
     </div>
 
     <!-- Students Tab -->

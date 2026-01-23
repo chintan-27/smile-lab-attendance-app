@@ -11,6 +11,16 @@ let searchDebounceTimer = null;
 let charts = {};
 let hoursCurrentDate = new Date();
 hoursCurrentDate.setHours(0, 0, 0, 0);
+let matrixWeekStart = getMonday(new Date());
+
+function getMonday(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  date.setDate(diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 
 // ─────────────────────────────────────────────────────────────
 // Initialization
@@ -168,6 +178,10 @@ async function loadCharts() {
     // Load student hours chart
     await loadStudentHoursChart();
     initHoursNavigation();
+
+    // Load weekly matrix
+    await loadWeeklyMatrix();
+    initMatrixNavigation();
   } catch (error) {
     console.error('Failed to load charts:', error);
   }
@@ -289,6 +303,110 @@ function renderWeeklyChart(weeklyData) {
       }
     }
   });
+}
+
+function initMatrixNavigation() {
+  const prevBtn = document.getElementById('matrix-prev-btn');
+  const nextBtn = document.getElementById('matrix-next-btn');
+
+  if (prevBtn) {
+    prevBtn.onclick = async () => {
+      matrixWeekStart.setDate(matrixWeekStart.getDate() - 7);
+      await loadWeeklyMatrix();
+    };
+  }
+
+  if (nextBtn) {
+    nextBtn.onclick = async () => {
+      const thisWeek = getMonday(new Date());
+      const candidate = new Date(matrixWeekStart);
+      candidate.setDate(candidate.getDate() + 7);
+
+      if (candidate <= thisWeek) {
+        matrixWeekStart = candidate;
+        await loadWeeklyMatrix();
+      }
+    };
+  }
+}
+
+async function loadWeeklyMatrix() {
+  const container = document.getElementById('weekly-matrix-container');
+  const labelEl = document.getElementById('matrix-week-label');
+  const nextBtn = document.getElementById('matrix-next-btn');
+
+  try {
+    const dateStr = matrixWeekStart.toISOString().split('T')[0];
+    const response = await fetch(`/api/admin/data/weekly-matrix?weekStart=${dateStr}`);
+    const data = await response.json();
+
+    // Update label
+    const thisWeek = getMonday(new Date());
+    if (matrixWeekStart.getTime() === thisWeek.getTime()) {
+      labelEl.textContent = 'This Week';
+    } else {
+      const weekEnd = new Date(matrixWeekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      labelEl.textContent = `${formatShortDate(matrixWeekStart)} – ${formatShortDate(weekEnd)}`;
+    }
+
+    // Disable next if at current week
+    nextBtn.disabled = matrixWeekStart.getTime() >= thisWeek.getTime();
+
+    if (data.success) {
+      renderWeeklyMatrix(data);
+    } else {
+      container.innerHTML = '<div class="loading">Failed to load weekly matrix</div>';
+    }
+  } catch (error) {
+    console.error('Failed to load weekly matrix:', error);
+    container.innerHTML = '<div class="loading">Failed to load weekly matrix</div>';
+  }
+}
+
+function formatShortDate(d) {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function renderWeeklyMatrix(data) {
+  const container = document.getElementById('weekly-matrix-container');
+
+  if (!data.matrix || data.matrix.length === 0) {
+    container.innerHTML = '<div class="loading">No attendance data for this week</div>';
+    return;
+  }
+
+  const html = `
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align: left;">Student</th>
+          ${data.dayLabels.map(day => `<th style="text-align: center;">${day}</th>`).join('')}
+          <th style="text-align: center;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${data.matrix.map(row => `
+          <tr>
+            <td style="text-align: left;">
+              <div style="font-weight: 500;">${escapeHtml(row.name)}</div>
+              <div style="font-size: 0.75rem; color: var(--text-secondary);">${escapeHtml(row.role || '')}</div>
+            </td>
+            ${row.days.map(hours => `
+              <td style="text-align: center; ${hours > 0 ? 'background: rgba(0, 33, 165, 0.1);' : ''}">
+                ${hours > 0 ? hours.toFixed(2) + 'h' : '-'}
+              </td>
+            `).join('')}
+            <td style="text-align: center; font-weight: 600; background: rgba(0, 33, 165, 0.15);">
+              ${row.total.toFixed(2)}h
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  container.innerHTML = html;
 }
 
 function renderStudentHoursChart(studentHours) {
