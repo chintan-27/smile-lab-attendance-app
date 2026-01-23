@@ -420,6 +420,14 @@ function verifyApiKey(req, res, next) {
 }
 
 /**
+ * GET /api/admin/data/sync/health
+ * Health check endpoint for testing connection (requires API key)
+ */
+router.get('/sync/health', verifyApiKey, async (req, res) => {
+  res.json({ success: true, message: 'Connection successful', timestamp: new Date().toISOString() });
+});
+
+/**
  * POST /api/admin/data/sync/students
  * Sync students from Electron app (requires API key)
  */

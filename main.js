@@ -2092,11 +2092,14 @@ ipcMain.handle('test-web-sync-connection', async (event) => {
       return { success: false, error: 'API URL and API Key are required' };
     }
 
-    // Test connection by fetching the debug endpoint
+    // Test connection using health check endpoint
     const fetch = require('node-fetch');
-    const response = await fetch(`${webSync.apiUrl}/api/admin/debug`, {
+    const baseUrl = webSync.apiUrl.replace(/\/$/, '');
+    const response = await fetch(`${baseUrl}/api/admin/data/sync/health`, {
       method: 'GET',
-      headers: { 'X-API-Key': webSync.apiKey }
+      headers: {
+        'X-API-Key': webSync.apiKey
+      }
     });
 
     if (response.ok) {
