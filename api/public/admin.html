@@ -281,6 +281,16 @@
       color: white;
     }
 
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .chart-nav {
+      display: flex;
+      align-items: center;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -550,11 +560,16 @@
           </div>
         </div>
         <div class="chart-card">
-          <div class="chart-header">
-            <h3>Top Students This Week</h3>
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>Student Hours</h3>
+            <div class="chart-nav">
+              <button class="btn btn-secondary btn-sm" id="hours-prev-btn">&lt;</button>
+              <span id="hours-date-label" style="margin: 0 12px; font-weight: 500;">Today</span>
+              <button class="btn btn-secondary btn-sm" id="hours-next-btn" disabled>&gt;</button>
+            </div>
           </div>
-          <div class="chart-container">
-            <canvas id="top-students-chart"></canvas>
+          <div class="chart-container" id="student-hours-container" style="height: 300px; overflow-y: auto;">
+            <canvas id="student-hours-chart"></canvas>
           </div>
         </div>
       </div>

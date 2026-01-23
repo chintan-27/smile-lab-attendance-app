@@ -469,6 +469,109 @@ router.get('/charts', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/data/student-hours
+ * Get student hours for a specific date
+ */
+router.get('/student-hours', async (req, res) => {
+  try {
+    const r = getRedis();
+    const [students, attendance] = await Promise.all([
+      r.get(STUDENTS_KEY) || [],
+      r.get(ATTENDANCE_KEY) || []
+    ]);
+
+    // Parse date from query or use today
+    let targetDate;
+    if (req.query.date) {
+      targetDate = new Date(req.query.date);
+    } else {
+      targetDate = new Date();
+    }
+
+    // Get date in ET timezone
+    const dateET = new Date(targetDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const dayStart = new Date(dateET);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dateET);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Filter attendance for the target date
+    const dayRecords = attendance.filter(r => {
+      const ts = new Date(r.timestamp);
+      const tsET = new Date(ts.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      return tsET >= dayStart && tsET <= dayEnd;
+    }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    // Group by student and calculate hours
+    const studentHours = {};
+    const studentSessions = {};
+
+    dayRecords.forEach(record => {
+      const ufid = record.ufid;
+      if (!studentSessions[ufid]) {
+        studentSessions[ufid] = { signIn: null, sessions: [] };
+      }
+
+      if (record.action === 'signin') {
+        studentSessions[ufid].signIn = new Date(record.timestamp);
+      } else if (record.action === 'signout' && studentSessions[ufid].signIn) {
+        const signOut = new Date(record.timestamp);
+        const hours = (signOut - studentSessions[ufid].signIn) / (1000 * 60 * 60);
+        studentSessions[ufid].sessions.push({
+          in: studentSessions[ufid].signIn.toISOString(),
+          out: signOut.toISOString(),
+          hours: Math.round(hours * 100) / 100
+        });
+        studentSessions[ufid].signIn = null;
+      }
+    });
+
+    // Calculate total hours per student
+    const results = [];
+    Object.keys(studentSessions).forEach(ufid => {
+      const student = students.find(s => s.ufid === ufid) || {};
+      const sessions = studentSessions[ufid].sessions;
+      const totalHours = sessions.reduce((sum, s) => sum + s.hours, 0);
+      const stillSignedIn = studentSessions[ufid].signIn !== null;
+
+      // If still signed in, calculate running hours
+      let runningHours = 0;
+      if (stillSignedIn) {
+        const now = new Date();
+        runningHours = (now - studentSessions[ufid].signIn) / (1000 * 60 * 60);
+      }
+
+      results.push({
+        ufid,
+        name: student.name || ufid,
+        role: student.role || 'volunteer',
+        totalHours: Math.round((totalHours + runningHours) * 100) / 100,
+        sessions,
+        stillSignedIn
+      });
+    });
+
+    // Sort by role priority, then by name
+    const rolePriority = { 'postdoc': 0, 'phd': 1, 'lead': 2, 'member': 3, 'volunteer': 4 };
+    results.sort((a, b) => {
+      const roleA = rolePriority[a.role?.toLowerCase()] ?? 4;
+      const roleB = rolePriority[b.role?.toLowerCase()] ?? 4;
+      if (roleA !== roleB) return roleA - roleB;
+      return (a.name || a.ufid).localeCompare(b.name || b.ufid);
+    });
+
+    res.json({
+      success: true,
+      date: dayStart.toISOString().split('T')[0],
+      studentHours: results
+    });
+  } catch (error) {
+    console.error('Get student hours error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get student hours' });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Pending Sign-Outs API
 // ─────────────────────────────────────────────────────────────

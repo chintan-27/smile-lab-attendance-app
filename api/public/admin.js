@@ -9,6 +9,8 @@ let currentAttendancePage = 1;
 const PAGE_SIZE = 25;
 let searchDebounceTimer = null;
 let charts = {};
+let hoursCurrentDate = new Date();
+hoursCurrentDate.setHours(0, 0, 0, 0);
 
 // ─────────────────────────────────────────────────────────────
 // Initialization
@@ -161,10 +163,70 @@ async function loadCharts() {
 
     if (data.success) {
       renderWeeklyChart(data.weeklyData);
-      renderTopStudentsChart(data.topStudents);
     }
+
+    // Load student hours chart
+    await loadStudentHoursChart();
+    initHoursNavigation();
   } catch (error) {
     console.error('Failed to load charts:', error);
+  }
+}
+
+function initHoursNavigation() {
+  const prevBtn = document.getElementById('hours-prev-btn');
+  const nextBtn = document.getElementById('hours-next-btn');
+
+  if (prevBtn) {
+    prevBtn.onclick = async () => {
+      hoursCurrentDate.setDate(hoursCurrentDate.getDate() - 1);
+      await loadStudentHoursChart();
+    };
+  }
+
+  if (nextBtn) {
+    nextBtn.onclick = async () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const candidate = new Date(hoursCurrentDate);
+      candidate.setDate(candidate.getDate() + 1);
+
+      if (candidate <= today) {
+        hoursCurrentDate = candidate;
+        await loadStudentHoursChart();
+      }
+    };
+  }
+}
+
+async function loadStudentHoursChart() {
+  try {
+    const dateStr = hoursCurrentDate.toISOString().split('T')[0];
+    const response = await fetch(`/api/admin/data/student-hours?date=${dateStr}`);
+    const data = await response.json();
+
+    // Update date label
+    const labelEl = document.getElementById('hours-date-label');
+    const nextBtn = document.getElementById('hours-next-btn');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (hoursCurrentDate.getTime() === today.getTime()) {
+      labelEl.textContent = 'Today';
+    } else {
+      labelEl.textContent = hoursCurrentDate.toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric'
+      });
+    }
+
+    // Disable next button if at today
+    nextBtn.disabled = hoursCurrentDate.getTime() >= today.getTime();
+
+    if (data.success) {
+      renderStudentHoursChart(data.studentHours);
+    }
+  } catch (error) {
+    console.error('Failed to load student hours:', error);
   }
 }
 
@@ -229,34 +291,59 @@ function renderWeeklyChart(weeklyData) {
   });
 }
 
-function renderTopStudentsChart(topStudents) {
-  const ctx = document.getElementById('top-students-chart');
+function renderStudentHoursChart(studentHours) {
+  const container = document.getElementById('student-hours-container');
+  const ctx = document.getElementById('student-hours-chart');
   if (!ctx) return;
 
   // Destroy existing chart
-  if (charts.topStudents) {
-    charts.topStudents.destroy();
+  if (charts.studentHours) {
+    charts.studentHours.destroy();
   }
 
-  if (!topStudents || topStudents.length === 0) {
-    ctx.parentElement.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No data available</div>';
+  if (!studentHours || studentHours.length === 0) {
+    container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No attendance data for this day</div><canvas id="student-hours-chart" style="display:none;"></canvas>';
     return;
   }
+
+  // Ensure canvas is visible
+  if (!document.getElementById('student-hours-chart')) {
+    container.innerHTML = '<canvas id="student-hours-chart"></canvas>';
+  }
+
+  // Dynamically set container height based on number of students
+  const minHeightPerStudent = 35;
+  const minChartHeight = 200;
+  const calculatedHeight = Math.max(minChartHeight, studentHours.length * minHeightPerStudent);
+  container.style.height = `${calculatedHeight}px`;
 
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const textColor = isDark ? '#e2e8f0' : '#64748b';
   const gridColor = isDark ? '#334155' : '#e2e8f0';
 
-  charts.topStudents = new Chart(ctx, {
+  // Color by role
+  const roleColors = {
+    'postdoc': 'rgba(139, 92, 246, 0.8)',  // Purple
+    'phd': 'rgba(59, 130, 246, 0.8)',      // Blue
+    'lead': 'rgba(16, 185, 129, 0.8)',     // Green
+    'member': 'rgba(0, 33, 165, 0.8)',     // UF Blue
+    'volunteer': 'rgba(107, 114, 128, 0.8)' // Gray
+  };
+
+  const backgroundColors = studentHours.map(s => roleColors[s.role?.toLowerCase()] || roleColors.volunteer);
+
+  const canvasEl = document.getElementById('student-hours-chart');
+  charts.studentHours = new Chart(canvasEl, {
     type: 'bar',
     data: {
-      labels: topStudents.map(s => s.name),
+      labels: studentHours.map(s => s.name),
       datasets: [{
-        label: 'Sign Ins This Week',
-        data: topStudents.map(s => s.count),
-        backgroundColor: 'rgba(0, 33, 165, 0.8)',
-        borderColor: '#0021A5',
-        borderWidth: 1
+        label: 'Hours',
+        data: studentHours.map(s => s.totalHours),
+        backgroundColor: backgroundColors,
+        borderWidth: 1,
+        barThickness: 20,
+        maxBarThickness: 25
       }]
     },
     options: {
@@ -264,18 +351,30 @@ function renderTopStudentsChart(topStudents) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          display: false
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const student = studentHours[context.dataIndex];
+              let label = `${student.totalHours} hours`;
+              if (student.stillSignedIn) {
+                label += ' (still signed in)';
+              }
+              return label;
+            }
+          }
         }
       },
       scales: {
         x: {
           beginAtZero: true,
-          ticks: {
-            color: textColor,
-            stepSize: 1
-          },
-          grid: { color: gridColor }
+          ticks: { color: textColor },
+          grid: { color: gridColor },
+          title: {
+            display: true,
+            text: 'Hours',
+            color: textColor
+          }
         },
         y: {
           ticks: { color: textColor },
