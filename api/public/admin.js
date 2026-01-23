@@ -8,6 +8,7 @@ let currentStudentPage = 1;
 let currentAttendancePage = 1;
 const PAGE_SIZE = 25;
 let searchDebounceTimer = null;
+let charts = {};
 
 // ─────────────────────────────────────────────────────────────
 // Initialization
@@ -144,10 +145,145 @@ async function loadDashboard() {
       document.getElementById('stat-pending').textContent = stats.pendingSignouts;
       document.getElementById('stat-total-records').textContent = stats.totalRecords;
     }
+
+    // Load charts
+    await loadCharts();
   } catch (error) {
     console.error('Failed to load dashboard:', error);
     showToast('Failed to load dashboard statistics', 'error');
   }
+}
+
+async function loadCharts() {
+  try {
+    const response = await fetch('/api/admin/data/charts');
+    const data = await response.json();
+
+    if (data.success) {
+      renderWeeklyChart(data.weeklyData);
+      renderTopStudentsChart(data.topStudents);
+    }
+  } catch (error) {
+    console.error('Failed to load charts:', error);
+  }
+}
+
+function renderWeeklyChart(weeklyData) {
+  const ctx = document.getElementById('weekly-chart');
+  if (!ctx) return;
+
+  // Destroy existing chart
+  if (charts.weekly) {
+    charts.weekly.destroy();
+  }
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#e2e8f0' : '#64748b';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+  charts.weekly = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: weeklyData.map(d => d.date),
+      datasets: [
+        {
+          label: 'Sign Ins',
+          data: weeklyData.map(d => d.signIns),
+          backgroundColor: 'rgba(0, 33, 165, 0.8)',
+          borderColor: '#0021A5',
+          borderWidth: 1
+        },
+        {
+          label: 'Sign Outs',
+          data: weeklyData.map(d => d.signOuts),
+          backgroundColor: 'rgba(250, 70, 22, 0.8)',
+          borderColor: '#FA4616',
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: textColor }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor },
+          grid: { color: gridColor }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: textColor,
+            stepSize: 1
+          },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
+}
+
+function renderTopStudentsChart(topStudents) {
+  const ctx = document.getElementById('top-students-chart');
+  if (!ctx) return;
+
+  // Destroy existing chart
+  if (charts.topStudents) {
+    charts.topStudents.destroy();
+  }
+
+  if (!topStudents || topStudents.length === 0) {
+    ctx.parentElement.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No data available</div>';
+    return;
+  }
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#e2e8f0' : '#64748b';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+  charts.topStudents = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: topStudents.map(s => s.name),
+      datasets: [{
+        label: 'Sign Ins This Week',
+        data: topStudents.map(s => s.count),
+        backgroundColor: 'rgba(0, 33, 165, 0.8)',
+        borderColor: '#0021A5',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            color: textColor,
+            stepSize: 1
+          },
+          grid: { color: gridColor }
+        },
+        y: {
+          ticks: { color: textColor },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────

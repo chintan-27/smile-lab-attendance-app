@@ -397,6 +397,78 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/data/charts
+ * Get chart data for dashboard
+ */
+router.get('/charts', async (req, res) => {
+  try {
+    const r = getRedis();
+    const [students, attendance] = await Promise.all([
+      r.get(STUDENTS_KEY) || [],
+      r.get(ATTENDANCE_KEY) || []
+    ]);
+
+    // Get last 7 days in ET
+    const now = new Date();
+    const todayET = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(todayET);
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      last7Days.push(date);
+    }
+
+    // Calculate sign-ins and sign-outs per day
+    const weeklyData = last7Days.map(day => {
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const dayRecords = attendance.filter(r => {
+        const ts = new Date(r.timestamp);
+        return ts >= day && ts <= dayEnd;
+      });
+
+      return {
+        date: day.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' }),
+        fullDate: day.toISOString().split('T')[0],
+        signIns: dayRecords.filter(r => r.action === 'signin').length,
+        signOuts: dayRecords.filter(r => r.action === 'signout').length
+      };
+    });
+
+    // Top students by sign-ins this week
+    const weekStart = new Date(todayET);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const weeklySignIns = attendance.filter(r =>
+      r.action === 'signin' && new Date(r.timestamp) >= weekStart
+    );
+
+    const studentCounts = {};
+    weeklySignIns.forEach(r => {
+      const key = r.name || r.ufid;
+      studentCounts[key] = (studentCounts[key] || 0) + 1;
+    });
+
+    const topStudents = Object.entries(studentCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+
+    res.json({
+      success: true,
+      weeklyData,
+      topStudents
+    });
+  } catch (error) {
+    console.error('Get charts error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get chart data' });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Pending Sign-Outs API
 // ─────────────────────────────────────────────────────────────
