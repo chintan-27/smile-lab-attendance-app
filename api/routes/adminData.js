@@ -40,10 +40,15 @@ function getRedis() {
  * Middleware to verify API key for sync endpoints
  */
 function verifyApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'];
-  const expectedKey = process.env.SYNC_API_KEY;
+  const apiKey = (req.headers['x-api-key'] || '').trim();
+  const expectedKey = (process.env.SYNC_API_KEY || '').trim();
 
-  if (expectedKey && apiKey === expectedKey) {
+  // Debug: check if env var is set
+  if (!expectedKey) {
+    return res.status(403).json({ success: false, error: 'SYNC_API_KEY not configured on server' });
+  }
+
+  if (apiKey === expectedKey) {
     return next();
   }
 
