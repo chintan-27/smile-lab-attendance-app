@@ -7,16 +7,13 @@
  * - Dashboard statistics
  * - Pending sign-outs management
  *
- * All routes require authentication
+ * All routes require authentication (except sync endpoints which use API key)
  */
 
 const express = require('express');
 const router = express.Router();
 const { Redis } = require('@upstash/redis');
 const { requireAuth } = require('../middleware/auth');
-
-// Apply auth to all routes
-router.use(requireAuth);
 
 // Redis keys
 const STUDENTS_KEY = 'students';
@@ -34,6 +31,81 @@ function getRedis() {
   });
   return redis;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Data Sync API (API key auth - MUST be before requireAuth middleware)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Middleware to verify API key for sync endpoints
+ */
+function verifyApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  const expectedKey = process.env.SYNC_API_KEY;
+
+  if (expectedKey && apiKey === expectedKey) {
+    return next();
+  }
+
+  return res.status(403).json({ success: false, error: 'Invalid API key' });
+}
+
+/**
+ * GET /api/admin/data/sync/health
+ * Health check endpoint for testing connection (requires API key)
+ */
+router.get('/sync/health', verifyApiKey, async (req, res) => {
+  res.json({ success: true, message: 'Connection successful', timestamp: new Date().toISOString() });
+});
+
+/**
+ * POST /api/admin/data/sync/students
+ * Sync students from Electron app (requires API key)
+ */
+router.post('/sync/students', verifyApiKey, async (req, res) => {
+  try {
+    const r = getRedis();
+    const { students } = req.body;
+
+    if (!Array.isArray(students)) {
+      return res.status(400).json({ success: false, error: 'Students array required' });
+    }
+
+    await r.set(STUDENTS_KEY, students);
+
+    res.json({ success: true, count: students.length });
+  } catch (error) {
+    console.error('Sync students error:', error);
+    res.status(500).json({ success: false, error: 'Failed to sync students' });
+  }
+});
+
+/**
+ * POST /api/admin/data/sync/attendance
+ * Sync attendance from Electron app (requires API key)
+ */
+router.post('/sync/attendance', verifyApiKey, async (req, res) => {
+  try {
+    const r = getRedis();
+    const { attendance } = req.body;
+
+    if (!Array.isArray(attendance)) {
+      return res.status(400).json({ success: false, error: 'Attendance array required' });
+    }
+
+    await r.set(ATTENDANCE_KEY, attendance);
+
+    res.json({ success: true, count: attendance.length });
+  } catch (error) {
+    console.error('Sync attendance error:', error);
+    res.status(500).json({ success: false, error: 'Failed to sync attendance' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Apply auth to all remaining routes
+// ─────────────────────────────────────────────────────────────
+router.use(requireAuth);
 
 // ─────────────────────────────────────────────────────────────
 // Students API
@@ -397,77 +469,6 @@ router.put('/pending/:id', async (req, res) => {
   } catch (error) {
     console.error('Resolve pending error:', error);
     res.status(500).json({ success: false, error: 'Failed to resolve pending sign-out' });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
-// Data Sync API (accepts API key or JWT auth)
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Middleware to verify API key for sync endpoints
- */
-function verifyApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'];
-  const expectedKey = process.env.SYNC_API_KEY;
-
-  if (expectedKey && apiKey === expectedKey) {
-    return next();
-  }
-
-  // Fall through to requireAuth if no valid API key
-  return res.status(403).json({ success: false, error: 'Invalid API key' });
-}
-
-/**
- * GET /api/admin/data/sync/health
- * Health check endpoint for testing connection (requires API key)
- */
-router.get('/sync/health', verifyApiKey, async (req, res) => {
-  res.json({ success: true, message: 'Connection successful', timestamp: new Date().toISOString() });
-});
-
-/**
- * POST /api/admin/data/sync/students
- * Sync students from Electron app (requires API key)
- */
-router.post('/sync/students', verifyApiKey, async (req, res) => {
-  try {
-    const r = getRedis();
-    const { students } = req.body;
-
-    if (!Array.isArray(students)) {
-      return res.status(400).json({ success: false, error: 'Students array required' });
-    }
-
-    await r.set(STUDENTS_KEY, students);
-
-    res.json({ success: true, count: students.length });
-  } catch (error) {
-    console.error('Sync students error:', error);
-    res.status(500).json({ success: false, error: 'Failed to sync students' });
-  }
-});
-
-/**
- * POST /api/admin/data/sync/attendance
- * Sync attendance from Electron app (requires API key)
- */
-router.post('/sync/attendance', verifyApiKey, async (req, res) => {
-  try {
-    const r = getRedis();
-    const { attendance } = req.body;
-
-    if (!Array.isArray(attendance)) {
-      return res.status(400).json({ success: false, error: 'Attendance array required' });
-    }
-
-    await r.set(ATTENDANCE_KEY, attendance);
-
-    res.json({ success: true, count: attendance.length });
-  } catch (error) {
-    console.error('Sync attendance error:', error);
-    res.status(500).json({ success: false, error: 'Failed to sync attendance' });
   }
 });
 
