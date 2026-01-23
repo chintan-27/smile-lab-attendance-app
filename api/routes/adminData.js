@@ -401,14 +401,29 @@ router.put('/pending/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// Data Sync API
+// Data Sync API (accepts API key or JWT auth)
 // ─────────────────────────────────────────────────────────────
 
 /**
- * POST /api/admin/data/sync/students
- * Sync students from Electron app
+ * Middleware to verify API key for sync endpoints
  */
-router.post('/sync/students', async (req, res) => {
+function verifyApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  const expectedKey = process.env.SYNC_API_KEY;
+
+  if (expectedKey && apiKey === expectedKey) {
+    return next();
+  }
+
+  // Fall through to requireAuth if no valid API key
+  return res.status(403).json({ success: false, error: 'Invalid API key' });
+}
+
+/**
+ * POST /api/admin/data/sync/students
+ * Sync students from Electron app (requires API key)
+ */
+router.post('/sync/students', verifyApiKey, async (req, res) => {
   try {
     const r = getRedis();
     const { students } = req.body;
@@ -428,9 +443,9 @@ router.post('/sync/students', async (req, res) => {
 
 /**
  * POST /api/admin/data/sync/attendance
- * Sync attendance from Electron app
+ * Sync attendance from Electron app (requires API key)
  */
-router.post('/sync/attendance', async (req, res) => {
+router.post('/sync/attendance', verifyApiKey, async (req, res) => {
   try {
     const r = getRedis();
     const { attendance } = req.body;

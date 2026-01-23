@@ -72,6 +72,81 @@ async function safeSyncByMode(tag) {
   }
 }
 
+/**
+ * Sync students and attendance data to the web dashboard
+ */
+async function syncToWebDashboard() {
+  try {
+    const config = dataManager.getConfig();
+    const webSync = config.webSync || {};
+
+    if (!webSync.enabled) {
+      return { success: false, error: 'Web sync is not enabled' };
+    }
+
+    if (!webSync.apiUrl || !webSync.apiKey) {
+      return { success: false, error: 'API URL and API Key are required' };
+    }
+
+    const fetch = require('node-fetch');
+    const baseUrl = webSync.apiUrl.replace(/\/$/, ''); // Remove trailing slash
+
+    // Get all students and attendance from the database
+    const students = dataManager.getStudents();
+    const attendance = dataManager.getAttendance();
+
+    dataManager.logger.info('websync', `Syncing ${students.length} students and ${attendance.length} attendance records`, 'system');
+
+    // Sync students
+    const studentsRes = await fetch(`${baseUrl}/api/admin/data/sync/students`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': webSync.apiKey,
+        'Cookie': `admin_token=${webSync.authToken || ''}`
+      },
+      body: JSON.stringify({ students })
+    });
+
+    if (!studentsRes.ok) {
+      const text = await studentsRes.text();
+      throw new Error(`Failed to sync students: ${studentsRes.status} - ${text}`);
+    }
+
+    // Sync attendance
+    const attendanceRes = await fetch(`${baseUrl}/api/admin/data/sync/attendance`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': webSync.apiKey,
+        'Cookie': `admin_token=${webSync.authToken || ''}`
+      },
+      body: JSON.stringify({ attendance })
+    });
+
+    if (!attendanceRes.ok) {
+      const text = await attendanceRes.text();
+      throw new Error(`Failed to sync attendance: ${attendanceRes.status} - ${text}`);
+    }
+
+    const studentsResult = await studentsRes.json();
+    const attendanceResult = await attendanceRes.json();
+
+    dataManager.logger.info('websync',
+      `Web sync completed: ${studentsResult.count || students.length} students, ${attendanceResult.count || attendance.length} records`,
+      'system');
+
+    return {
+      success: true,
+      students: studentsResult.count || students.length,
+      attendance: attendanceResult.count || attendance.length
+    };
+  } catch (error) {
+    dataManager.logger.error('websync', `Web sync failed: ${error.message}`, 'system');
+    return { success: false, error: error.message };
+  }
+}
+
 function getNYDate(d = new Date()) {
   return new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
 }
@@ -390,6 +465,17 @@ app.whenReady().then(async () => {
           }
         } else {
           dataManager.logger.info('backup', 'Skipping daily backup - Dropbox not enabled or configured', 'system');
+        }
+
+        // Also sync to web dashboard if enabled
+        if (config.webSync?.enabled) {
+          dataManager.logger.info('websync', 'Starting scheduled web dashboard sync', 'system');
+          const webResult = await syncToWebDashboard();
+          if (webResult.success) {
+            dataManager.logger.info('websync', `Web sync completed: ${webResult.students} students, ${webResult.attendance} records`, 'system');
+          } else {
+            dataManager.logger.error('websync', `Web sync failed: ${webResult.error}`, 'system');
+          }
         }
       } catch (error) {
         dataManager.logger.error('backup', `Daily backup error: ${error.message}`, 'system');
@@ -1966,6 +2052,61 @@ ipcMain.handle('get-config', async (event) => {
   } catch (error) {
     dataManager.logger.error('config', `Get config error: ${error.message}`, 'admin');
     return {};
+  }
+});
+
+// Web Dashboard Sync handlers
+ipcMain.handle('update-web-sync-config', async (event, config) => {
+  try {
+    dataManager.logger.info('config', 'Updating web sync configuration', 'admin');
+    const result = dataManager.updateWebSyncConfig(config);
+    if (result.success) {
+      dataManager.logger.info('config', 'Web sync configuration updated successfully', 'admin');
+    } else {
+      dataManager.logger.error('config', `Web sync configuration update failed: ${result.error}`, 'admin');
+    }
+    return result;
+  } catch (error) {
+    dataManager.logger.error('config', `Update web sync config error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('web-sync-now', async (event) => {
+  try {
+    dataManager.logger.info('websync', 'Starting manual web sync', 'admin');
+    const result = await syncToWebDashboard();
+    return result;
+  } catch (error) {
+    dataManager.logger.error('websync', `Manual web sync error: ${error.message}`, 'admin');
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('test-web-sync-connection', async (event) => {
+  try {
+    const config = dataManager.getConfig();
+    const webSync = config.webSync || {};
+
+    if (!webSync.apiUrl || !webSync.apiKey) {
+      return { success: false, error: 'API URL and API Key are required' };
+    }
+
+    // Test connection by fetching the debug endpoint
+    const fetch = require('node-fetch');
+    const response = await fetch(`${webSync.apiUrl}/api/admin/debug`, {
+      method: 'GET',
+      headers: { 'X-API-Key': webSync.apiKey }
+    });
+
+    if (response.ok) {
+      return { success: true, message: 'Connection successful' };
+    } else {
+      const text = await response.text();
+      return { success: false, error: `Server responded with ${response.status}: ${text}` };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 

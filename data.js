@@ -2252,6 +2252,37 @@ class DataManager {
         }
     }
 
+    updateWebSyncConfig(webSyncConfig) {
+        try {
+            if (this.logger) {
+                this.logger.info('config', 'Updating web sync configuration', 'admin');
+            }
+
+            const config = this.getConfig();
+            const prev = config.webSync || {};
+
+            config.webSync = {
+                enabled: !!(webSyncConfig.enabled ?? prev.enabled),
+                apiUrl: (webSyncConfig.apiUrl || prev.apiUrl || '').trim(),
+                apiKey: webSyncConfig.apiKey || prev.apiKey || '',
+                lastSync: prev.lastSync || null
+            };
+
+            fs.writeFileSync(this.configFile, JSON.stringify(config, null, 2));
+
+            if (this.logger) {
+                this.logger.info('config', 'Web sync configuration updated successfully', 'admin');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('config', `Error updating web sync config: ${error.message}`, 'admin');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
 
     backupData() {
         try {

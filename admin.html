@@ -2068,6 +2068,69 @@
                         </div>
                     </div>
 
+                    <!-- Web Dashboard Sync Settings -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">
+                                <i class="fas fa-globe" style="margin-right: 0.5rem; color: #8B5CF6;"></i> Web Dashboard
+                            </h3>
+                            <div class="badge" id="webSyncStatus">Disabled</div>
+                        </div>
+
+                        <div class="card-body">
+                            <div class="section">
+                                <p class="help">Sync attendance data to the web dashboard for remote access. Data is pushed to the cloud on every Dropbox backup.</p>
+
+                                <div class="form-group">
+                                    <label class="form-label" for="webSyncEnabled">Enable Web Sync</label>
+                                    <div class="kv">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="webSyncEnabled">
+                                            <span class="slider"></span>
+                                        </label>
+                                        <span id="webSyncHint" class="badge info">Syncs with Dropbox backup</span>
+                                    </div>
+                                </div>
+
+                                <div class="row two">
+                                    <div class="form-group">
+                                        <label class="form-label">API URL</label>
+                                        <input type="text" class="form-input" id="webSyncApiUrl"
+                                            placeholder="https://your-app.vercel.app">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">API Key</label>
+                                        <input type="password" class="form-input" id="webSyncApiKey"
+                                            placeholder="Your sync API key">
+                                    </div>
+                                </div>
+
+                                <div class="toolbar" style="margin-top: 0.5rem;">
+                                    <button class="btn btn-primary" id="saveWebSyncBtn">
+                                        <i class="fas fa-save"></i> Save Settings
+                                    </button>
+                                    <button class="btn btn-secondary" id="testWebSyncBtn">
+                                        <i class="fas fa-plug"></i> Test Connection
+                                    </button>
+                                    <button class="btn btn-secondary" id="webSyncNowBtn">
+                                        <i class="fas fa-sync"></i> Sync Now
+                                    </button>
+                                </div>
+
+                                <div id="webSyncMsg" class="card-help" style="margin-top: 0.5rem;"></div>
+
+                                <div class="warning-box" style="margin-top: 1rem;">
+                                    <h4><i class="fas fa-info-circle"></i> Setup</h4>
+                                    <ul>
+                                        <li>Set SYNC_API_KEY in your Vercel environment variables</li>
+                                        <li>Data syncs automatically during the 2 AM backup</li>
+                                        <li>Use "Sync Now" to push data immediately</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Google Sheets Settings -->
                     <div class="card">
                         <div class="card-header">

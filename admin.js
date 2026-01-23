@@ -2002,6 +2002,7 @@ async function loadSettings() {
         document.getElementById('smtpPassword').value = emailSettings.password || '';
 
         await loadDropboxSettings();
+        await loadWebSyncSettings();
         await loadSheetsSettings();
         await loadEncryptionSettings();
 
@@ -2481,6 +2482,118 @@ async function dropboxSyncNowAction() {
     } catch (err) {
         showNotification('Sync failed: ' + err.message, 'error');
         if (statusEl) statusEl.textContent = 'Status: error';
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Web Dashboard Sync Functions
+function setWebSyncMsg(text) {
+    const el = document.getElementById('webSyncMsg');
+    if (el) el.textContent = text || '';
+}
+
+function setWebSyncStatus(text, ok = null) {
+    const el = document.getElementById('webSyncStatus');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.remove('success', 'warning', 'error');
+    if (ok === true) el.classList.add('success');
+    if (ok === false) el.classList.add('warning');
+}
+
+async function loadWebSyncSettings() {
+    try {
+        const config = await window.electronAPI.getConfig();
+        const ws = config.webSync || {};
+
+        const enabledEl = document.getElementById('webSyncEnabled');
+        if (enabledEl) enabledEl.checked = !!ws.enabled;
+
+        const urlEl = document.getElementById('webSyncApiUrl');
+        if (urlEl) urlEl.value = ws.apiUrl || '';
+
+        const keyEl = document.getElementById('webSyncApiKey');
+        if (keyEl) keyEl.value = ws.apiKey || '';
+
+        // Update status badge
+        const statusEl = document.getElementById('webSyncStatus');
+        if (statusEl) {
+            if (ws.enabled && ws.apiUrl && ws.apiKey) {
+                statusEl.textContent = 'Enabled';
+                statusEl.className = 'badge success';
+            } else if (ws.apiUrl || ws.apiKey) {
+                statusEl.textContent = 'Configured';
+                statusEl.className = 'badge warning';
+            } else {
+                statusEl.textContent = 'Disabled';
+                statusEl.className = 'badge';
+            }
+        }
+    } catch (error) {
+        showNotification('Error loading web sync settings: ' + error.message, 'error');
+    }
+}
+
+async function saveWebSyncSettings() {
+    try {
+        const enabled = !!document.getElementById('webSyncEnabled')?.checked;
+        const apiUrl = document.getElementById('webSyncApiUrl')?.value?.trim() || '';
+        const apiKey = document.getElementById('webSyncApiKey')?.value || '';
+
+        if (enabled && (!apiUrl || !apiKey)) {
+            setWebSyncMsg('API URL and API Key are required when enabled');
+            return;
+        }
+
+        const res = await window.electronAPI.updateWebSyncConfig({ enabled, apiUrl, apiKey });
+        if (res?.success) {
+            setWebSyncMsg('Settings saved successfully');
+            setWebSyncStatus(enabled ? 'Enabled' : 'Disabled', enabled);
+            showNotification('Web sync settings saved', 'success');
+        } else {
+            throw new Error(res?.error || 'Failed to save');
+        }
+    } catch (error) {
+        setWebSyncMsg('Error: ' + error.message);
+        showNotification('Error saving web sync settings: ' + error.message, 'error');
+    }
+}
+
+async function testWebSyncConnection() {
+    try {
+        setWebSyncMsg('Testing connection...');
+        const res = await window.electronAPI.testWebSyncConnection();
+        if (res?.success) {
+            setWebSyncMsg('Connection successful!');
+            setWebSyncStatus('Connected', true);
+            showNotification('Web sync connection successful', 'success');
+        } else {
+            setWebSyncMsg('Connection failed: ' + (res?.error || 'Unknown error'));
+            setWebSyncStatus('Error', false);
+        }
+    } catch (error) {
+        setWebSyncMsg('Error: ' + error.message);
+        showNotification('Connection test failed: ' + error.message, 'error');
+    }
+}
+
+async function webSyncNowAction() {
+    const btn = document.getElementById('webSyncNowBtn');
+    try {
+        if (btn) btn.disabled = true;
+        setWebSyncMsg('Syncing...');
+
+        const res = await window.electronAPI.webSyncNow();
+        if (res?.success) {
+            setWebSyncMsg(`Synced ${res.students} students, ${res.attendance} attendance records`);
+            showNotification('Web sync completed', 'success');
+        } else {
+            throw new Error(res?.error || 'Sync failed');
+        }
+    } catch (error) {
+        setWebSyncMsg('Sync failed: ' + error.message);
+        showNotification('Web sync failed: ' + error.message, 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -3392,6 +3505,15 @@ document.addEventListener('DOMContentLoaded', function () {
     if (backupDropboxBtn) backupDropboxBtn.addEventListener('click', (e) => { e.preventDefault(); uploadToDropbox('backup'); });
     if (saveDropboxMasterBtn) { saveDropboxMasterBtn.addEventListener('click', (e) => { e.preventDefault(); saveDropboxMasterSettings(); }); }
     if (syncNowBtn) { syncNowBtn.addEventListener('click', (e) => { e.preventDefault(); dropboxSyncNowAction(); }); }
+
+    // Settings buttons – Web Dashboard Sync
+    const saveWebSyncBtn = document.getElementById('saveWebSyncBtn');
+    const testWebSyncBtn = document.getElementById('testWebSyncBtn');
+    const webSyncNowBtn = document.getElementById('webSyncNowBtn');
+
+    if (saveWebSyncBtn) saveWebSyncBtn.addEventListener('click', (e) => { e.preventDefault(); saveWebSyncSettings(); });
+    if (testWebSyncBtn) testWebSyncBtn.addEventListener('click', (e) => { e.preventDefault(); testWebSyncConnection(); });
+    if (webSyncNowBtn) webSyncNowBtn.addEventListener('click', (e) => { e.preventDefault(); webSyncNowAction(); });
 
     // Settings buttons – Google Sheets
     const sheetsSaveCredsBtn = document.getElementById('sheetsSaveCredsBtn');

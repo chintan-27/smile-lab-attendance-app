@@ -90,7 +90,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateEmailConfig: (emailConfig) => ipcRenderer.invoke('update-email-config', emailConfig),
   updateSheetsConfig: (sheetsConfig) => ipcRenderer.invoke('update-sheets-config', sheetsConfig),
   updateDropboxConfig: (config) => ipcRenderer.invoke('update-dropbox-config', config),
+  updateWebSyncConfig: (config) => ipcRenderer.invoke('update-web-sync-config', config),
   getConfig: () => ipcRenderer.invoke('get-config'),
+
+  // Web Dashboard Sync
+  webSyncNow: () => ipcRenderer.invoke('web-sync-now'),
+  testWebSyncConnection: () => ipcRenderer.invoke('test-web-sync-connection'),
 
   // System Logs
   getSystemLogs: (options) => ipcRenderer.invoke('get-system-logs', options),
