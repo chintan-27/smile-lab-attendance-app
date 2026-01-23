@@ -36,6 +36,33 @@ router.post('/init', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/debug
+ * Temporary debug endpoint - shows env var status and stored username
+ * DELETE THIS AFTER DEBUGGING!
+ */
+router.get('/debug', async (req, res) => {
+  try {
+    const info = await adminService.getAdminInfo();
+    res.json({
+      envVarsSet: {
+        ADMIN_USERNAME: !!process.env.ADMIN_USERNAME,
+        ADMIN_PASSWORD: !!process.env.ADMIN_PASSWORD,
+        usernameLength: process.env.ADMIN_USERNAME?.length || 0,
+        passwordLength: process.env.ADMIN_PASSWORD?.length || 0,
+        usernameValue: process.env.ADMIN_USERNAME // temporarily show actual username
+      },
+      storedCredentials: info.success ? {
+        username: info.username,
+        createdAt: info.createdAt,
+        updatedAt: info.updatedAt
+      } : { error: info.error }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * POST /api/admin/login
  * Authenticate admin and set session cookie
  */
