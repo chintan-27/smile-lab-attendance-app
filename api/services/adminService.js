@@ -39,9 +39,9 @@ async function initializeFromEnv(force = false) {
     return { success: true, message: 'Credentials already exist' };
   }
 
-  // Get from environment
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
+  // Get from environment (trim to handle accidental whitespace/newlines)
+  const username = process.env.ADMIN_USERNAME?.trim();
+  const password = process.env.ADMIN_PASSWORD?.trim();
 
   if (!username || !password) {
     return { success: false, error: 'ADMIN_USERNAME and ADMIN_PASSWORD environment variables required' };
