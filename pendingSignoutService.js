@@ -573,50 +573,54 @@ This is an automated message. Please do not reply to this email.`;
 <!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
-  <div style="max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px;">
-    <div style="text-align: center; margin-bottom: 25px; padding-bottom: 20px; border-bottom: 2px solid #0021A5;">
-      <h1 style="color: #0021A5; margin: 0; font-size: 22px;">SMILE Lab - Sign-Out Required</h1>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4;">
+  <div style="max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 30px;">
+      <div style="background: linear-gradient(135deg, #0021A5, #001A85); width: 60px; height: 60px; border-radius: 12px; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;">
+        <span style="color: white; font-size: 28px; font-weight: bold;">S</span>
+      </div>
+      <h1 style="color: #0021A5; margin: 0; font-size: 24px;">Sign-Out Time Required</h1>
     </div>
 
-    <p style="color: #333; font-size: 15px; line-height: 1.6;">Hello ${name},</p>
+    <p style="color: #333; font-size: 16px; line-height: 1.6;">Hello <strong>${name}</strong>,</p>
 
-    <p style="color: #333; font-size: 15px; line-height: 1.6;">
-      Our records show you signed in on <strong>${signInDate}</strong> at <strong>${signInTime}</strong> but did not sign out.
+    <p style="color: #333; font-size: 16px; line-height: 1.6;">
+      Our records show that you signed into the lab on <strong>${signInDate}</strong> at <strong>${signInTime}</strong> but did not sign out.
     </p>
 
-    <div style="background: #f0f4f8; padding: 15px; border-radius: 6px; margin: 20px 0;">
-      <p style="margin: 0; color: #333; font-size: 14px;">
-        <strong>Deadline:</strong> ${deadline} ET
+    <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 25px 0; border-left: 4px solid #FA4616;">
+      <p style="margin: 0; color: #333; font-size: 15px;">
+        <strong style="color: #0021A5;">Deadline to respond:</strong><br>
+        ${deadline} ET
       </p>
     </div>
 
-    <p style="color: #333; font-size: 15px; line-height: 1.6;">
-      Please submit your sign-out time using the link below:
+    <p style="color: #333; font-size: 16px; line-height: 1.6;">
+      Please click the button below to submit your actual sign-out time:
     </p>
 
-    <div style="text-align: center; margin: 25px 0;">
-      <a href="${link}" style="display: inline-block; background: #0021A5; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px;">
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${link}" style="display: inline-block; background: linear-gradient(135deg, #0021A5, #001A85); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
         Submit Sign-Out Time
       </a>
     </div>
 
-    <p style="color: #666; font-size: 13px; line-height: 1.5;">
-      If you cannot click the button, copy this link into your browser:<br>
-      <a href="${link}" style="color: #0021A5; word-break: break-all;">${link}</a>
+    <p style="color: #64748b; font-size: 13px; line-height: 1.5; text-align: center;">
+      Or copy this link: <a href="${link}" style="color: #0021A5;">${link}</a>
     </p>
 
-    <div style="background: #fff8e6; padding: 12px; border-radius: 6px; margin: 20px 0;">
-      <p style="margin: 0; color: #856404; font-size: 13px;">
-        <strong>Note:</strong> If you do not respond by the deadline, this session will be recorded as 0 hours.
+    <div style="background: #FFF4E6; padding: 15px; border-radius: 8px; margin: 25px 0;">
+      <p style="margin: 0; color: #92400e; font-size: 14px;">
+        <strong>Important:</strong> If you do not respond by the deadline, your attendance will be marked as "present only" with <strong>0 hours</strong> credit for this session.
       </p>
     </div>
 
-    <hr style="margin: 25px 0; border: none; border-top: 1px solid #ddd;">
+    <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;">
 
-    <p style="color: #888; font-size: 11px; text-align: center; margin: 0;">
-      SMILE Lab Attendance System - University of Florida<br>
-      This is an automated message.
+    <p style="color: #64748b; font-size: 12px; text-align: center; margin: 0;">
+      SMILE Lab Attendance System<br>
+      University of Florida<br>
+      <span style="color: #94a3b8;">This is an automated message.</span>
     </p>
   </div>
 </body>
