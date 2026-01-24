@@ -155,18 +155,25 @@ class DataManager {
             const success = await this.dbManager.initialize();
 
             if (success) {
+                this.logger?.info('system', 'SQLite database initialized', 'system');
+
                 // Check if we need to migrate existing JSON data
                 const stats = this.dbManager.getStats();
+                this.logger?.info('system', `SQLite current state: ${stats.students} students, ${stats.attendance} attendance records`, 'system');
+
                 if (stats.students === 0 && stats.attendance === 0) {
-                    this.migrateJsonToSqlite();
+                    this.logger?.info('system', 'SQLite is empty, migrating from JSON...', 'system');
+                    const migrateResult = this.migrateJsonToSqlite();
+                    this.logger?.info('system',
+                        `Initial migration complete: ${migrateResult.students} students, ${migrateResult.attendance} attendance`, 'system');
                 }
             } else {
-                console.error('Failed to initialize SQLite, falling back to JSON');
+                this.logger?.error('system', 'Failed to initialize SQLite, falling back to JSON', 'system');
                 this.useSqlite = false;
                 this.dbManager = null;
             }
         } catch (error) {
-            console.error('SQLite initialization error:', error);
+            this.logger?.error('system', `SQLite initialization error: ${error.message}`, 'system');
             this.useSqlite = false;
             this.dbManager = null;
         }
@@ -186,30 +193,62 @@ class DataManager {
 
     /**
      * Migrate existing JSON data to SQLite
+     * @returns {Object} { success, students, attendance, errors }
      */
     migrateJsonToSqlite() {
+        const result = { success: true, students: 0, attendance: 0, errors: [] };
+
         try {
             // Migrate students
             if (fs.existsSync(this.studentsFile)) {
-                const studentsJson = JSON.parse(fs.readFileSync(this.studentsFile, 'utf8'));
-                const students = this.decryptSensitiveFields(studentsJson, ['name', 'email']);
-                if (students.length > 0) {
-                    const result = this.dbManager.importStudents(students);
-                    console.log(`Migrated ${result.imported} students to SQLite`);
+                try {
+                    const raw = fs.readFileSync(this.studentsFile, 'utf8');
+                    const studentsJson = JSON.parse(raw);
+                    this.logger?.info('system', `Read ${studentsJson.length} students from JSON file`, 'system');
+
+                    const students = this.decryptSensitiveFields(studentsJson, ['name', 'email']);
+                    if (students.length > 0) {
+                        const importResult = this.dbManager.importStudents(students);
+                        result.students = importResult.imported || 0;
+                        this.logger?.info('system', `Migrated ${result.students} students to SQLite`, 'system');
+                    }
+                } catch (e) {
+                    result.errors.push(`Students migration: ${e.message}`);
+                    this.logger?.error('system', `Failed to migrate students: ${e.message}`, 'system');
                 }
+            } else {
+                this.logger?.warning('system', `Students file not found: ${this.studentsFile}`, 'system');
             }
 
             // Migrate attendance
             if (fs.existsSync(this.attendanceFile)) {
-                const attendanceJson = JSON.parse(fs.readFileSync(this.attendanceFile, 'utf8'));
-                const attendance = this.decryptSensitiveFields(attendanceJson, ['name']);
-                if (attendance.length > 0) {
-                    const result = this.dbManager.importAttendance(attendance);
-                    console.log(`Migrated ${result.imported} attendance records to SQLite`);
+                try {
+                    const raw = fs.readFileSync(this.attendanceFile, 'utf8');
+                    const attendanceJson = JSON.parse(raw);
+                    this.logger?.info('system', `Read ${attendanceJson.length} attendance records from JSON file`, 'system');
+
+                    const attendance = this.decryptSensitiveFields(attendanceJson, ['name']);
+                    if (attendance.length > 0) {
+                        const importResult = this.dbManager.importAttendance(attendance);
+                        result.attendance = importResult.imported || 0;
+                        this.logger?.info('system', `Migrated ${result.attendance} attendance records to SQLite`, 'system');
+                    }
+                } catch (e) {
+                    result.errors.push(`Attendance migration: ${e.message}`);
+                    this.logger?.error('system', `Failed to migrate attendance: ${e.message}`, 'system');
                 }
+            } else {
+                this.logger?.warning('system', `Attendance file not found: ${this.attendanceFile}`, 'system');
             }
+
+            if (result.errors.length > 0) {
+                result.success = false;
+            }
+
+            return result;
         } catch (error) {
-            console.error('Migration to SQLite failed:', error);
+            this.logger?.error('system', `Migration to SQLite failed: ${error.message}`, 'system');
+            return { success: false, students: 0, attendance: 0, errors: [error.message] };
         }
     }
 
@@ -226,6 +265,8 @@ class DataManager {
 
         try {
             this.logger?.info('system', 'Reloading SQLite from JSON files...', 'system');
+            this.logger?.info('system', `Students file: ${this.studentsFile}`, 'system');
+            this.logger?.info('system', `Attendance file: ${this.attendanceFile}`, 'system');
 
             // Clear existing SQLite data
             const clearResult = this.dbManager.clearAllTables();
@@ -233,14 +274,19 @@ class DataManager {
                 this.logger?.error('system', `Failed to clear SQLite tables: ${clearResult.error}`, 'system');
                 return { success: false, error: clearResult.error };
             }
+            this.logger?.info('system', 'Cleared existing SQLite tables', 'system');
 
             // Re-import from JSON
-            this.migrateJsonToSqlite();
+            const migrateResult = this.migrateJsonToSqlite();
 
-            // Get counts for logging
+            // Get counts for verification
             const stats = this.dbManager.getStats();
             this.logger?.info('system',
                 `SQLite reloaded: ${stats.students} students, ${stats.attendance} attendance records`, 'system');
+
+            if (migrateResult.errors && migrateResult.errors.length > 0) {
+                this.logger?.warning('system', `Migration had errors: ${migrateResult.errors.join(', ')}`, 'system');
+            }
 
             return {
                 success: true,

@@ -36,32 +36,48 @@ async function safeSyncByMode(tag) {
 
     // After pull in master mode, handle SQLite reload from JSON
     if (isMasterMode && res.success) {
-      // Detect what format is on Dropbox
-      const formatInfo = await dropboxService.detectDropboxDataFormat();
-      dataManager.logger.info('dropbox', `${tag}: Dropbox format detected: ${JSON.stringify(formatInfo)}`, 'system');
+      // Check if any files were actually pulled
+      const pulledFiles = res.results?.filter(r => r.action === 'pull') || [];
 
-      if (formatInfo.hasSqlite) {
-        // Dropbox has SQLite - download and replace local
-        const sqliteDbPath = path.join(dataManager.dataDir, 'attendance.db');
-        const dlResult = await dropboxService.downloadSqliteDb(sqliteDbPath);
-        if (dlResult.success) {
-          dataManager.logger.info('dropbox', `${tag}: Downloaded SQLite DB from Dropbox (${dlResult.size} bytes)`, 'system');
-          // Re-initialize the database manager with the new file
-          if (dataManager.dbManager) {
-            await dataManager.dbManager.initialize();
-            dataManager.logger.info('dropbox', `${tag}: Re-initialized SQLite from downloaded DB`, 'system');
-          }
-        } else {
-          dataManager.logger.warning('dropbox', `${tag}: Failed to download SQLite: ${dlResult.error}`, 'system');
-        }
-      } else if (formatInfo.hasJson) {
-        // Dropbox has only JSON - reload SQLite from the pulled JSON files
+      if (pulledFiles.length > 0) {
+        // Files were pulled from Dropbox - reload SQLite from the local JSON files
+        dataManager.logger.info('dropbox', `${tag}: Pulled ${pulledFiles.length} files, reloading SQLite from JSON`, 'system');
         const reloadResult = await dataManager.reloadFromJson();
         if (reloadResult.success) {
           dataManager.logger.info('dropbox',
             `${tag}: Reloaded SQLite from JSON (${reloadResult.students} students, ${reloadResult.attendance} records)`, 'system');
         } else {
           dataManager.logger.warning('dropbox', `${tag}: Failed to reload SQLite from JSON: ${reloadResult.error}`, 'system');
+        }
+      } else {
+        // No files pulled - check if Dropbox has SQLite we should download
+        const formatInfo = await dropboxService.detectDropboxDataFormat();
+        dataManager.logger.info('dropbox', `${tag}: No JSON pulled, Dropbox format: ${JSON.stringify(formatInfo)}`, 'system');
+
+        if (formatInfo.hasSqlite) {
+          // Dropbox has SQLite - download and replace local
+          const sqliteDbPath = path.join(dataManager.dataDir, 'attendance.db');
+          const dlResult = await dropboxService.downloadSqliteDb(sqliteDbPath);
+          if (dlResult.success) {
+            dataManager.logger.info('dropbox', `${tag}: Downloaded SQLite DB from Dropbox (${dlResult.size} bytes)`, 'system');
+            // Re-initialize the database manager with the new file
+            if (dataManager.dbManager) {
+              await dataManager.dbManager.initialize();
+              dataManager.logger.info('dropbox', `${tag}: Re-initialized SQLite from downloaded DB`, 'system');
+            }
+          } else {
+            dataManager.logger.warning('dropbox', `${tag}: Failed to download SQLite: ${dlResult.error}`, 'system');
+          }
+        } else if (formatInfo.hasJson) {
+          // Dropbox has JSON but pull didn't get it - try reloading from local JSON anyway
+          dataManager.logger.info('dropbox', `${tag}: Attempting to reload SQLite from existing local JSON`, 'system');
+          const reloadResult = await dataManager.reloadFromJson();
+          if (reloadResult.success) {
+            dataManager.logger.info('dropbox',
+              `${tag}: Reloaded SQLite from JSON (${reloadResult.students} students, ${reloadResult.attendance} records)`, 'system');
+          } else {
+            dataManager.logger.warning('dropbox', `${tag}: Failed to reload SQLite from JSON: ${reloadResult.error}`, 'system');
+          }
         }
       }
     }
