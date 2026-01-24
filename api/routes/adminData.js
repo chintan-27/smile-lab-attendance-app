@@ -481,26 +481,21 @@ router.get('/student-hours', async (req, res) => {
       r.get(ATTENDANCE_KEY) || []
     ]);
 
-    // Parse date from query or use today
-    let targetDate;
+    // Parse date from query or use today (format: YYYY-MM-DD)
+    let targetDateStr;
     if (req.query.date) {
-      targetDate = new Date(req.query.date);
+      targetDateStr = req.query.date; // Expected: "2024-01-15"
     } else {
-      targetDate = new Date();
+      // Get today in ET timezone
+      const now = new Date();
+      targetDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // en-CA gives YYYY-MM-DD
     }
 
-    // Get date in ET timezone
-    const dateET = new Date(targetDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const dayStart = new Date(dateET);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dateET);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    // Filter attendance for the target date
-    const dayRecords = attendance.filter(r => {
-      const ts = new Date(r.timestamp);
-      const tsET = new Date(ts.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      return tsET >= dayStart && tsET <= dayEnd;
+    // Filter attendance for the target date by comparing date strings in ET
+    const dayRecords = attendance.filter(record => {
+      const ts = new Date(record.timestamp);
+      const recordDateStr = ts.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      return recordDateStr === targetDateStr;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     // Group by student and calculate hours
@@ -563,7 +558,7 @@ router.get('/student-hours', async (req, res) => {
 
     res.json({
       success: true,
-      date: dayStart.toISOString().split('T')[0],
+      date: targetDateStr,
       studentHours: results
     });
   } catch (error) {
@@ -608,16 +603,17 @@ router.get('/weekly-matrix', async (req, res) => {
     // Calculate hours per student per day
     const studentMap = new Map();
 
-    days.forEach((day, dayIdx) => {
-      const dayStart = new Date(day);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(day);
-      dayEnd.setHours(23, 59, 59, 999);
+    // Get date strings for each day in ET timezone
+    const dayStrings = days.map(d => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }));
 
-      // Get records for this day
-      const dayRecords = attendance.filter(r => {
-        const ts = new Date(r.timestamp);
-        return ts >= dayStart && ts <= dayEnd;
+    days.forEach((day, dayIdx) => {
+      const targetDateStr = dayStrings[dayIdx];
+
+      // Get records for this day by comparing date strings in ET
+      const dayRecords = attendance.filter(record => {
+        const ts = new Date(record.timestamp);
+        const recordDateStr = ts.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        return recordDateStr === targetDateStr;
       }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
       // Calculate hours per student for this day
