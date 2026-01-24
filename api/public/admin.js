@@ -215,9 +215,16 @@ function initHoursNavigation() {
 
 async function loadStudentHoursChart() {
   try {
-    const dateStr = hoursCurrentDate.toISOString().split('T')[0];
+    // Format date as YYYY-MM-DD in local timezone (not UTC)
+    const year = hoursCurrentDate.getFullYear();
+    const month = String(hoursCurrentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(hoursCurrentDate.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    console.log('Loading student hours for date:', dateStr);
     const response = await fetch(`/api/admin/data/student-hours?date=${dateStr}`);
     const data = await response.json();
+    console.log('Student hours response:', data);
 
     // Update date label
     const labelEl = document.getElementById('hours-date-label');
