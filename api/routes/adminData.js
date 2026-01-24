@@ -491,25 +491,12 @@ router.get('/student-hours', async (req, res) => {
       targetDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // en-CA gives YYYY-MM-DD
     }
 
-    console.log('Student hours request - targetDateStr:', targetDateStr);
-    console.log('Total attendance records:', attendance.length);
-
     // Filter attendance for the target date by comparing date strings in ET
     const dayRecords = attendance.filter(record => {
       const ts = new Date(record.timestamp);
       const recordDateStr = ts.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
       return recordDateStr === targetDateStr;
     }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    console.log('Filtered day records:', dayRecords.length);
-    if (attendance.length > 0) {
-      // Log a few sample dates for debugging
-      const sampleDates = attendance.slice(0, 5).map(r => {
-        const ts = new Date(r.timestamp);
-        return ts.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-      });
-      console.log('Sample record dates in ET:', sampleDates);
-    }
 
     // Group by student and calculate hours
     const studentHours = {};

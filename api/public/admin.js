@@ -221,10 +221,8 @@ async function loadStudentHoursChart() {
     const day = String(hoursCurrentDate.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
 
-    console.log('Loading student hours for date:', dateStr);
     const response = await fetch(`/api/admin/data/student-hours?date=${dateStr}`);
     const data = await response.json();
-    console.log('Student hours response:', data);
 
     // Update date label
     const labelEl = document.getElementById('hours-date-label');
