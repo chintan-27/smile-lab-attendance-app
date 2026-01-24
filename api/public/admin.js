@@ -418,23 +418,21 @@ function renderWeeklyMatrix(data) {
 
 function renderStudentHoursChart(studentHours) {
   const container = document.getElementById('student-hours-container');
-  const ctx = document.getElementById('student-hours-chart');
-  if (!ctx) return;
+  if (!container) return;
 
   // Destroy existing chart
   if (charts.studentHours) {
     charts.studentHours.destroy();
+    charts.studentHours = null;
   }
 
   if (!studentHours || studentHours.length === 0) {
-    container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No attendance data for this day</div><canvas id="student-hours-chart" style="display:none;"></canvas>';
+    container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">No attendance data for this day</div>';
     return;
   }
 
-  // Ensure canvas is visible
-  if (!document.getElementById('student-hours-chart')) {
-    container.innerHTML = '<canvas id="student-hours-chart"></canvas>';
-  }
+  // Always recreate the canvas
+  container.innerHTML = '<canvas id="student-hours-chart"></canvas>';
 
   // Dynamically set container height based on number of students
   const minHeightPerStudent = 35;
