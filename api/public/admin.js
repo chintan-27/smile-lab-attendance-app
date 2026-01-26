@@ -64,10 +64,19 @@ function initTheme() {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const newTheme = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', newTheme);
-  localStorage.setItem('theme', newTheme);
+  try {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const newTheme = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+
+    // Re-render charts with new theme colors
+    if (charts.weekly) {
+      loadCharts();
+    }
+  } catch (error) {
+    console.error('Theme toggle error:', error);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1034,9 +1043,23 @@ function showToast(message, type = 'success') {
 
 async function logout() {
   try {
-    await fetch('/api/admin/logout', { method: 'POST' });
-    window.location.href = '/login';
+    await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
   } catch (error) {
-    window.location.href = '/login';
+    console.error('Logout error:', error);
   }
+  // Always redirect to login
+  window.location.href = '/login';
 }
+
+// Expose functions globally for onclick handlers
+window.toggleTheme = toggleTheme;
+window.logout = logout;
+window.showAddStudentModal = showAddStudentModal;
+window.closeStudentModal = closeStudentModal;
+window.editStudent = editStudent;
+window.deleteStudent = deleteStudent;
+window.deleteAttendance = deleteAttendance;
+window.refreshPending = refreshPending;
+window.showResolveModal = showResolveModal;
+window.closeResolveModal = closeResolveModal;
+window.goToPage = goToPage;
