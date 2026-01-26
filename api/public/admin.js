@@ -31,9 +31,23 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initSearch();
   initForms();
+  initHeaderButtons();
   loadDashboard();
   checkAuth();
 });
+
+function initHeaderButtons() {
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  if (themeBtn) {
+    themeBtn.addEventListener('click', toggleTheme);
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', logout);
+  }
+}
 
 async function checkAuth() {
   try {
