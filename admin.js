@@ -245,7 +245,7 @@ function yesterday() {
     return d;
 }
 
-let analyticsCurrentDay = yesterday();
+let analyticsCurrentDay = new Date(); // Start with today
 let analyticsCurrentWeekStart = startOfWeek(new Date());
 
 const HEAT_BUCKETS = [
@@ -1552,8 +1552,7 @@ async function loadAnalyticsCharts() {
             });
         }
         analyticsCurrentDay = new Date();
-        analyticsCurrentDay.setDate(analyticsCurrentDay.getDate() - 1);
-        analyticsCurrentDay.setHours(0, 0, 0, 0);
+        analyticsCurrentDay.setHours(0, 0, 0, 0); // Today at midnight
         analyticsCurrentWeekStart = startOfWeek(new Date());
         await renderTimeBands({ day: analyticsCurrentWeekStart, startHour: 8, endHour: 20 });
 

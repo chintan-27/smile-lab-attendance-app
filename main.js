@@ -500,6 +500,24 @@ app.whenReady().then(async () => {
     backupJobStarted = true;
   }
 
+  // Real-time web dashboard sync every 10 minutes
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const config = dataManager.getConfig();
+      if (config.webSync?.enabled) {
+        dataManager.logger.info('websync', 'Starting 10-minute web dashboard sync', 'system');
+        const result = await syncToWebDashboard();
+        if (result.success) {
+          dataManager.logger.info('websync', `Web sync completed: ${result.students} students, ${result.attendance} attendance records`, 'system');
+        } else {
+          dataManager.logger.error('websync', `Web sync failed: ${result.error}`, 'system');
+        }
+      }
+    } catch (error) {
+      dataManager.logger.error('websync', `10-minute web sync error: ${error.message}`, 'system');
+    }
+  });
+
   // Check for updates every day at 9 AM ET
   cron.schedule('0 9 * * *', () => {
     try {

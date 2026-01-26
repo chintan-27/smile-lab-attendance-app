@@ -1167,6 +1167,20 @@ class DataManager {
             let dataToSave = this.encryptSensitiveFields(attendance, ['name']);
             fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
 
+            // Also add to SQLite if available
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                try {
+                    this.dbManager.addAttendanceRecord(record);
+                    if (this.logger) {
+                        this.logger.info('attendance', `Record also saved to SQLite for ${authorizedStudent.name} (${ufid})`, 'system');
+                    }
+                } catch (sqliteError) {
+                    if (this.logger) {
+                        this.logger.error('attendance', `Failed to save to SQLite: ${sqliteError.message}`, 'system');
+                    }
+                }
+            }
+
             if (this.logger) {
                 this.logger.info('attendance', `${action} successful for ${authorizedStudent.name} (${ufid})`, 'system');
             }

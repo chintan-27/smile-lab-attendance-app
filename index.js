@@ -1,72 +1,111 @@
-// Get all UFID digit inputs
-const ufidInputs = document.querySelectorAll('.ufid-digit');
-const signInBtn = document.getElementById('signInBtn');
-const signOutBtn = document.getElementById('signOutBtn');
-const statusMessage = document.getElementById('statusMessage');
-const adminLink = document.getElementById('adminLink');
-const themeToggle = document.getElementById('themeToggle');
+// DOM Elements - initialized after DOM ready
+let ufidInputs;
+let actionBtn;
+let actionBtnText;
+let actionBtnIcon;
+let statusMessage;
+let userHint;
+let adminLink;
+let clockElement;
 
-// ==================== DARK MODE ====================
+// Track current mode and student status
+let currentMode = 'signin'; // 'signin' or 'signout'
+let currentStudent = null;
+let checkStatusTimeout = null;
 
-/**
- * Initialize theme based on localStorage or system preference
- */
-function initTheme() {
-    const savedTheme = localStorage.getItem('theme');
-    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+// ==================== INITIALIZATION ====================
 
-    if (savedTheme) {
-        document.documentElement.setAttribute('data-theme', savedTheme);
-    } else if (systemPrefersDark) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize DOM references
+    ufidInputs = document.querySelectorAll('.ufid-digit');
+    actionBtn = document.getElementById('actionBtn');
+    actionBtnText = document.getElementById('actionBtnText');
+    actionBtnIcon = actionBtn ? actionBtn.querySelector('.btn-content i') : null;
+    statusMessage = document.getElementById('statusMessage');
+    userHint = document.getElementById('userHint');
+    adminLink = document.getElementById('adminLink');
+    clockElement = document.getElementById('clock');
+
+    // Start clock
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // Setup UFID inputs
+    setupUfidInputs();
+
+    // Setup event listeners
+    setupEventListeners();
+
+    // Focus on first input
+    if (ufidInputs && ufidInputs[0]) {
+        ufidInputs[0].focus();
     }
 
-    updateThemeIcon();
-}
+    // Initial validation
+    validateUfid();
 
-/**
- * Toggle between light and dark themes
- */
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    updateThemeIcon();
-}
-
-/**
- * Update the theme toggle button icon
- */
-function updateThemeIcon() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const icon = themeToggle.querySelector('i');
-
-    if (icon) {
-        icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
-    }
-    themeToggle.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-}
-
-// Listen for system theme changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-    if (!localStorage.getItem('theme')) {
-        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-        updateThemeIcon();
-    }
+    console.log('UF Lab Attendance System initialized');
 });
 
-// Theme toggle click handler
-themeToggle.addEventListener('click', toggleTheme);
+// ==================== CLOCK ====================
 
-// Initialize theme on load
-initTheme();
+function updateClock() {
+    if (!clockElement) return;
 
-// Setup UFID input handling
-setupUfidInputs();
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, '0');
+
+    clockElement.textContent = `${displayHours}:${displayMinutes} ${ampm}`;
+}
+
+// ==================== EVENT LISTENERS ====================
+
+function setupEventListeners() {
+    // Action button click
+    if (actionBtn) {
+        actionBtn.addEventListener('click', handleActionClick);
+    }
+
+    // Admin link
+    if (adminLink) {
+        adminLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAdminModal();
+        });
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            clearUfid();
+            if (statusMessage) {
+                statusMessage.classList.remove('show');
+            }
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+            e.preventDefault();
+            clearUfid();
+        }
+    });
+
+    // Window focus
+    window.addEventListener('focus', () => {
+        if (!isUfidComplete()) {
+            focusFirstEmptyInput();
+        }
+    });
+}
+
+// ==================== UFID INPUT HANDLING ====================
 
 function setupUfidInputs() {
+    if (!ufidInputs) return;
+
     ufidInputs.forEach((input, index) => {
         // Only allow numbers
         input.addEventListener('input', function (e) {
@@ -84,6 +123,13 @@ function setupUfidInputs() {
             }
 
             validateUfid();
+
+            // Check student status when UFID is complete
+            if (isUfidComplete()) {
+                checkStudentStatus();
+            } else {
+                resetButtonState();
+            }
         });
 
         // Handle backspace
@@ -92,8 +138,8 @@ function setupUfidInputs() {
                 ufidInputs[index - 1].focus();
             }
 
-            if (e.key === 'Enter' && isUfidComplete()) {
-                signInBtn.click();
+            if (e.key === 'Enter' && isUfidComplete() && actionBtn) {
+                actionBtn.click();
             }
         });
 
@@ -111,11 +157,17 @@ function setupUfidInputs() {
             });
 
             validateUfid();
+
+            // Check student status when UFID is complete after paste
+            if (isUfidComplete()) {
+                checkStudentStatus();
+            }
         });
     });
 }
 
 function getUfidValue() {
+    if (!ufidInputs) return '';
     return Array.from(ufidInputs).map(input => input.value).join('');
 }
 
@@ -124,27 +176,35 @@ function isUfidComplete() {
 }
 
 function clearUfid() {
+    if (!ufidInputs) return;
+
     ufidInputs.forEach(input => {
         input.value = '';
         input.classList.remove('filled', 'error');
     });
     ufidInputs[0].focus();
+    resetButtonState();
 }
 
 function validateUfid() {
     const ufid = getUfidValue();
     const isComplete = ufid.length === 8;
 
-    signInBtn.disabled = !isComplete;
-    signOutBtn.disabled = !isComplete;
+    if (actionBtn) {
+        actionBtn.disabled = !isComplete;
+    }
 
     // Remove error state when user starts typing again
-    ufidInputs.forEach(input => {
-        input.classList.remove('error');
-    });
+    if (ufidInputs) {
+        ufidInputs.forEach(input => {
+            input.classList.remove('error');
+        });
+    }
 }
 
 function showUfidError() {
+    if (!ufidInputs) return;
+
     ufidInputs.forEach(input => {
         if (input.value) {
             input.classList.add('error');
@@ -152,8 +212,135 @@ function showUfidError() {
     });
 }
 
-// Sign in functionality
-signInBtn.addEventListener('click', async () => {
+function focusFirstEmptyInput() {
+    if (!ufidInputs) return;
+
+    for (let i = 0; i < ufidInputs.length; i++) {
+        if (!ufidInputs[i].value) {
+            ufidInputs[i].focus();
+            break;
+        }
+    }
+}
+
+// ==================== BUTTON STATE MANAGEMENT ====================
+
+function resetButtonState() {
+    currentMode = 'signin';
+    currentStudent = null;
+
+    if (actionBtn) {
+        actionBtn.classList.remove('signout-mode');
+    }
+    if (actionBtnText) {
+        actionBtnText.textContent = 'Sign In';
+    }
+    if (actionBtnIcon) {
+        actionBtnIcon.className = 'fas fa-arrow-right-to-bracket';
+    }
+    if (userHint) {
+        userHint.textContent = '';
+        userHint.className = 'user-hint';
+    }
+}
+
+function setSignOutMode(studentName) {
+    currentMode = 'signout';
+
+    if (actionBtn) {
+        actionBtn.classList.add('signout-mode');
+    }
+    if (actionBtnText) {
+        actionBtnText.textContent = 'Sign Out';
+    }
+    if (actionBtnIcon) {
+        actionBtnIcon.className = 'fas fa-arrow-right-from-bracket';
+    }
+    if (userHint) {
+        userHint.innerHTML = `<i class="fas fa-user-check"></i> ${studentName} is currently signed in`;
+        userHint.className = 'user-hint signed-in';
+    }
+
+    console.log('Button set to SIGN OUT mode for:', studentName);
+}
+
+function setSignInMode(studentName) {
+    currentMode = 'signin';
+
+    if (actionBtn) {
+        actionBtn.classList.remove('signout-mode');
+    }
+    if (actionBtnText) {
+        actionBtnText.textContent = 'Sign In';
+    }
+    if (actionBtnIcon) {
+        actionBtnIcon.className = 'fas fa-arrow-right-to-bracket';
+    }
+    if (userHint && studentName) {
+        userHint.innerHTML = `<i class="fas fa-user"></i> Welcome, ${studentName}`;
+        userHint.className = 'user-hint active';
+    }
+
+    console.log('Button set to SIGN IN mode for:', studentName);
+}
+
+// ==================== STATUS CHECK ====================
+
+async function checkStudentStatus() {
+    const ufid = getUfidValue();
+
+    if (!isUfidComplete()) {
+        resetButtonState();
+        return;
+    }
+
+    // Clear any pending check
+    if (checkStatusTimeout) {
+        clearTimeout(checkStatusTimeout);
+    }
+
+    // Debounce the status check
+    checkStatusTimeout = setTimeout(async () => {
+        try {
+            if (userHint) {
+                userHint.textContent = 'Checking...';
+                userHint.className = 'user-hint active';
+            }
+
+            console.log('Checking status for UFID:', ufid);
+            const result = await window.electronAPI.getStudentStatus(ufid);
+            console.log('Status result:', result);
+
+            if (result.authorized) {
+                currentStudent = result;
+
+                // Check if status indicates signed in (status is 'signin' when currently in lab)
+                const isSignedIn = result.status === 'signin';
+                console.log('Is signed in:', isSignedIn, 'Status:', result.status);
+
+                if (isSignedIn) {
+                    setSignOutMode(result.name);
+                } else {
+                    setSignInMode(result.name);
+                }
+            } else {
+                // Student not found/not authorized
+                resetButtonState();
+                if (userHint) {
+                    userHint.textContent = 'Student not found';
+                    userHint.className = 'user-hint';
+                }
+            }
+        } catch (error) {
+            console.error('Error checking student status:', error);
+            resetButtonState();
+        }
+    }, 200);
+}
+
+// ==================== ACTION HANDLER ====================
+
+async function handleActionClick() {
     const ufid = getUfidValue();
 
     if (!isUfidComplete()) {
@@ -163,70 +350,76 @@ signInBtn.addEventListener('click', async () => {
     }
 
     try {
-        signInBtn.disabled = true;
-        signInBtn.classList.add('loading');
+        if (actionBtn) {
+            actionBtn.disabled = true;
+            actionBtn.classList.add('loading');
+        }
 
-        const result = await window.electronAPI.signIn({ ufid, name: '' });
+        let result;
+        console.log('Action click - Current mode:', currentMode);
 
-        if (result.success) {
-            showStatus(`Welcome ${result.studentName}! You have signed in successfully.`, 'success');
-            clearUfid();
+        if (currentMode === 'signout') {
+            console.log('Attempting sign OUT for:', ufid);
+            result = await window.electronAPI.signOut({ ufid, name: '' });
+
+            if (result.success) {
+                showStatus(`Goodbye, ${result.studentName}! You've signed out successfully.`, 'success');
+                clearUfid();
+            } else {
+                showStatus(result.message || 'Sign out failed', 'error');
+                if (result.unauthorized) {
+                    showUfidError();
+                }
+            }
         } else {
-            showStatus(result.message || 'Sign in failed', 'error');
-            if (result.unauthorized) {
-                showUfidError();
+            console.log('Attempting sign IN for:', ufid);
+            result = await window.electronAPI.signIn({ ufid, name: '' });
+
+            if (result.success) {
+                showStatus(`Welcome, ${result.studentName}! You've signed in successfully.`, 'success');
+                clearUfid();
+            } else {
+                showStatus(result.message || 'Sign in failed', 'error');
+                if (result.unauthorized) {
+                    showUfidError();
+                }
             }
         }
     } catch (error) {
+        console.error('Action error:', error);
         showStatus('Error: ' + error.message, 'error');
         showUfidError();
     } finally {
-        signInBtn.disabled = false;
-        signInBtn.classList.remove('loading');
-        validateUfid();
-    }
-});
-
-// Sign out functionality
-signOutBtn.addEventListener('click', async () => {
-    const ufid = getUfidValue();
-
-    if (!isUfidComplete()) {
-        showStatus('Please enter a complete 8-digit UF ID', 'error');
-        showUfidError();
-        return;
-    }
-
-    try {
-        signOutBtn.disabled = true;
-        signOutBtn.classList.add('loading');
-
-        const result = await window.electronAPI.signOut({ ufid, name: '' });
-
-        if (result.success) {
-            showStatus(`Goodbye ${result.studentName}! You have signed out successfully.`, 'success');
-            clearUfid();
-        } else {
-            showStatus(result.message || 'Sign out failed', 'error');
-            if (result.unauthorized) {
-                showUfidError();
-            }
+        if (actionBtn) {
+            actionBtn.disabled = false;
+            actionBtn.classList.remove('loading');
         }
-    } catch (error) {
-        showStatus('Error: ' + error.message, 'error');
-        showUfidError();
-    } finally {
-        signOutBtn.disabled = false;
-        signOutBtn.classList.remove('loading');
         validateUfid();
     }
-});
+}
 
-// Admin access functionality
-adminLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    showAdminModal();
-});
+// ==================== STATUS MESSAGE ====================
+
+function showStatus(message, type) {
+    if (!statusMessage) return;
+
+    const icon = type === 'success'
+        ? '<i class="fas fa-check-circle"></i>'
+        : '<i class="fas fa-exclamation-circle"></i>';
+
+    statusMessage.innerHTML = `${icon} ${message}`;
+    statusMessage.className = `status ${type} show`;
+
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        statusMessage.classList.remove('show');
+        setTimeout(() => {
+            statusMessage.className = 'status';
+        }, 300);
+    }, 5000);
+}
+
+// ==================== ADMIN MODAL ====================
 
 function showAdminModal() {
     const modal = document.createElement('div');
@@ -257,16 +450,18 @@ function showAdminModal() {
     const loginBtn = document.getElementById('adminLoginBtn');
     const passwordInput = document.getElementById('adminPassword');
 
-    closeBtn.addEventListener('click', closeAdminModal);
-    cancelBtn.addEventListener('click', closeAdminModal);
-    loginBtn.addEventListener('click', verifyAdminPassword);
+    if (closeBtn) closeBtn.addEventListener('click', closeAdminModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeAdminModal);
+    if (loginBtn) loginBtn.addEventListener('click', verifyAdminPassword);
 
     // Handle Enter key
-    passwordInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            verifyAdminPassword();
-        }
-    });
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                verifyAdminPassword();
+            }
+        });
+    }
 
     // Close modal when clicking outside
     modal.addEventListener('click', (e) => {
@@ -277,7 +472,7 @@ function showAdminModal() {
 
     // Focus on password input
     setTimeout(() => {
-        passwordInput.focus();
+        if (passwordInput) passwordInput.focus();
     }, 100);
 }
 
@@ -290,9 +485,8 @@ function closeAdminModal() {
 
 async function verifyAdminPassword() {
     const passwordInput = document.getElementById('adminPassword');
-    const errorDiv = document.getElementById('adminError');
     const loginBtn = document.getElementById('adminLoginBtn');
-    const password = passwordInput.value.trim();
+    const password = passwordInput ? passwordInput.value.trim() : '';
 
     if (!password) {
         showAdminError('Please enter a password');
@@ -300,8 +494,10 @@ async function verifyAdminPassword() {
     }
 
     try {
-        loginBtn.disabled = true;
-        loginBtn.textContent = 'Verifying...';
+        if (loginBtn) {
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Verifying...';
+        }
 
         const result = await window.electronAPI.verifyAdmin(password);
 
@@ -315,8 +511,10 @@ async function verifyAdminPassword() {
         console.error('Admin verification error:', error);
         showAdminError('Error verifying password. Please try again.');
     } finally {
-        loginBtn.disabled = false;
-        loginBtn.textContent = 'Login';
+        if (loginBtn) {
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Login';
+        }
     }
 }
 
@@ -331,72 +529,3 @@ function showAdminError(message) {
         }, 3000);
     }
 }
-
-// Status message functionality
-function showStatus(message, type) {
-    const icon = type === 'success'
-        ? '<i class="fas fa-check-circle"></i>'
-        : '<i class="fas fa-exclamation-circle"></i>';
-
-    statusMessage.innerHTML = `${icon} ${message}`;
-    statusMessage.className = `status-message ${type} show`;
-
-    // Auto-hide after 5 seconds
-    setTimeout(() => {
-        statusMessage.classList.remove('show');
-        setTimeout(() => {
-            statusMessage.className = 'status-message';
-        }, 300);
-    }, 5000);
-}
-
-// Initialize the interface
-document.addEventListener('DOMContentLoaded', () => {
-    // Focus on first input
-    ufidInputs[0].focus();
-
-    // Initial validation
-    validateUfid();
-
-    console.log('UF Lab Attendance System initialized');
-});
-
-// Keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-    // Escape key to clear inputs
-    if (e.key === 'Escape') {
-        clearUfid();
-    }
-
-    // Ctrl/Cmd + R to clear and refresh (prevent default refresh)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
-        e.preventDefault();
-        clearUfid();
-    }
-});
-
-// Auto-clear inputs after successful action (optional)
-function scheduleAutoClear() {
-    setTimeout(() => {
-        if (statusMessage.style.display === 'none') {
-            clearUfid();
-        }
-    }, 10000); // Clear after 10 seconds if no status message
-}
-
-// Additional helper functions
-function focusFirstEmptyInput() {
-    for (let i = 0; i < ufidInputs.length; i++) {
-        if (!ufidInputs[i].value) {
-            ufidInputs[i].focus();
-            break;
-        }
-    }
-}
-
-// Handle window focus - focus on first empty input
-window.addEventListener('focus', () => {
-    if (!isUfidComplete()) {
-        focusFirstEmptyInput();
-    }
-});

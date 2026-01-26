@@ -557,6 +557,58 @@ class DropboxService {
             return { success: false, error: error.message };
         }
     }
+
+    /**
+     * Upload the SQLite database file to Dropbox for real-time sync
+     * This uploads the attendance.db file directly to the backups folder
+     */
+    async backupDatabaseToDropbox() {
+        try {
+            const config = this.dataManager.getConfig();
+            if (!config.dropbox || !config.dropbox.enabled) {
+                return { success: false, error: 'Dropbox not enabled' };
+            }
+
+            const init = this.initializeFromConfig();
+            if (!init.success) return { success: false, error: init.error || 'Dropbox not configured' };
+
+            // Get the database file path
+            const dbPath = path.join(this.dataManager.dataDir, 'attendance.db');
+            if (!fs.existsSync(dbPath)) {
+                return { success: false, error: 'Database file not found' };
+            }
+
+            const parent = this.getBackupsFolder();
+            const ensured = await this.ensureFolder(parent);
+            if (!ensured.success) return { success: false, error: `Cannot ensure ${parent}: ${ensured.error}` };
+
+            // Upload with timestamp for versioning, and also a "latest" copy
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const timestampedPath = `${parent}/attendance-db-${timestamp}.db`;
+            const latestPath = `${parent}/attendance-latest.db`;
+
+            // Upload the timestamped version
+            const uploadResult = await this.uploadFile(dbPath, latestPath);
+            if (uploadResult.success) {
+                if (this.logger) {
+                    this.logger.info('dropbox', `Database backup uploaded: ${latestPath}`, 'system');
+                }
+                return {
+                    success: true,
+                    message: 'Database backup uploaded to Dropbox',
+                    path: latestPath
+                };
+            } else {
+                return uploadResult;
+            }
+        } catch (error) {
+            if (this.logger) {
+                this.logger.error('dropbox', `Database backup error: ${error.message}`, 'system');
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
     async listFiles(folderPath = '', { recursive = false } = {}) {
         if (!this.dropbox) {
             const init = this.initializeFromConfig();
