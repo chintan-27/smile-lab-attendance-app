@@ -579,41 +579,51 @@ router.get('/weekly-matrix', async (req, res) => {
       r.get(ATTENDANCE_KEY) || []
     ]);
 
-    // Parse week start from query or use current week
-    let weekStart;
-    if (req.query.weekStart) {
-      const [y, m, d] = (req.query.weekStart).split('-').map(Number);
-      weekStart = new Date(y, m - 1, d);
-    } else {
-      // Get Monday of current week
-      const now = new Date();
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      weekStart = new Date(now.setDate(diff));
-    }
-    weekStart.setHours(0, 0, 0, 0);
+    // Helper to get YYYY-MM-DD in ET timezone
+    const toETDateString = (date) => {
+      return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    };
 
-    // Generate 7 days (Mon-Sun)
-    const days = [];
+    // Helper to get weekday name in ET timezone
+    const toETWeekday = (date) => {
+      return date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' });
+    };
+
+    // Parse week start from query - treat as ET date
+    let weekStartStr;
+    if (req.query.weekStart) {
+      weekStartStr = req.query.weekStart; // Already YYYY-MM-DD
+    } else {
+      // Get Monday of current week in ET
+      const nowET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const [y, m, d] = nowET.split('-').map(Number);
+      const tempDate = new Date(y, m - 1, d, 12, 0, 0); // noon to avoid DST issues
+      const day = tempDate.getDay();
+      const diff = tempDate.getDate() - day + (day === 0 ? -6 : 1);
+      tempDate.setDate(diff);
+      weekStartStr = `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}-${String(tempDate.getDate()).padStart(2, '0')}`;
+    }
+
+    // Generate 7 date strings (Mon-Sun) in ET
+    const dayStrings = [];
+    const dayLabels = [];
+    const [startY, startM, startD] = weekStartStr.split('-').map(Number);
+
     for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      days.push(d);
+      const d = new Date(startY, startM - 1, startD + i, 12, 0, 0); // noon to avoid DST issues
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      dayStrings.push(dateStr);
+      dayLabels.push(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]);
     }
 
     // Calculate hours per student per day
     const studentMap = new Map();
 
-    // Get date strings for each day in ET timezone
-    const dayStrings = days.map(d => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }));
-
-    days.forEach((day, dayIdx) => {
-      const targetDateStr = dayStrings[dayIdx];
-
+    dayStrings.forEach((targetDateStr, dayIdx) => {
       // Get records for this day by comparing date strings in ET
       const dayRecords = attendance.filter(record => {
         const ts = new Date(record.timestamp);
-        const recordDateStr = ts.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const recordDateStr = toETDateString(ts);
         return recordDateStr === targetDateStr;
       }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -669,9 +679,9 @@ router.get('/weekly-matrix', async (req, res) => {
 
     res.json({
       success: true,
-      weekStart: weekStart.toISOString().split('T')[0],
-      weekEnd: days[6].toISOString().split('T')[0],
-      dayLabels: days.map(d => d.toLocaleDateString('en-US', { weekday: 'short' })),
+      weekStart: dayStrings[0],
+      weekEnd: dayStrings[6],
+      dayLabels,
       matrix
     });
   } catch (error) {
