@@ -583,7 +583,7 @@ router.get('/weekly-matrix', async (req, res) => {
     let weekStart;
     if (req.query.weekStart) {
       const [y, m, d] = (req.query.weekStart).split('-').map(Number);
-      weekStart = new Date(y, m - 1, d);
+      weekStart = new Date(y, m, d - 1);
     } else {
       // Get Monday of current week
       const now = new Date();
