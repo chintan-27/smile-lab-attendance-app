@@ -230,13 +230,13 @@ function resetButtonState() {
     currentStudent = null;
 
     if (actionBtn) {
-        actionBtn.classList.remove('signout-mode');
+        actionBtn.classList.remove('signout-mode', 'signin-mode');
     }
     if (actionBtnText) {
-        actionBtnText.textContent = 'Sign In';
+        actionBtnText.textContent = 'Sign In/Out';
     }
     if (actionBtnIcon) {
-        actionBtnIcon.className = 'fas fa-arrow-right-to-bracket';
+        actionBtnIcon.className = 'fas fa-right-to-bracket';
     }
     if (userHint) {
         userHint.textContent = '';
@@ -248,6 +248,7 @@ function setSignOutMode(studentName) {
     currentMode = 'signout';
 
     if (actionBtn) {
+        actionBtn.classList.remove('signin-mode');
         actionBtn.classList.add('signout-mode');
     }
     if (actionBtnText) {
@@ -269,6 +270,7 @@ function setSignInMode(studentName) {
 
     if (actionBtn) {
         actionBtn.classList.remove('signout-mode');
+        actionBtn.classList.add('signin-mode');
     }
     if (actionBtnText) {
         actionBtnText.textContent = 'Sign In';

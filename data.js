@@ -1,3 +1,34 @@
+/**
+ * DataManager - Central Data Access Layer
+ *
+ * ARCHITECTURE: SQLite-First with JSON Backup
+ * ============================================
+ *
+ * Data Flow:
+ *
+ *   STARTUP:
+ *   SQLite (empty?) ──→ Migrate from JSON (once) ──→ SQLite (source of truth)
+ *
+ *   RUNTIME WRITES:
+ *   App ──→ SQLite (primary) ──→ Export to JSON (backup)
+ *
+ *   RUNTIME READS:
+ *   App ←── SQLite (always, fast indexed queries)
+ *
+ *   DROPBOX PULL (master mode):
+ *   Dropbox ──→ JSON ──→ reloadFromJson() ──→ SQLite rebuilt
+ *
+ *   DROPBOX PUSH:
+ *   SQLite ──→ exportToJson() ──→ Upload JSON to Dropbox
+ *
+ * Key Principles:
+ * 1. SQLite is the SINGLE SOURCE OF TRUTH for all operations
+ * 2. JSON files are BACKUP exports for Dropbox compatibility
+ * 3. All writes go to SQLite FIRST, then export to JSON
+ * 4. All reads come from SQLite (O(1) indexed lookups)
+ * 5. JSON-only mode is fallback for legacy/test environments
+ */
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -295,6 +326,78 @@ class DataManager {
             };
         } catch (error) {
             this.logger?.error('system', `Failed to reload SQLite from JSON: ${error.message}`, 'system');
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Export SQLite data to JSON files (backup)
+     * Called after SQLite writes to maintain JSON backup for Dropbox sync
+     * @returns {Object} { success, students, attendance }
+     */
+    exportToJson() {
+        if (!this.useSqlite || !this.dbManager || !this.dbManager.isReady()) {
+            return { success: false, error: 'SQLite not available' };
+        }
+
+        try {
+            // Export students
+            const students = this.dbManager.getStudents();
+            const studentsToSave = this.encryptSensitiveFields(students, ['name', 'email']);
+            fs.writeFileSync(this.studentsFile, JSON.stringify(studentsToSave, null, 2));
+
+            // Export attendance
+            const attendance = this.dbManager.getAttendance();
+            const attendanceToSave = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(attendanceToSave, null, 2));
+
+            this.logger?.info('system', `Exported to JSON: ${students.length} students, ${attendance.length} attendance`, 'system');
+
+            return {
+                success: true,
+                students: students.length,
+                attendance: attendance.length
+            };
+        } catch (error) {
+            this.logger?.error('system', `Failed to export to JSON: ${error.message}`, 'system');
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Export only students to JSON (lightweight backup after student changes)
+     */
+    exportStudentsToJson() {
+        if (!this.useSqlite || !this.dbManager || !this.dbManager.isReady()) {
+            return { success: false, error: 'SQLite not available' };
+        }
+
+        try {
+            const students = this.dbManager.getStudents();
+            const studentsToSave = this.encryptSensitiveFields(students, ['name', 'email']);
+            fs.writeFileSync(this.studentsFile, JSON.stringify(studentsToSave, null, 2));
+            return { success: true, count: students.length };
+        } catch (error) {
+            this.logger?.error('system', `Failed to export students to JSON: ${error.message}`, 'system');
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Export only attendance to JSON (lightweight backup after attendance changes)
+     */
+    exportAttendanceToJson() {
+        if (!this.useSqlite || !this.dbManager || !this.dbManager.isReady()) {
+            return { success: false, error: 'SQLite not available' };
+        }
+
+        try {
+            const attendance = this.dbManager.getAttendance();
+            const attendanceToSave = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(attendanceToSave, null, 2));
+            return { success: true, count: attendance.length };
+        } catch (error) {
+            this.logger?.error('system', `Failed to export attendance to JSON: ${error.message}`, 'system');
             return { success: false, error: error.message };
         }
     }
@@ -794,18 +897,19 @@ class DataManager {
                 expectedDaysPerWeek: Number(meta.expectedDaysPerWeek ?? 0),
             };
 
-            // Write to SQLite if available
+            // SQLite-first: Write to SQLite (source of truth)
             if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
                 const result = this.dbManager.upsertStudent(student);
                 if (!result.success) {
                     throw new Error(result.error);
                 }
                 student = result.student;
-            }
 
-            // Also write to JSON (for hybrid mode and Dropbox backup)
-            if (this.storageMode !== 'sqlite') {
-                const students = this.useSqlite ? this.dbManager.getStudents() : this.getStudents();
+                // Export to JSON as backup (async-safe, non-blocking)
+                this.exportStudentsToJson();
+            } else {
+                // Fallback: JSON-only mode (legacy)
+                const students = this.getStudents();
                 const existingIndex = students.findIndex(s => s.ufid === ufid);
                 if (existingIndex !== -1) {
                     if (this.logger) {
@@ -899,6 +1003,34 @@ class DataManager {
 
     updateStudent(ufid, updates = {}) {
         try {
+            // SQLite-first: Update in SQLite (source of truth)
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const existing = this.dbManager.getStudentByUfid(ufid);
+                if (!existing) {
+                    return { success: false, error: 'Student not found' };
+                }
+
+                const updatedStudent = {
+                    ...existing,
+                    name: updates.name ?? existing.name,
+                    email: updates.email ?? existing.email,
+                    active: (typeof updates.active === 'boolean') ? updates.active : existing.active,
+                    role: (updates.role ?? existing.role ?? 'volunteer').toLowerCase(),
+                    expectedHoursPerWeek: Number(updates.expectedHoursPerWeek ?? existing.expectedHoursPerWeek ?? 0),
+                    expectedDaysPerWeek: Number(updates.expectedDaysPerWeek ?? existing.expectedDaysPerWeek ?? 0),
+                };
+
+                const result = this.dbManager.upsertStudent(updatedStudent);
+                if (!result.success) {
+                    return { success: false, error: result.error };
+                }
+
+                // Export to JSON as backup
+                this.exportStudentsToJson();
+                return { success: true, student: result.student };
+            }
+
+            // Fallback: JSON-only mode (legacy)
             const students = this.getStudents();
             const idx = students.findIndex(s => s.ufid === ufid);
             if (idx === -1) return { success: false, error: 'Student not found' };
@@ -932,6 +1064,26 @@ class DataManager {
                 this.logger.info('student', `Removing student with UFID: ${ufid}`, 'admin');
             }
 
+            // SQLite-first: Delete from SQLite (source of truth)
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const result = this.dbManager.removeStudent(ufid);
+                if (!result.success) {
+                    if (this.logger) {
+                        this.logger.warning('student', `Student not found for removal: ${ufid}`, 'admin');
+                    }
+                    return { success: false, error: 'Student not found' };
+                }
+
+                if (this.logger) {
+                    this.logger.info('student', `Student removed from SQLite: ${ufid}`, 'admin');
+                }
+
+                // Export to JSON as backup
+                this.exportStudentsToJson();
+                return { success: true };
+            }
+
+            // Fallback: JSON-only mode (legacy)
             const students = this.getStudents();
             const studentToRemove = students.find(s => s.ufid === ufid);
             const filteredStudents = students.filter(s => s.ufid !== ufid);
@@ -1154,7 +1306,6 @@ class DataManager {
                 }
             }
 
-            const attendance = this.getAttendance();
             const record = {
                 id: Date.now(),
                 ufid: ufid,
@@ -1163,22 +1314,28 @@ class DataManager {
                 timestamp: new Date().toISOString()
             };
 
-            attendance.push(record);
-            let dataToSave = this.encryptSensitiveFields(attendance, ['name']);
-            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
-
-            // Also add to SQLite if available
+            // SQLite-first: Write to SQLite (source of truth)
             if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
                 try {
                     this.dbManager.addAttendanceRecord(record);
                     if (this.logger) {
-                        this.logger.info('attendance', `Record also saved to SQLite for ${authorizedStudent.name} (${ufid})`, 'system');
+                        this.logger.info('attendance', `Record saved to SQLite for ${authorizedStudent.name} (${ufid})`, 'system');
                     }
+
+                    // Export to JSON as backup
+                    this.exportAttendanceToJson();
                 } catch (sqliteError) {
                     if (this.logger) {
                         this.logger.error('attendance', `Failed to save to SQLite: ${sqliteError.message}`, 'system');
                     }
+                    throw sqliteError;
                 }
+            } else {
+                // Fallback: JSON-only mode (legacy)
+                const attendance = this.getAttendance();
+                attendance.push(record);
+                let dataToSave = this.encryptSensitiveFields(attendance, ['name']);
+                fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
             }
 
             if (this.logger) {
@@ -1200,6 +1357,26 @@ class DataManager {
                 this.logger.info('attendance', `Deleting attendance record: ${recordId}`, 'admin');
             }
 
+            // SQLite-first: Delete from SQLite (source of truth)
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const result = this.dbManager.deleteAttendanceRecord(recordId);
+                if (!result.success) {
+                    if (this.logger) {
+                        this.logger.warning('attendance', `Attendance record not found for deletion: ${recordId}`, 'admin');
+                    }
+                    return { success: false, error: 'Record not found' };
+                }
+
+                if (this.logger) {
+                    this.logger.info('attendance', `Attendance record deleted from SQLite: ${recordId}`, 'admin');
+                }
+
+                // Export to JSON as backup
+                this.exportAttendanceToJson();
+                return { success: true };
+            }
+
+            // Fallback: JSON-only mode (legacy)
             const attendance = this.getAttendance();
             const recordToDelete = attendance.find(record => record.id === recordId);
             const filteredAttendance = attendance.filter(record => record.id !== recordId);
@@ -1237,6 +1414,32 @@ class DataManager {
      */
     updateAttendanceByPendingId(pendingRecordId, updates) {
         try {
+            // SQLite-first: Update in SQLite (source of truth)
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                const result = this.dbManager.updateAttendanceByPendingId(pendingRecordId, {
+                    ...updates,
+                    pendingTimestamp: false,
+                    resolvedAt: new Date().toISOString()
+                });
+
+                if (!result.success) {
+                    if (this.logger) {
+                        this.logger.warning('attendance', `No attendance record found with pendingRecordId: ${pendingRecordId}`, 'system');
+                    }
+                    return { success: false, error: 'Record not found' };
+                }
+
+                if (this.logger) {
+                    this.logger.info('attendance',
+                        `Updated pending attendance record in SQLite: ${pendingRecordId}`, 'system');
+                }
+
+                // Export to JSON as backup
+                this.exportAttendanceToJson();
+                return { success: true, record: result.record };
+            }
+
+            // Fallback: JSON-only mode (legacy)
             const attendance = this.getAttendance();
             const idx = attendance.findIndex(r => r.pendingRecordId === pendingRecordId);
 
@@ -1307,21 +1510,29 @@ class DataManager {
      */
     addAttendanceRecord(record) {
         try {
-            // Write to SQLite if available
+            // SQLite-first: Write to SQLite (source of truth)
             if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
                 const result = this.dbManager.addAttendanceRecord(record);
                 if (!result.success) {
                     throw new Error(result.error);
                 }
+
+                // Export to JSON as backup
+                this.exportAttendanceToJson();
+
+                if (this.logger) {
+                    this.logger.info('attendance',
+                        `Added attendance record: ${record.name || record.ufid} - ${record.action} at ${record.timestamp}`, 'system');
+                }
+
+                return { success: true, record };
             }
 
-            // Also write to JSON (for hybrid mode and Dropbox backup)
-            if (this.storageMode !== 'sqlite') {
-                const attendance = this.useSqlite ? this.dbManager.getAttendance() : this.getAttendance();
-                attendance.push(record);
-                const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
-                fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
-            }
+            // Fallback: JSON-only mode (legacy)
+            const attendance = this.getAttendance();
+            attendance.push(record);
+            const dataToSave = this.encryptSensitiveFields(attendance, ['name']);
+            fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
 
             if (this.logger) {
                 this.logger.info('attendance',
@@ -1560,10 +1771,8 @@ class DataManager {
                         synthetic: true
                     };
 
-                    const all = this.getAttendance();
-                    all.push(syntheticOut);
-                    const dataToSave = this.encryptSensitiveFields(all, ['name']);
-                    fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+                    // Use SQLite-first pattern via addAttendanceRecord
+                    this.addAttendanceRecord(syntheticOut);
 
                     sessions.push({ in: open.timestamp, out: syntheticOut.timestamp, closed: true, syntheticOut: true });
                     autoclosed = true;
@@ -1582,10 +1791,9 @@ class DataManager {
                         timestamp: effectiveOut,
                         synthetic: true
                     };
-                    const all = this.getAttendance();
-                    all.push(syntheticOut);
-                    const dataToSave = this.encryptSensitiveFields(all, ['name']);
-                    fs.writeFileSync(this.attendanceFile, JSON.stringify(dataToSave, null, 2));
+
+                    // Use SQLite-first pattern via addAttendanceRecord
+                    this.addAttendanceRecord(syntheticOut);
 
                     sessions.push({ in: open.timestamp, out: syntheticOut.timestamp, closed: true, syntheticOut: true });
                     autoclosed = true;
@@ -1828,6 +2036,16 @@ class DataManager {
 
     sortAttendanceByTimestamp() {
         try {
+            // SQLite maintains sort order via index, but export sorted JSON for backup
+            if (this.useSqlite && this.dbManager && this.dbManager.isReady()) {
+                // Just export to JSON (SQLite already maintains order)
+                this.exportAttendanceToJson();
+                const count = this.dbManager.getAttendanceCount ? this.dbManager.getAttendanceCount() : this.getAttendance().length;
+                if (this.logger) this.logger.info('attendance', `Attendance exported sorted (${count} records)`, 'system');
+                return { success: true, count };
+            }
+
+            // Fallback: JSON-only mode
             const attendance = this.getAttendance(); // decrypted array
             const sorted = attendance.slice().sort((a, b) => {
                 const ta = new Date(a.timestamp).getTime() || 0;
@@ -2444,40 +2662,6 @@ class DataManager {
         }
         if (!fs.existsSync(this.configFile)) {
             fs.writeFileSync(this.configFile, JSON.stringify({}, null, 2));
-        }
-    }
-
-    /**
-     * Export data to JSON files (for Dropbox backup compatibility)
-     * Used when SQLite is the primary storage but JSON files need to stay in sync
-     * @returns {Object} { success, error? }
-     */
-    exportToJson() {
-        try {
-            if (!this.useSqlite || !this.dbManager || !this.dbManager.isReady()) {
-                return { success: true, message: 'JSON is already primary storage' };
-            }
-
-            // Export students
-            const students = this.dbManager.exportStudents();
-            const studentsData = this.encryptSensitiveFields(students, ['name', 'email']);
-            fs.writeFileSync(this.studentsFile, JSON.stringify(studentsData, null, 2));
-
-            // Export attendance
-            const attendance = this.dbManager.exportAttendance();
-            const attendanceData = this.encryptSensitiveFields(attendance, ['name']);
-            fs.writeFileSync(this.attendanceFile, JSON.stringify(attendanceData, null, 2));
-
-            if (this.logger) {
-                this.logger.info('backup', `Exported ${students.length} students and ${attendance.length} attendance records to JSON`, 'system');
-            }
-
-            return { success: true };
-        } catch (error) {
-            if (this.logger) {
-                this.logger.error('backup', `Export to JSON failed: ${error.message}`, 'system');
-            }
-            return { success: false, error: error.message };
         }
     }
 

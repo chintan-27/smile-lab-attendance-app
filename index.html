@@ -56,17 +56,159 @@
             position: fixed;
             inset: 0;
             background-image:
-                linear-gradient(rgba(var(--uf-blue-rgb), 0.015) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(var(--uf-blue-rgb), 0.015) 1px, transparent 1px);
-            background-size: 64px 64px;
+                linear-gradient(rgba(var(--uf-blue-rgb), 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(var(--uf-blue-rgb), 0.02) 1px, transparent 1px);
+            background-size: 48px 48px;
             pointer-events: none;
             z-index: 0;
+        }
+
+        /* Background decorative elements */
+        .bg-decorations {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        .bg-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.5;
+        }
+
+        .bg-orb-1 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(var(--uf-blue-rgb), 0.15) 0%, transparent 70%);
+            top: -150px;
+            right: -100px;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .bg-orb-2 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(250, 70, 22, 0.1) 0%, transparent 70%);
+            bottom: -100px;
+            left: -100px;
+            animation: float 25s ease-in-out infinite reverse;
+        }
+
+        .bg-orb-3 {
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(var(--uf-blue-rgb), 0.08) 0%, transparent 70%);
+            top: 50%;
+            left: 10%;
+            animation: float 18s ease-in-out infinite 2s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(20px, -20px) scale(1.05); }
+            50% { transform: translate(0, 20px) scale(0.95); }
+            75% { transform: translate(-20px, -10px) scale(1.02); }
+        }
+
+        /* Geometric shapes */
+        .bg-shape {
+            position: absolute;
+            opacity: 0.04;
+        }
+
+        .bg-shape-1 {
+            width: 120px;
+            height: 120px;
+            border: 3px solid var(--uf-blue);
+            border-radius: 24px;
+            transform: rotate(15deg);
+            top: 15%;
+            left: 8%;
+            animation: rotate-slow 30s linear infinite;
+        }
+
+        .bg-shape-2 {
+            width: 80px;
+            height: 80px;
+            border: 3px solid var(--uf-orange);
+            border-radius: 50%;
+            bottom: 20%;
+            right: 10%;
+            animation: rotate-slow 25s linear infinite reverse;
+        }
+
+        .bg-shape-3 {
+            width: 60px;
+            height: 60px;
+            background: var(--uf-blue);
+            border-radius: 12px;
+            transform: rotate(45deg);
+            top: 60%;
+            right: 15%;
+            animation: pulse-slow 8s ease-in-out infinite;
+        }
+
+        .bg-shape-4 {
+            width: 100px;
+            height: 100px;
+            border: 3px solid var(--uf-blue);
+            border-radius: 50%;
+            bottom: 30%;
+            left: 15%;
+            animation: pulse-slow 10s ease-in-out infinite 2s;
+        }
+
+        .bg-shape-5 {
+            width: 40px;
+            height: 40px;
+            background: var(--uf-orange);
+            border-radius: 8px;
+            top: 25%;
+            right: 20%;
+            transform: rotate(30deg);
+            animation: rotate-slow 20s linear infinite;
+        }
+
+        @keyframes rotate-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 0.04; transform: scale(1) rotate(45deg); }
+            50% { opacity: 0.08; transform: scale(1.1) rotate(45deg); }
+        }
+
+        /* Dotted pattern accent */
+        .bg-dots {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            background-image: radial-gradient(rgba(var(--uf-blue-rgb), 0.15) 2px, transparent 2px);
+            background-size: 20px 20px;
+            bottom: 10%;
+            right: 5%;
+            opacity: 0.5;
+        }
+
+        .bg-dots-2 {
+            position: absolute;
+            width: 150px;
+            height: 150px;
+            background-image: radial-gradient(rgba(var(--uf-blue-rgb), 0.12) 2px, transparent 2px);
+            background-size: 16px 16px;
+            top: 20%;
+            left: 5%;
+            opacity: 0.4;
         }
 
         /* Top bar */
         .topbar {
             position: relative;
-            z-index: 10;
+            z-index: 20;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -142,7 +284,7 @@
         /* Main content */
         .main {
             position: relative;
-            z-index: 10;
+            z-index: 20;
             flex: 1;
             display: flex;
             align-items: center;
@@ -325,6 +467,15 @@
             transform: translateY(0);
         }
 
+        .action-btn.signin-mode {
+            background: #16a34a;
+        }
+
+        .action-btn.signin-mode:hover:not(:disabled) {
+            background: #15803d;
+            box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+        }
+
         .action-btn.signout-mode {
             background: var(--uf-orange);
         }
@@ -389,7 +540,7 @@
         /* Footer */
         .footer {
             position: relative;
-            z-index: 10;
+            z-index: 20;
             padding: 1.25rem;
             text-align: center;
             font-size: 0.8125rem;
@@ -568,6 +719,20 @@
 </head>
 
 <body>
+    <!-- Background decorations -->
+    <div class="bg-decorations">
+        <div class="bg-orb bg-orb-1"></div>
+        <div class="bg-orb bg-orb-2"></div>
+        <div class="bg-orb bg-orb-3"></div>
+        <div class="bg-shape bg-shape-1"></div>
+        <div class="bg-shape bg-shape-2"></div>
+        <div class="bg-shape bg-shape-3"></div>
+        <div class="bg-shape bg-shape-4"></div>
+        <div class="bg-shape bg-shape-5"></div>
+        <div class="bg-dots"></div>
+        <div class="bg-dots-2"></div>
+    </div>
+
     <div class="topbar">
         <div class="logo-section">
             <div class="logo-icon">
@@ -614,7 +779,7 @@
                 <button class="action-btn" id="actionBtn" disabled>
                     <span class="btn-content">
                         <i class="fas fa-arrow-right-to-bracket"></i>
-                        <span id="actionBtnText">Sign In</span>
+                        <span id="actionBtnText">Sign In/Out</span>
                     </span>
                     <span class="spinner"></span>
                 </button>
