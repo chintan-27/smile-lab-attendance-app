@@ -12,6 +12,7 @@ let charts = {};
 let hoursCurrentDate = new Date();
 hoursCurrentDate.setHours(0, 0, 0, 0);
 let matrixWeekStart = getMonday(new Date());
+console.log(matrixWeekStart, new Date());
 
 function getMonday(d) {
   const date = new Date(d);
