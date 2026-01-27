@@ -21,11 +21,12 @@ const {
 const adminService = require('../services/adminService');
 
 /**
- * POST /api/admin/init
+ * GET /api/admin/init
  * Initialize/reset credentials from environment (temporary setup endpoint)
- * Remove after initial setup!
+ * Visit in browser: https://your-api.com/api/admin/init
+ * Remove or secure after initial setup!
  */
-router.post('/init', async (req, res) => {
+router.get('/init', async (req, res) => {
   try {
     const result = await adminService.resetCredentialsFromEnv();
     res.json(result);
