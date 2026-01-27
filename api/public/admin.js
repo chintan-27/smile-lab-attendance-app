@@ -380,6 +380,7 @@ async function loadWeeklyMatrix() {
     console.log(dateStr1, dateStr)
     const response = await fetch(`/api/admin/data/weekly-matrix?weekStart=${dateStr}`);
     const data = await response.json();
+    console.log(data);
 
     // Update label
     const thisWeek = getMonday(new Date());
