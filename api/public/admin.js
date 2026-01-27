@@ -374,7 +374,7 @@ async function loadWeeklyMatrix() {
 
   try {
     const dateStr1 = matrixWeekStart.toISOString().split('T')[0];
-    const dateStr = await toLocalYMD(date);
+    const dateStr = await toLocalYMD(matrixWeekStart);
 
     console.log(dateStr1, dateStr)
     const response = await fetch(`/api/admin/data/weekly-matrix?weekStart=${dateStr}`);
