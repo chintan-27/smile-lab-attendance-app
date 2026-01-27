@@ -178,6 +178,11 @@ class DataManager {
 
     /**
      * Initialize SQLite database and migrate data if needed (async)
+     *
+     * Migration behavior based on Dropbox master mode:
+     * - Master mode ON: Dropbox/JSON is source of truth → always reload JSON to SQLite
+     * - Master mode OFF: Local SQLite is source of truth → only migrate when empty
+     *
      * @returns {Promise<void>}
      */
     async initializeSqlite() {
@@ -188,15 +193,35 @@ class DataManager {
             if (success) {
                 this.logger?.info('system', 'SQLite database initialized', 'system');
 
-                // Check if we need to migrate existing JSON data
+                // Check Dropbox master mode setting
+                const config = this.getConfig();
+                const isMasterMode = config.dropbox?.masterMode === true;
+
+                // Check current SQLite state
                 const stats = this.dbManager.getStats();
                 this.logger?.info('system', `SQLite current state: ${stats.students} students, ${stats.attendance} attendance records`, 'system');
+                this.logger?.info('system', `Dropbox master mode: ${isMasterMode ? 'ON (Dropbox is source)' : 'OFF (Local is source)'}`, 'system');
 
-                if (stats.students === 0 && stats.attendance === 0) {
-                    this.logger?.info('system', 'SQLite is empty, migrating from JSON...', 'system');
-                    const migrateResult = this.migrateJsonToSqlite();
-                    this.logger?.info('system',
-                        `Initial migration complete: ${migrateResult.students} students, ${migrateResult.attendance} attendance`, 'system');
+                if (isMasterMode) {
+                    // Master mode ON: Dropbox/JSON is source of truth
+                    // Always reload from JSON to ensure SQLite has latest data from Dropbox
+                    this.logger?.info('system', 'Master mode ON - reloading SQLite from JSON (Dropbox source)...', 'system');
+                    const reloadResult = await this.reloadFromJson();
+                    if (reloadResult.success) {
+                        this.logger?.info('system',
+                            `Reload complete: ${reloadResult.students} students, ${reloadResult.attendance} attendance`, 'system');
+                    } else {
+                        this.logger?.error('system', `Reload from JSON failed: ${reloadResult.error}`, 'system');
+                    }
+                } else {
+                    // Master mode OFF: Local SQLite is source of truth
+                    // Only migrate if SQLite is completely empty (first run)
+                    if (stats.students === 0 && stats.attendance === 0) {
+                        this.logger?.info('system', 'SQLite is empty, migrating from JSON...', 'system');
+                        const migrateResult = this.migrateJsonToSqlite();
+                        this.logger?.info('system',
+                            `Initial migration complete: ${migrateResult.students} students, ${migrateResult.attendance} attendance`, 'system');
+                    }
                 }
             } else {
                 this.logger?.error('system', 'Failed to initialize SQLite, falling back to JSON', 'system');
