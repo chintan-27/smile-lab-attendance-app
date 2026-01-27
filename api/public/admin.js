@@ -358,13 +358,22 @@ function initMatrixNavigation() {
   }
 }
 
+// Helper
+function toLocalYMD(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+
 async function loadWeeklyMatrix() {
   const container = document.getElementById('weekly-matrix-container');
   const labelEl = document.getElementById('matrix-week-label');
   const nextBtn = document.getElementById('matrix-next-btn');
 
   try {
-    const dateStr = matrixWeekStart.toISOString().split('T')[0];
+    const dateStr = toLocalYMD(matrixWeekStart);
     const response = await fetch(`/api/admin/data/weekly-matrix?weekStart=${dateStr}`);
     const data = await response.json();
 
