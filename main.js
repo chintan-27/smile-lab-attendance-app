@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron')
 const path = require('path')
 const { autoUpdater } = require('electron-updater');
 
+const faceService = require('./faceService');
 const DataManager = require('./data.js')
 const EmailService = require('./emailService.js')
 delete require.cache[require.resolve('./googleSheetsService.js')];
@@ -358,6 +359,13 @@ app.whenReady().then(async () => {
   // Log application startup
   dataManager.logger.info('system', 'Lab Attendance System starting up', 'system');
   dataManager.logger.info('system', 'All services initialized successfully', 'system');
+
+  // Start InsightFace Python service (non-blocking — app works without it until first frame)
+  faceService.start().then(() => {
+    dataManager.logger.info('system', 'Face recognition service ready', 'system');
+  }).catch((err) => {
+    dataManager.logger.error('system', `Face service failed to start: ${err.message}`, 'system');
+  });
 
   let backupJobStarted = false;
   let dailySummaryJobStarted = false;
@@ -2167,6 +2175,52 @@ ipcMain.handle('backup-data', async (event) => {
   }
 });
 
+// Face ID — frame processing via InsightFace Python service
+ipcMain.handle('face-process-frame', async (event, base64jpeg) => {
+  try {
+    if (!faceService.ready) return { face: null, error: 'service_not_ready' };
+    return await faceService.analyze(base64jpeg);
+  } catch (err) {
+    return { face: null, error: err.message };
+  }
+});
+
+ipcMain.handle('face-reset-liveness', async () => {
+  try {
+    if (faceService.ready) await faceService.resetLiveness();
+    return { ok: true };
+  } catch (_) {
+    return { ok: true };
+  }
+});
+
+ipcMain.handle('save-face-descriptor', async (event, { ufid, descriptor }) => {
+  try {
+    const result = dataManager.saveFaceDescriptor(ufid, descriptor);
+    return { success: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-all-face-descriptors', async (event) => {
+  try {
+    const descriptors = dataManager.getAllFaceDescriptors();
+    return { success: true, descriptors };
+  } catch (error) {
+    return { success: false, descriptors: [], error: error.message };
+  }
+});
+
+ipcMain.handle('clear-face-descriptor', async (event, ufid) => {
+  try {
+    const result = dataManager.clearFaceDescriptor(ufid);
+    return { success: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // System logs handlers
 ipcMain.handle('get-system-logs', async (event, options = {}) => {
   try {
@@ -2210,6 +2264,7 @@ ipcMain.handle('clear-system-logs', async () => {
 
 // App lifecycle
 app.on('window-all-closed', () => {
+  faceService.stop();
   if (dataManager && dataManager.logger) {
     dataManager.logger.info('system', 'All windows closed', 'system');
   }

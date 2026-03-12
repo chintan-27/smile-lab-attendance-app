@@ -192,6 +192,17 @@ class SQLiteDatabase {
                 up: () => {
                     // Column already in schema definition
                 }
+            },
+            // Migration 3: Add face_descriptor column for Face ID
+            {
+                version: 3,
+                up: () => {
+                    try {
+                        this.db.run('ALTER TABLE students ADD COLUMN face_descriptor TEXT');
+                    } catch (e) {
+                        // Column might already exist
+                    }
+                }
             }
         ];
 

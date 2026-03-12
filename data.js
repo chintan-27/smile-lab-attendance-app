@@ -2710,6 +2710,29 @@ class DataManager {
             this.dbManager.close();
         }
     }
+
+    // ==================== FACE DESCRIPTOR METHODS ====================
+
+    saveFaceDescriptor(ufid, descriptor) {
+        if (this.dbManager && this.dbManager.isReady()) {
+            return this.dbManager.saveFaceDescriptor(ufid, descriptor);
+        }
+        return false;
+    }
+
+    getAllFaceDescriptors() {
+        if (this.dbManager && this.dbManager.isReady()) {
+            return this.dbManager.getAllFaceDescriptors();
+        }
+        return [];
+    }
+
+    clearFaceDescriptor(ufid) {
+        if (this.dbManager && this.dbManager.isReady()) {
+            return this.dbManager.clearFaceDescriptor(ufid);
+        }
+        return false;
+    }
 }
 
 module.exports = DataManager;

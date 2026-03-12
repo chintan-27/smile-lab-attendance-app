@@ -103,5 +103,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportSystemLogs: (days) => ipcRenderer.invoke('export-system-logs', days),
 
   // Backup
-  backupData: () => ipcRenderer.invoke('backup-data')
+  backupData: () => ipcRenderer.invoke('backup-data'),
+
+  // Face ID
+  faceProcessFrame: (base64jpeg) => ipcRenderer.invoke('face-process-frame', base64jpeg),
+  faceResetLiveness: () => ipcRenderer.invoke('face-reset-liveness'),
+  saveFaceDescriptor: (ufid, descriptor) => ipcRenderer.invoke('save-face-descriptor', { ufid, descriptor }),
+  getAllFaceDescriptors: () => ipcRenderer.invoke('get-all-face-descriptors'),
+  clearFaceDescriptor: (ufid) => ipcRenderer.invoke('clear-face-descriptor', ufid)
 })

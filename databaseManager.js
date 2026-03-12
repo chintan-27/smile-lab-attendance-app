@@ -762,6 +762,69 @@ class DatabaseManager {
     getStats() {
         return this.sqliteDb.getStats();
     }
+
+    // ==================== FACE DESCRIPTOR OPERATIONS ====================
+
+    /**
+     * Save face descriptor for a student
+     * @param {string} ufid
+     * @param {number[]} descriptor - 128-dim float array
+     */
+    saveFaceDescriptor(ufid, descriptor) {
+        if (!this.isReady()) return false;
+        const json = JSON.stringify(Array.from(descriptor));
+        this.sqliteDb.run(
+            'UPDATE students SET face_descriptor = ? WHERE ufid = ?',
+            [json, ufid]
+        );
+        this.sqliteDb.save();
+        return true;
+    }
+
+    /**
+     * Get face descriptor for a student
+     * @param {string} ufid
+     * @returns {number[]|null}
+     */
+    getFaceDescriptor(ufid) {
+        if (!this.isReady()) return null;
+        const row = this.sqliteDb.get(
+            'SELECT face_descriptor FROM students WHERE ufid = ?',
+            [ufid]
+        );
+        if (!row || !row.face_descriptor) return null;
+        return JSON.parse(row.face_descriptor);
+    }
+
+    /**
+     * Get all students with enrolled face descriptors
+     * @returns {Array<{ufid, name, descriptor}>}
+     */
+    getAllFaceDescriptors() {
+        if (!this.isReady()) return [];
+        const rows = this.sqliteDb.all(
+            'SELECT ufid, name, face_descriptor FROM students WHERE face_descriptor IS NOT NULL AND active = 1'
+        );
+        return rows.map(r => ({
+            ufid: r.ufid,
+            name: r.name,
+            descriptor: JSON.parse(r.face_descriptor)
+        }));
+    }
+
+    /**
+     * Clear face descriptor for a student
+     * @param {string} ufid
+     */
+    clearFaceDescriptor(ufid) {
+        if (!this.isReady()) return false;
+        this.sqliteDb.run(
+            'UPDATE students SET face_descriptor = NULL WHERE ufid = ?',
+            [ufid]
+        );
+        this.sqliteDb.save();
+        return true;
+    }
 }
 
 module.exports = DatabaseManager;
