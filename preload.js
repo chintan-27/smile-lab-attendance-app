@@ -111,7 +111,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFaceDescriptor: (ufid, descriptor) => ipcRenderer.invoke('save-face-descriptor', { ufid, descriptor }),
   getAllFaceDescriptors: () => ipcRenderer.invoke('get-all-face-descriptors'),
   clearFaceDescriptor: (ufid) => ipcRenderer.invoke('clear-face-descriptor', ufid),
-
-  // Paths (for MediaPipe WASM/model loading in renderer) — resolved in main process
-  getMediaPipePaths: () => ipcRenderer.invoke('get-mediapipe-paths')
 })

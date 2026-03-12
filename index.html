@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' blob:; img-src 'self' data: blob:; worker-src 'self' blob:;">
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:;">
     <title>SMILE Lab Attendance</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -100,6 +100,7 @@
             width: 40px; height: 40px; background: var(--uf-blue);
             border-radius: 10px; display: flex; align-items: center; justify-content: center;
             font-size: 1.125rem; color: white;
+            box-shadow: 0 2px 8px rgba(var(--uf-blue-rgb), 0.3);
         }
         .logo-text { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
         .logo-text span { color: var(--uf-blue); }
@@ -124,10 +125,10 @@
 
         .page-title { text-align: center; }
         .page-title h1 {
-            font-size: 2rem; font-weight: 800; color: var(--text-primary);
-            letter-spacing: -0.03em; margin-bottom: 0.25rem;
+            font-size: 2.25rem; font-weight: 800; color: var(--text-primary);
+            letter-spacing: -0.03em; margin-bottom: 0.375rem;
         }
-        .page-title p { font-size: 0.9375rem; color: var(--text-tertiary); }
+        .page-title p { font-size: 0.9375rem; color: var(--text-secondary); font-weight: 500; letter-spacing: 0.01em; }
 
         /* ─── Two-column sign-in area ─── */
         .signin-area {
@@ -135,7 +136,7 @@
             align-items: stretch;
             gap: 0;
             width: 100%;
-            max-width: 780px;
+            max-width: 820px;
         }
 
         /* ─── Card shared ─── */
@@ -143,27 +144,38 @@
             flex: 1;
             background: var(--bg-surface);
             border: 1px solid var(--border);
-            padding: 2rem 1.75rem;
+            padding: 2.25rem 2rem;
             box-shadow: var(--shadow-md);
             display: flex;
             flex-direction: column;
-            justify-content: center;
         }
-        .signin-card.left  { border-radius: 20px 0 0 20px; border-right: none; }
-        .signin-card.right { border-radius: 0 20px 20px 0; background: #0d1526; border-color: transparent; }
+        .signin-card.left  { border-radius: 20px 0 0 20px; border-right: none; justify-content: space-between; }
+        .signin-card.right {
+            border-radius: 0 20px 20px 0;
+            background: linear-gradient(165deg, #111b32 0%, #0a1020 50%, #0d1526 100%);
+            border-color: rgba(96,165,250,0.08);
+            position: relative;
+            overflow: hidden;
+        }
+        .signin-card.right::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: radial-gradient(ellipse at 50% 15%, rgba(96,165,250,0.04) 0%, transparent 50%);
+            pointer-events: none;
+        }
 
         .card-label {
             display: flex; align-items: center; gap: 0.5rem;
             font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.75rem;
         }
-        .signin-card.left  .card-label { color: var(--text-tertiary); }
-        .signin-card.right .card-label { color: rgba(255,255,255,0.4); }
+        .signin-card.left  .card-label { color: var(--uf-blue); }
+        .signin-card.right .card-label { color: rgba(96,165,250,0.6); position: relative; z-index: 1; }
         .card-label-dot {
-            width: 6px; height: 6px; border-radius: 50%;
+            width: 7px; height: 7px; border-radius: 50%;
         }
-        .signin-card.left  .card-label-dot { background: var(--uf-blue); }
-        .signin-card.right .card-label-dot { background: #60a5fa; }
+        .signin-card.left  .card-label-dot { background: var(--uf-blue); box-shadow: 0 0 8px rgba(var(--uf-blue-rgb),0.4); }
+        .signin-card.right .card-label-dot { background: #60a5fa; box-shadow: 0 0 8px rgba(96,165,250,0.5); }
 
         /* Divider pill between cards */
         .signin-divider {
@@ -171,15 +183,58 @@
             width: 48px; flex-shrink: 0; position: relative; z-index: 2;
         }
         .divider-pill {
-            width: 36px; height: 36px;
+            width: 40px; height: 40px;
             background: var(--bg-surface);
-            border: 1px solid var(--border);
+            border: 2px solid #e2e8f0;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 0.6875rem; font-weight: 700;
+            font-size: 0.75rem; font-weight: 700;
             color: var(--text-tertiary);
-            box-shadow: var(--shadow-sm);
+            box-shadow: var(--shadow-md);
             position: absolute;
+        }
+
+        /* ─── UFID welcome section ─── */
+        .ufid-welcome {
+            flex: 1; display: flex; flex-direction: column; justify-content: center;
+            align-items: center; text-align: center; gap: 0.5rem;
+            padding-bottom: 0.5rem;
+        }
+        .ufid-welcome-icon {
+            width: 56px; height: 56px; border-radius: 16px;
+            background: linear-gradient(135deg, rgba(var(--uf-blue-rgb),0.08), rgba(var(--uf-blue-rgb),0.03));
+            border: 1px solid rgba(var(--uf-blue-rgb),0.1);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; color: var(--uf-blue); margin-bottom: 0.375rem;
+        }
+        .ufid-welcome h2 {
+            font-size: 1.125rem; font-weight: 700; color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+        .ufid-welcome p {
+            font-size: 0.8125rem; color: var(--text-tertiary); line-height: 1.5;
+            max-width: 260px;
+        }
+
+        /* ─── UFID form section ─── */
+        .ufid-form { display: flex; flex-direction: column; }
+
+        /* ─── UFID footer section ─── */
+        .ufid-footer {
+            flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
+            align-items: center; padding-top: 0.75rem;
+        }
+        .ufid-shortcut-hint {
+            display: flex; align-items: center; gap: 0.5rem;
+            font-size: 0.75rem; color: var(--text-tertiary);
+        }
+        .ufid-shortcut-hint kbd {
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 0.125rem 0.375rem; min-width: 22px;
+            background: var(--bg-subtle); border: 1px solid #e2e8f0;
+            border-radius: 5px; font-family: inherit; font-size: 0.6875rem;
+            font-weight: 600; color: var(--text-secondary);
+            box-shadow: 0 1px 0 #e2e8f0;
         }
 
         /* ─── UFID inputs ─── */
@@ -188,15 +243,15 @@
             margin-bottom: 1.25rem;
         }
         .ufid-digit {
-            width: 38px; height: 46px;
-            background: var(--bg-subtle); border: 1.5px solid var(--border);
-            border-radius: 10px; text-align: center;
-            font-size: 1.25rem; font-weight: 700;
+            width: 40px; height: 50px;
+            background: #fff; border: 2px solid #e2e8f0;
+            border-radius: 12px; text-align: center;
+            font-size: 1.375rem; font-weight: 700;
             font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
             color: var(--text-primary); outline: none; transition: all 0.2s;
         }
-        .ufid-digit:focus { background: #fff; border-color: var(--uf-blue); box-shadow: 0 0 0 3px rgba(var(--uf-blue-rgb),0.1); }
-        .ufid-digit.filled { background: #fff; border-color: var(--uf-blue); color: var(--uf-blue); }
+        .ufid-digit:focus { border-color: var(--uf-blue); box-shadow: 0 0 0 3px rgba(var(--uf-blue-rgb),0.12); background: #fff; }
+        .ufid-digit.filled { border-color: var(--uf-blue); color: var(--uf-blue); background: rgba(var(--uf-blue-rgb),0.04); }
         .ufid-digit.error { background: var(--error-bg); border-color: var(--error); animation: shake 0.4s ease; }
         @keyframes shake {
             0%,100% { transform: translateX(0); }
@@ -221,19 +276,20 @@
 
         /* Action button */
         .action-btn {
-            width: 100%; height: 52px;
-            background: var(--uf-blue); border: none; border-radius: 10px;
+            width: 100%; height: 54px;
+            background: var(--uf-blue); border: none; border-radius: 14px;
             font-size: 0.9375rem; font-weight: 600; font-family: inherit; color: white;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
             gap: 0.5rem; transition: all 0.2s; position: relative; overflow: hidden;
+            box-shadow: 0 2px 8px rgba(var(--uf-blue-rgb), 0.25);
         }
-        .action-btn:hover:not(:disabled) { background: #001a84; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(var(--uf-blue-rgb),0.3); }
+        .action-btn:hover:not(:disabled) { background: #001a84; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(var(--uf-blue-rgb),0.35); }
         .action-btn:active:not(:disabled) { transform: translateY(0); }
-        .action-btn.signin-mode { background: #16a34a; }
-        .action-btn.signin-mode:hover:not(:disabled) { background: #15803d; box-shadow: 0 4px 14px rgba(22,163,74,0.3); }
-        .action-btn.signout-mode { background: var(--uf-orange); }
-        .action-btn.signout-mode:hover:not(:disabled) { background: #e03d10; box-shadow: 0 4px 14px rgba(var(--uf-orange-rgb),0.3); }
-        .action-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
+        .action-btn.signin-mode { background: #16a34a; box-shadow: 0 2px 8px rgba(22,163,74,0.3); }
+        .action-btn.signin-mode:hover:not(:disabled) { background: #15803d; box-shadow: 0 6px 20px rgba(22,163,74,0.35); }
+        .action-btn.signout-mode { background: var(--uf-orange); box-shadow: 0 2px 8px rgba(var(--uf-orange-rgb),0.3); }
+        .action-btn.signout-mode:hover:not(:disabled) { background: #e03d10; box-shadow: 0 6px 20px rgba(var(--uf-orange-rgb),0.35); }
+        .action-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none !important; box-shadow: none; }
         .action-btn.loading .btn-content { opacity: 0; }
         .action-btn .spinner {
             display: none; position: absolute;
@@ -258,7 +314,7 @@
         .face-inner {
             flex: 1; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 1.125rem;
-            position: relative;
+            position: relative; z-index: 1;
         }
 
         /* Viewport */
@@ -322,62 +378,23 @@
         .face-success-action-label.signin  { background: rgba(52,211,153,0.25); color: #6ee7b7; }
         .face-success-action-label.signout { background: rgba(251,191,36,0.2);  color: #fcd34d; }
 
-        /* Mesh overlay canvas — landmark wireframe */
-        .face-mesh-canvas {
-            position: absolute; inset: 0; width: 100%; height: 100%;
-            transform: scaleX(-1);
-            pointer-events: none; z-index: 2;
-        }
-
-        /* Circular scanning animation (replaces scan line) */
-        .face-scan-circle {
-            position: absolute; inset: 8px;
-            border-radius: 50%; pointer-events: none; z-index: 3;
-            border: 2px solid transparent;
-            opacity: 0; transition: opacity 0.3s;
-        }
-        .face-scan-circle.active {
-            opacity: 1;
-            border-color: transparent;
-            border-top-color: #60a5fa;
-            border-right-color: rgba(96,165,250,0.4);
-            animation: scan-rotate 1.5s linear infinite;
-        }
-        @keyframes scan-rotate { to { transform: rotate(360deg); } }
-
-        /* Liveness progress ring (SVG overlay) */
+        /* Liveness progress ring (SVG overlay) — single clean ring */
         .face-progress-ring {
-            position: absolute; inset: -6px;
+            position: absolute; inset: -5px;
             pointer-events: none; z-index: 4;
         }
         .face-progress-ring circle {
-            fill: none; stroke-width: 3; stroke-linecap: round;
+            fill: none; stroke-width: 2; stroke-linecap: round;
         }
         .face-progress-ring .ring-bg {
             stroke: rgba(255,255,255,0.06);
         }
         .face-progress-ring .ring-fg {
-            stroke: #60a5fa; transition: stroke-dashoffset 0.15s linear, stroke 0.3s;
+            stroke: rgba(96,165,250,0.7); transition: stroke-dashoffset 0.15s linear, stroke 0.3s;
             transform: rotate(-90deg); transform-origin: center;
         }
-        .face-progress-ring.verifying .ring-fg { stroke: #60a5fa; }
-        .face-progress-ring.matched .ring-fg   { stroke: #34d399; }
-
-        /* Phase label badge (Detecting / Analyzing / Verifying / Matched) */
-        .face-phase-label {
-            position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-            padding: 0.15rem 0.6rem; border-radius: 12px; z-index: 5;
-            font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.06em; pointer-events: none;
-            background: rgba(0,0,0,0.55); color: #60a5fa;
-            backdrop-filter: blur(4px);
-            opacity: 0; transition: opacity 0.25s;
-        }
-        .face-phase-label.show { opacity: 1; }
-        .face-phase-label.detecting { color: #60a5fa; }
-        .face-phase-label.analyzing { color: #a78bfa; }
-        .face-phase-label.verifying { color: #38bdf8; }
-        .face-phase-label.matched   { color: #34d399; }
+        .face-progress-ring.verifying .ring-fg { stroke: rgba(96,165,250,0.7); }
+        .face-progress-ring.matched .ring-fg   { stroke: rgba(52,211,153,0.8); }
 
         /* Legacy scan line — kept hidden for compatibility */
         .face-scan-line { display: none; }
@@ -402,38 +419,23 @@
             font-family: inherit; font-size: 0.75rem; font-weight: 700; color: #93c5fd;
         }
 
-        /* Scanning ring around viewport */
+        /* Scanning ring — hidden; progress ring SVG is the only ring now */
         .face-scan-ring {
-            position: absolute; inset: -4px; border-radius: 55% / 48%;
-            border: 2px solid transparent; pointer-events: none;
-            transition: border-color 0.3s, box-shadow 0.3s;
+            position: absolute; inset: -5px; border-radius: 55% / 48%;
+            border: 1px solid transparent; pointer-events: none;
+            transition: border-color 0.4s;
         }
-        .face-scan-ring.idle { border-color: rgba(255,255,255,0.08); }
-        .face-scan-ring.detecting {
-            border-color: #60a5fa;
-            box-shadow: 0 0 0 4px rgba(96,165,250,0.12);
-            animation: ring-pulse 1.6s ease-in-out infinite;
-        }
-        .face-scan-ring.matched {
-            border-color: #34d399;
-            box-shadow: 0 0 0 4px rgba(52,211,153,0.18);
-            animation: none;
-        }
-        .face-scan-ring.error-ring {
-            border-color: #f87171;
-            box-shadow: 0 0 0 4px rgba(248,113,113,0.15);
-        }
-        @keyframes ring-pulse {
-            0%,100% { box-shadow: 0 0 0 4px rgba(96,165,250,0.12); }
-            50% { box-shadow: 0 0 0 8px rgba(96,165,250,0.05); }
-        }
+        .face-scan-ring.idle { border-color: rgba(255,255,255,0.06); }
+        .face-scan-ring.detecting { border-color: rgba(255,255,255,0.06); }
+        .face-scan-ring.matched { border-color: rgba(52,211,153,0.2); }
+        .face-scan-ring.error-ring { border-color: rgba(248,113,113,0.2); }
 
         /* Confirm progress */
         .face-confirm-bar-wrap {
-            width: 180px; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;
+            width: 140px; height: 2px; background: rgba(255,255,255,0.06); border-radius: 1px; overflow: hidden;
         }
         .face-confirm-bar {
-            height: 100%; width: 0%; background: #34d399; border-radius: 2px; transition: width 0.05s linear;
+            height: 100%; width: 0%; background: rgba(52,211,153,0.6); border-radius: 1px; transition: width 0.05s linear;
         }
 
         /* Name badge */
@@ -455,14 +457,14 @@
         }
         .face-status-text.detecting { color: #60a5fa; }
         .face-status-text.matched   { color: #34d399; }
-        .face-status-text.error     { color: #f87171; }
+        .face-status-text.error     { color: #fb923c; }
 
         /* ─── Dormant state (absolute overlay — same dimensions as camera section) ─── */
         #faceDormant {
             position: absolute; inset: 0; z-index: 2;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 1rem;
-            background: #0d1526;
+            background: transparent;
             opacity: 1; pointer-events: auto;
             transition: opacity 0.3s ease;
         }
@@ -488,17 +490,18 @@
         /* Dormant circle matches the live viewport size/shape */
         .face-dormant-circle {
             width: 180px; height: 220px; border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.06);
             display: flex; align-items: center; justify-content: center;
-            font-size: 4.5rem; color: rgba(255,255,255,0.12);
-            background: #060d1f;
+            font-size: 3rem; color: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.02);
         }
         .face-cancel-btn {
-            font-size: 0.8125rem; font-weight: 500; color: rgba(255,255,255,0.3);
-            background: none; border: none; cursor: pointer;
-            padding: 0.25rem 0.75rem; font-family: inherit; transition: color 0.2s;
+            font-size: 0.8125rem; font-weight: 500; color: rgba(255,255,255,0.35);
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+            cursor: pointer;
+            padding: 0.375rem 1rem; font-family: inherit; transition: all 0.2s;
         }
-        .face-cancel-btn:hover { color: rgba(255,255,255,0.6); }
+        .face-cancel-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
 
         /* ─── Footer ─── */
         .footer {
@@ -561,12 +564,12 @@
             .logo-text { display: none; }
             .main { padding: 1.25rem 1rem; gap: 1.25rem; }
             .page-title h1 { font-size: 1.625rem; }
-            .signin-area { flex-direction: column; gap: 0; max-width: 380px; }
+            .signin-area { flex-direction: column; gap: 0; max-width: 400px; }
             .signin-card.left  { border-radius: 20px 20px 0 0; border-right: 1px solid var(--border); border-bottom: none; }
             .signin-card.right { border-radius: 0 0 20px 20px; }
             .signin-divider { display: none; }
             .face-viewport { width: 160px; height: 195px; }
-            .face-confirm-bar-wrap { width: 160px; }
+            .face-confirm-bar-wrap { width: 120px; }
             .ufid-digit { width: 34px; height: 42px; font-size: 1rem; border-radius: 8px; }
             .ufid-inputs { gap: 0.25rem; }
             .action-btn { height: 48px; }
@@ -609,28 +612,42 @@
                     <span class="card-label-dot"></span> UFID Sign In / Out
                 </div>
 
-                <div class="ufid-inputs">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="0" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="1" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="2" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="3" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="4" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="5" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="6" inputmode="numeric" autocomplete="off">
-                    <input type="text" class="ufid-digit" maxlength="1" data-index="7" inputmode="numeric" autocomplete="off">
+                <div class="ufid-welcome">
+                    <div class="ufid-welcome-icon"><i class="fas fa-id-card"></i></div>
+                    <h2>Welcome</h2>
+                    <p>Enter your 8-digit UFID to sign in or out of the lab</p>
                 </div>
 
-                <div id="statusMessage" class="status"></div>
+                <div class="ufid-form">
+                    <div class="ufid-inputs">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="0" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="1" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="2" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="3" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="4" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="5" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="6" inputmode="numeric" autocomplete="off">
+                        <input type="text" class="ufid-digit" maxlength="1" data-index="7" inputmode="numeric" autocomplete="off">
+                    </div>
 
-                <button class="action-btn" id="actionBtn" disabled>
-                    <span class="btn-content">
-                        <i class="fas fa-arrow-right-to-bracket"></i>
-                        <span id="actionBtnText">Sign In / Out</span>
-                    </span>
-                    <span class="spinner"></span>
-                </button>
+                    <div id="statusMessage" class="status"></div>
 
-                <div id="userHint" class="user-hint"></div>
+                    <button class="action-btn" id="actionBtn" disabled>
+                        <span class="btn-content">
+                            <i class="fas fa-arrow-right-to-bracket"></i>
+                            <span id="actionBtnText">Sign In / Out</span>
+                        </span>
+                        <span class="spinner"></span>
+                    </button>
+
+                    <div id="userHint" class="user-hint"></div>
+                </div>
+
+                <div class="ufid-footer">
+                    <div class="ufid-shortcut-hint">
+                        <kbd>Esc</kbd> to clear &nbsp;&middot;&nbsp; <kbd>Enter</kbd> to submit
+                    </div>
+                </div>
             </div>
 
             <!-- ── Divider ── -->
@@ -660,10 +677,6 @@
                             <div class="face-viewport" id="faceViewport">
                                 <video id="faceVideo" class="face-video" autoplay muted playsinline></video>
                                 <canvas id="faceCanvas" class="face-canvas"></canvas>
-                                <canvas id="faceMeshCanvas" class="face-mesh-canvas"></canvas>
-                                <div class="face-scan-circle" id="faceScanCircle"></div>
-                                <div class="face-phase-label" id="facePhaseLabel"></div>
-
                                 <div class="face-loading" id="faceLoading">
                                     <div class="face-loading-ring"></div>
                                     <span>Loading Face ID…</span>

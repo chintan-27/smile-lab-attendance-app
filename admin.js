@@ -4242,82 +4242,22 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 // ==================== FACE ENROLLMENT ====================
-// Uses MediaPipe FaceMesh for landmark visualization + InsightFace ArcFace via IPC.
-// Each pose collects ~20 embeddings over ~2 seconds and averages them for higher quality.
+// Uses InsightFace ArcFace via Python IPC for embeddings.
+// 3-pose capture: center, slight left, slight right. Single embedding per pose.
 
 let enrollStream    = null;
 let enrollAnimFrame = null;
-let enrollFaceLandmarker = null;
-let enrollMediapipeReady = false;
-
-// Initialize MediaPipe for enrollment
-// window.vision is loaded by <script type="module"> in admin.html
-async function initEnrollMediaPipe() {
-    // Get paths from main process, then dynamically import the MediaPipe vision bundle
-    let paths;
-    try {
-        paths = await window.electronAPI.getMediaPipePaths();
-    } catch (err) {
-        console.warn('[MediaPipe Enroll] Failed to get paths:', err);
-        return;
-    }
-
-    let visionModule;
-    try {
-        visionModule = await import('file://' + paths.visionBundlePath);
-        console.log('[MediaPipe Enroll] Vision bundle loaded');
-    } catch (err) {
-        console.warn('[MediaPipe Enroll] Failed to load vision bundle:', err);
-        console.warn('[MediaPipe Enroll] Enrollment uses Python only');
-        return;
-    }
-
-    const { FaceLandmarker, FilesetResolver } = visionModule;
-    const wasmPath = paths.wasmPath;
-    const modelPath = paths.faceLandmarkerModelPath;
-
-    try {
-        const vision = await FilesetResolver.forVisionTasks(wasmPath);
-        enrollFaceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
-            runningMode: 'VIDEO',
-            numFaces: 1,
-            outputFacialTransformationMatrixes: false,
-            outputFaceBlendshapes: false,
-        });
-        enrollMediapipeReady = true;
-        console.log('[MediaPipe Enroll] FaceLandmarker initialized');
-    } catch (err) {
-        console.warn('[MediaPipe Enroll] GPU failed, trying CPU:', err.message);
-        try {
-            const vision = await FilesetResolver.forVisionTasks(wasmPath);
-            enrollFaceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-                baseOptions: { modelAssetPath: modelPath, delegate: 'CPU' },
-                runningMode: 'VIDEO',
-                numFaces: 1,
-            });
-            enrollMediapipeReady = true;
-            console.log('[MediaPipe Enroll] FaceLandmarker initialized (CPU)');
-        } catch (err2) {
-            console.error('[MediaPipe Enroll] Failed:', err2);
-        }
-    }
-}
-
-initEnrollMediaPipe();
 
 // Enrollment requires 3 distinct captures: center, slight left, slight right.
-// Each capture averages ~20 ArcFace embeddings over ~2 seconds for higher quality.
 const ENROLL_POSES = [
     { label: 'Look straight at camera',  yawMin: -0.15, yawMax: 0.15 },
     { label: 'Turn head slightly left',   yawMin: -Infinity, yawMax: -0.15 },
     { label: 'Turn head slightly right',  yawMin: 0.15, yawMax: Infinity },
 ];
-const ENROLL_MIN_EMBED_DIST = 0.05; // min cosine distance between averaged captures
+const ENROLL_MIN_EMBED_DIST = 0.05; // min cosine distance between captures
 const ENROLL_MIN_DET_SCORE  = 0.5;  // minimum face detection confidence
 const ENROLL_MIN_FACE_SIZE  = 80;   // minimum face width in px
-const ENROLL_AVG_FRAMES     = 20;   // number of embeddings to average per pose
-const ENROLL_AVG_TIMEOUT_MS = 3000; // max time to collect embeddings per pose
+const DWELL_MS              = 800;  // ms the correct pose must be held
 
 function _enrollYaw(kps) {
     if (!kps || kps.length < 3) return 0;
@@ -4332,31 +4272,6 @@ function _enrollCosDist(a, b) {
     for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
     const d = Math.sqrt(na) * Math.sqrt(nb);
     return d === 0 ? 1 : 1 - dot / d;
-}
-
-/** Average an array of embedding vectors element-wise. */
-function _averageEmbeddings(embeddings) {
-    if (embeddings.length === 0) return [];
-    if (embeddings.length === 1) return embeddings[0];
-    const dim = embeddings[0].length;
-    const avg = new Array(dim).fill(0);
-    for (const emb of embeddings) {
-        for (let i = 0; i < dim; i++) avg[i] += emb[i];
-    }
-    for (let i = 0; i < dim; i++) avg[i] /= embeddings.length;
-    return avg;
-}
-
-/** Draw MediaPipe landmark mesh on enrollment canvas. */
-function drawEnrollMesh(ctx, faceLandmarks, videoWidth, videoHeight) {
-    if (!faceLandmarks || faceLandmarks.length === 0) return;
-    ctx.fillStyle = 'rgba(96, 165, 250, 0.2)';
-    for (let i = 0; i < faceLandmarks.length; i += 4) {
-        const lm = faceLandmarks[i];
-        ctx.beginPath();
-        ctx.arc(lm.x * videoWidth, lm.y * videoHeight, 0.8, 0, Math.PI * 2);
-        ctx.fill();
-    }
 }
 
 function openFaceEnrollModal(ufid, name) {
@@ -4499,15 +4414,9 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
     const ctx       = canvas.getContext('2d');
     const offscreen = document.createElement('canvas');
     let active      = true;
-    let samples     = [];       // collected averaged embeddings (one per pose)
+    let samples     = [];       // collected embeddings (one per pose)
     let hasFace     = false;
-    let dwellStart  = 0;
     let poseOkStart = 0;        // when the correct pose was first detected
-    const DWELL_MS  = 800;      // ms the correct pose must be held before averaging begins
-
-    // Averaging state: collect embeddings over ~2s per pose
-    let avgEmbeddings = [];     // embeddings collected for current pose
-    let avgStartTime  = 0;      // when averaging started
 
     window._enrollLoopStop = () => { active = false; };
 
@@ -4524,26 +4433,13 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
     const detect = async () => {
         if (!active || !document.getElementById('enrollVideo')) return;
 
-        const now = performance.now();
-
-        // --- MediaPipe mesh overlay (runs every frame) ---
-        if (enrollMediapipeReady && enrollFaceLandmarker) {
-            try {
-                const mpResult = enrollFaceLandmarker.detectForVideo(video, now);
-                if (mpResult?.faceLandmarks?.length > 0) {
-                    drawEnrollMesh(ctx, mpResult.faceLandmarks[0], canvas.width, canvas.height);
-                }
-            } catch (_) {}
-        }
-
         // --- IPC to Python for ArcFace embedding ---
         offscreen.width  = video.videoWidth;
         offscreen.height = video.videoHeight;
         offscreen.getContext('2d').drawImage(video, 0, 0);
         const base64 = offscreen.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-        // Don't clear canvas fully — keep mesh overlay, just clear the box overlay area
-        // We'll draw boxes on top of mesh
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         let faceResult = null;
         try { faceResult = await window.electronAPI.faceProcessFrame(base64); } catch (_) {}
@@ -4558,14 +4454,14 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
             if (face.det_score < ENROLL_MIN_DET_SCORE) {
                 drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
                 setEnrollStatus('error', 'Move closer — face too small or blurry');
-                hasFace = false; poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                hasFace = false; poseOkStart = 0;
                 if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
                 return;
             }
             if (faceW < ENROLL_MIN_FACE_SIZE) {
                 drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
                 setEnrollStatus('error', 'Move closer to the camera');
-                hasFace = false; poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                hasFace = false; poseOkStart = 0;
                 if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
                 return;
             }
@@ -4579,8 +4475,7 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
                     samples.length >= ENROLL_SAMPLE_COUNT ? '#34d399' : '#60a5fa');
 
                 if (!hasFace || poseOkStart === 0) {
-                    hasFace = true; poseOkStart = Date.now(); dwellStart = Date.now();
-                    avgEmbeddings = []; avgStartTime = 0;
+                    hasFace = true; poseOkStart = Date.now();
                 }
 
                 const elapsed  = Date.now() - poseOkStart;
@@ -4589,78 +4484,57 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
                 // Animate ring border during dwell
                 const ring = document.getElementById('enrollScanRing');
                 if (ring && samples.length < ENROLL_SAMPLE_COUNT) {
-                    const progress = avgStartTime > 0
-                        ? Math.min(1, avgEmbeddings.length / ENROLL_AVG_FRAMES)
-                        : dwellFraction * 0.3; // dwell shows up to 30%
-                    ring.style.borderColor = `rgba(96,165,250,${(0.3 + 0.7 * progress).toFixed(2)})`;
-                    ring.style.boxShadow   = `0 0 0 ${Math.round(progress * 8)}px rgba(96,165,250,${(0.08 * progress).toFixed(2)})`;
+                    ring.style.borderColor = `rgba(96,165,250,${(0.3 + 0.7 * dwellFraction).toFixed(2)})`;
+                    ring.style.boxShadow   = `0 0 0 ${Math.round(dwellFraction * 8)}px rgba(96,165,250,${(0.08 * dwellFraction).toFixed(2)})`;
                 }
 
                 if (samples.length < ENROLL_SAMPLE_COUNT && dwellFraction >= 1) {
                     const emb = Array.from(face.embedding);
 
-                    // Start or continue averaging
-                    if (avgStartTime === 0) {
-                        avgStartTime = Date.now();
-                        avgEmbeddings = [emb];
-                        setEnrollStatus('scanning', `Capturing (1/${ENROLL_AVG_FRAMES})…`);
-                    } else {
-                        avgEmbeddings.push(emb);
-                        const count = avgEmbeddings.length;
-                        const timeElapsed = Date.now() - avgStartTime;
-
-                        setEnrollStatus('scanning', `Capturing (${count}/${ENROLL_AVG_FRAMES})…`);
-
-                        // Complete when we have enough frames or timeout
-                        if (count >= ENROLL_AVG_FRAMES || timeElapsed >= ENROLL_AVG_TIMEOUT_MS) {
-                            const averaged = _averageEmbeddings(avgEmbeddings);
-
-                            // Verify this capture is distinct from previous ones
-                            let tooSimilar = false;
-                            for (const prev of samples) {
-                                if (_enrollCosDist(averaged, prev) < ENROLL_MIN_EMBED_DIST) {
-                                    tooSimilar = true;
-                                    break;
-                                }
-                            }
-                            if (tooSimilar) {
-                                poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
-                                setEnrollStatus('error', 'Too similar — adjust your pose');
-                                if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
-                                return;
-                            }
-
-                            samples.push(averaged);
-                            poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
-                            updateEnrollRing(samples.length);
-                            flashCapture();
-
-                            if (samples.length < ENROLL_SAMPLE_COUNT) {
-                                const nextPose = ENROLL_POSES[samples.length];
-                                setEnrollStatus('success', `${samples.length}/${ENROLL_SAMPLE_COUNT} captured (${count} frames averaged)`);
-                                const sub = document.getElementById('enrollModalSub');
-                                if (sub) sub.textContent = nextPose.label;
-                                setTimeout(() => {
-                                    setEnrollStatus('scanning', nextPose.label);
-                                }, 600);
-                            } else {
-                                setEnrollStatus('scanning', 'Saving enrollment…');
-                                active = false;
-                                try {
-                                    const res = await window.electronAPI.saveFaceDescriptor(ufid, samples);
-                                    if (res.success) {
-                                        setEnrollStatus('success', `Face ID enrolled for ${name}!`);
-                                        showNotification(`Face ID enrolled for ${name}`, 'success');
-                                        setTimeout(closeEnrollModal, 1200);
-                                    } else {
-                                        setEnrollStatus('error', 'Save failed: ' + (res.error || 'unknown'));
-                                    }
-                                } catch (e) {
-                                    setEnrollStatus('error', 'Error: ' + e.message);
-                                }
-                                return;
-                            }
+                    // Verify this capture is distinct from previous ones
+                    let tooSimilar = false;
+                    for (const prev of samples) {
+                        if (_enrollCosDist(emb, prev) < ENROLL_MIN_EMBED_DIST) {
+                            tooSimilar = true;
+                            break;
                         }
+                    }
+                    if (tooSimilar) {
+                        poseOkStart = 0;
+                        setEnrollStatus('error', 'Too similar — adjust your pose');
+                        if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
+                        return;
+                    }
+
+                    samples.push(emb);
+                    poseOkStart = 0;
+                    updateEnrollRing(samples.length);
+                    flashCapture();
+
+                    if (samples.length < ENROLL_SAMPLE_COUNT) {
+                        const nextPose = ENROLL_POSES[samples.length];
+                        setEnrollStatus('success', `${samples.length}/${ENROLL_SAMPLE_COUNT} captured`);
+                        const sub = document.getElementById('enrollModalSub');
+                        if (sub) sub.textContent = nextPose.label;
+                        setTimeout(() => {
+                            setEnrollStatus('scanning', nextPose.label);
+                        }, 600);
+                    } else {
+                        setEnrollStatus('scanning', 'Saving enrollment…');
+                        active = false;
+                        try {
+                            const res = await window.electronAPI.saveFaceDescriptor(ufid, samples);
+                            if (res.success) {
+                                setEnrollStatus('success', `Face ID enrolled for ${name}!`);
+                                showNotification(`Face ID enrolled for ${name}`, 'success');
+                                setTimeout(closeEnrollModal, 1200);
+                            } else {
+                                setEnrollStatus('error', 'Save failed: ' + (res.error || 'unknown'));
+                            }
+                        } catch (e) {
+                            setEnrollStatus('error', 'Error: ' + e.message);
+                        }
+                        return;
                     }
                 } else if (dwellFraction < 1) {
                     setEnrollStatus('scanning', 'Hold still…');
@@ -4668,12 +4542,12 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
             } else {
                 // Wrong pose — show guidance
                 drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#fbbf24');
-                poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                poseOkStart = 0;
                 setEnrollStatus('scanning', pose.label);
             }
         } else {
             hasFace = false;
-            poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+            poseOkStart = 0;
             const ring = document.getElementById('enrollScanRing');
             if (ring) { ring.style.borderColor = ''; ring.style.boxShadow = ''; }
             updateEnrollRing(samples.length);

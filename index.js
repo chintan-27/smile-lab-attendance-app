@@ -1,25 +1,17 @@
 // ==================== FACE ID ====================
-// MediaPipe FaceMesh (468 landmarks) + InsightFace ArcFace (512-dim embeddings)
-// Passive liveness: non-rigid motion analysis + micro-motion variance + MiDaS depth
-//
-// MediaPipe is loaded via <script type="module"> in index.html and exposed
-// as window.vision. Paths come from preload.js (window.electronAPI.*Path).
+// InsightFace ArcFace (512-dim embeddings) via Python IPC
+// Passive liveness: rPPG pulse detection + FFT moiré screen detection
+// No in-browser ML models — all processing happens in the Python service.
 
 const SUCCESS_DISPLAY_MS = 2000;
 // ArcFace cosine-distance threshold — lower = stricter. 0.40 is recommended.
 const MATCH_THRESHOLD = 0.40;
 
-// MediaPipe FaceLandmarker instance (initialized async)
-let faceLandmarker = null;
-let mediapipeReady = false;
-
-// Liveness configuration
-const LANDMARK_HISTORY_LEN = 20;     // ~2 seconds at 10fps
-const LIVENESS_ACCUMULATE_MS = 1800; // 1.8s of liveness before allowing match
-const RIGID_RESIDUAL_THRESHOLD = 0.3;
-const RIGID_RESIDUAL_STRONG    = 0.6;
-const MICRO_MOTION_THRESHOLD   = 0.15;
-const DEPTH_VARIANCE_THRESHOLD = 0.04;
+// Pulse accumulation: require N consecutive pulse-positive frames (mandatory — no timeout bypass)
+const PULSE_CONSECUTIVE_REQUIRED = 3;
+const PULSE_ACCUMULATE_MS = 5000; // visual progress ring duration target
+// Max time to wait for pulse before giving a helpful message
+const PULSE_TIMEOUT_MS = 15000;
 
 let faceStream     = null;
 let faceLoopActive = false;
@@ -29,70 +21,10 @@ let faceEnrolled   = [];
 let faceState        = 'idle';
 let faceCurrentMatch = null;   // { ufid, name, action }
 
-// Liveness engine state
-let landmarkHistory = [];  // array of { landmarks: Float32Array[], timestamp: number }
-let livenessStartTime = 0;
-let lastDepthVariance = 0;
-let livenessAccumulator = { rigidPass: 0, motionPass: 0, depthPass: 0, total: 0 };
-
-// ---- MediaPipe Initialization ----
-
-async function initMediaPipe() {
-    // Get paths from main process, then dynamically import the MediaPipe vision bundle
-    let paths;
-    try {
-        paths = await window.electronAPI.getMediaPipePaths();
-    } catch (err) {
-        console.warn('[MediaPipe] Failed to get paths:', err);
-        return;
-    }
-
-    let visionModule;
-    try {
-        visionModule = await import('file://' + paths.visionBundlePath);
-        console.log('[MediaPipe] Vision bundle loaded');
-    } catch (err) {
-        console.warn('[MediaPipe] Failed to load vision bundle:', err);
-        console.warn('[MediaPipe] Face ID will use Python-only detection');
-        return;
-    }
-
-    const { FaceLandmarker, FilesetResolver } = visionModule;
-    const wasmPath = paths.wasmPath;
-    const modelPath = paths.faceLandmarkerModelPath;
-
-    try {
-        const vision = await FilesetResolver.forVisionTasks(wasmPath);
-        faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
-            runningMode: 'VIDEO',
-            numFaces: 1,
-            outputFacialTransformationMatrixes: false,
-            outputFaceBlendshapes: false,
-        });
-        mediapipeReady = true;
-        console.log('[MediaPipe] FaceLandmarker initialized');
-    } catch (err) {
-        console.error('[MediaPipe] GPU failed, trying CPU:', err);
-        try {
-            const vision = await FilesetResolver.forVisionTasks(wasmPath);
-            faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-                baseOptions: { modelAssetPath: modelPath, delegate: 'CPU' },
-                runningMode: 'VIDEO',
-                numFaces: 1,
-                outputFacialTransformationMatrixes: false,
-                outputFaceBlendshapes: false,
-            });
-            mediapipeReady = true;
-            console.log('[MediaPipe] FaceLandmarker initialized (CPU fallback)');
-        } catch (err2) {
-            console.error('[MediaPipe] CPU fallback also failed:', err2);
-        }
-    }
-}
-
-// Start initialization immediately
-initMediaPipe();
+// rPPG pulse accumulation state
+let pulseConsecutive = 0;  // consecutive frames with has_pulse=true
+let pulseStartTime   = 0;  // when we first started accumulating pulse for current match
+let screenFlagCount  = 0;  // how many frames flagged is_screen during current match attempt
 
 // ---- Helpers ----
 
@@ -108,177 +40,10 @@ function cosineDistance(a, b) {
     return denom === 0 ? 1 : 1 - dot / denom;
 }
 
-// ---- Liveness Engine ----
-
-/**
- * Fit a 2D affine transform (rotation, translation, scale) from src to dst points
- * using least squares. Returns the mean residual (pixels) after fitting.
- *
- * src, dst: arrays of [x, y] pairs (same length)
- */
-function computeAffineResidual(src, dst) {
-    const n = src.length;
-    if (n < 3) return 0;
-
-    // Build system: for each point (x,y) → (x',y')
-    // x' = a*x + b*y + tx
-    // y' = c*x + d*y + ty
-    // Using simplified approach: compute centroid, then fit rotation+scale
-    let sx1 = 0, sy1 = 0, sx2 = 0, sy2 = 0;
-    for (let i = 0; i < n; i++) {
-        sx1 += src[i][0]; sy1 += src[i][1];
-        sx2 += dst[i][0]; sy2 += dst[i][1];
-    }
-    const cx1 = sx1 / n, cy1 = sy1 / n;
-    const cx2 = sx2 / n, cy2 = sy2 / n;
-
-    // Centered coordinates
-    let num1 = 0, den1 = 0, num2 = 0, den2 = 0;
-    for (let i = 0; i < n; i++) {
-        const dx1 = src[i][0] - cx1, dy1 = src[i][1] - cy1;
-        const dx2 = dst[i][0] - cx2, dy2 = dst[i][1] - cy2;
-        // For rotation+scale: a = (sum(dx1*dx2+dy1*dy2)) / (sum(dx1^2+dy1^2))
-        //                     b = (sum(dx1*dy2-dy1*dx2)) / (sum(dx1^2+dy1^2))
-        num1 += dx1 * dx2 + dy1 * dy2;
-        num2 += dx1 * dy2 - dy1 * dx2;
-        den1 += dx1 * dx1 + dy1 * dy1;
-    }
-
-    if (den1 < 1e-10) return 0;
-
-    const a = num1 / den1;
-    const b = num2 / den1;
-
-    // Compute residuals
-    let totalResidual = 0;
-    for (let i = 0; i < n; i++) {
-        const dx1 = src[i][0] - cx1, dy1 = src[i][1] - cy1;
-        const px = a * dx1 - b * dy1 + cx2;
-        const py = b * dx1 + a * dy1 + cy2;
-        const ex = px - dst[i][0];
-        const ey = py - dst[i][1];
-        totalResidual += Math.sqrt(ex * ex + ey * ey);
-    }
-
-    return totalResidual / n;
-}
-
-/**
- * Signal 1: Non-Rigid Motion
- * Compare consecutive frames — fit affine, compute residual.
- * Real face: residual > threshold (independent feature motion).
- * Photo: residual ≈ 0 (all points move rigidly).
- */
-function analyzeRigidity() {
-    if (landmarkHistory.length < 2) return 0;
-
-    let totalResidual = 0;
-    let pairs = 0;
-
-    // Compare recent consecutive frame pairs
-    const start = Math.max(0, landmarkHistory.length - 6);
-    for (let i = start; i < landmarkHistory.length - 1; i++) {
-        const src = landmarkHistory[i].landmarks;
-        const dst = landmarkHistory[i + 1].landmarks;
-        totalResidual += computeAffineResidual(src, dst);
-        pairs++;
-    }
-
-    return pairs > 0 ? totalResidual / pairs : 0;
-}
-
-/**
- * Signal 2: Micro-Motion Variance
- * Track position variance of key landmarks over the sliding window.
- * Real face: variance > threshold (natural drift, breathing).
- * Photo: near-zero variance.
- *
- * Key landmarks (indices into MediaPipe 468):
- *   1 = nose tip, 33 = left eye outer, 263 = right eye outer,
- *   61 = left mouth corner, 291 = right mouth corner,
- *   10 = forehead center, 152 = chin, 234 = left cheek, 454 = right cheek
- */
-const KEY_LANDMARK_INDICES = [1, 33, 263, 61, 291, 10, 152, 234, 454];
-
-function analyzeMicroMotion() {
-    if (landmarkHistory.length < 8) return 0;
-
-    let totalVariance = 0;
-
-    for (const idx of KEY_LANDMARK_INDICES) {
-        let sx = 0, sy = 0, sx2 = 0, sy2 = 0;
-        let count = 0;
-
-        for (const frame of landmarkHistory) {
-            if (idx < frame.landmarks.length) {
-                const [x, y] = frame.landmarks[idx];
-                sx += x; sy += y;
-                sx2 += x * x; sy2 += y * y;
-                count++;
-            }
-        }
-
-        if (count > 1) {
-            const mx = sx / count, my = sy / count;
-            const vx = sx2 / count - mx * mx;
-            const vy = sy2 / count - my * my;
-            totalVariance += vx + vy;
-        }
-    }
-
-    return totalVariance / KEY_LANDMARK_INDICES.length;
-}
-
-/**
- * Combined liveness decision.
- * is_live = (non_rigid_residual > 0.3) AND (micro_motion_var > threshold)
- *           AND ((depth_var > threshold) OR (non_rigid_residual > 0.6))
- */
-function computeLivenessScore() {
-    const rigidResidual = analyzeRigidity();
-    const microMotion = analyzeMicroMotion();
-    const depthVar = lastDepthVariance;
-
-    const rigidPass = rigidResidual > RIGID_RESIDUAL_THRESHOLD;
-    const motionPass = microMotion > MICRO_MOTION_THRESHOLD;
-    const depthPass = depthVar > DEPTH_VARIANCE_THRESHOLD;
-    const rigidStrong = rigidResidual > RIGID_RESIDUAL_STRONG;
-
-    const isLive = rigidPass && motionPass && (depthPass || rigidStrong);
-
-    return { isLive, rigidResidual, microMotion, depthVar, rigidPass, motionPass, depthPass };
-}
-
-/** Extract 2D landmark positions from MediaPipe result for our liveness analysis. */
-function extractLandmarks(faceLandmarks) {
-    // faceLandmarks is array of {x, y, z} normalized [0,1] — scale to pixel-like coords
-    return faceLandmarks.map(lm => [lm.x * 640, lm.y * 480]);
-}
-
 function resetLivenessState() {
-    landmarkHistory = [];
-    livenessStartTime = 0;
-    lastDepthVariance = 0;
-    livenessAccumulator = { rigidPass: 0, motionPass: 0, depthPass: 0, total: 0 };
-}
-
-// ---- UI Helpers for new elements ----
-
-function setPhaseLabel(phase, text) {
-    const el = document.getElementById('facePhaseLabel');
-    if (!el) return;
-    el.className = 'face-phase-label show ' + phase;
-    el.textContent = text;
-}
-
-function hidePhaseLabel() {
-    const el = document.getElementById('facePhaseLabel');
-    if (el) el.className = 'face-phase-label';
-}
-
-function setScanCircle(active) {
-    const el = document.getElementById('faceScanCircle');
-    if (el) el.classList.toggle('active', active);
+    pulseConsecutive = 0;
+    pulseStartTime = 0;
+    screenFlagCount = 0;
 }
 
 /** Set liveness progress ring (0..1). */
@@ -289,46 +54,6 @@ function setProgressRing(progress, state) {
     const circumference = 2 * Math.PI * 95; // r=95
     fg.setAttribute('stroke-dashoffset', circumference * (1 - Math.min(1, progress)));
     ring.className = 'face-progress-ring ' + (state || 'verifying');
-}
-
-/** Draw subtle landmark mesh on the mesh canvas. */
-function drawLandmarkMesh(meshCanvas, landmarks, videoWidth, videoHeight) {
-    if (!meshCanvas) return;
-    const ctx = meshCanvas.getContext('2d');
-    meshCanvas.width = videoWidth;
-    meshCanvas.height = videoHeight;
-    ctx.clearRect(0, 0, meshCanvas.width, meshCanvas.height);
-
-    if (!landmarks || landmarks.length === 0) return;
-
-    // Draw dots at key landmark positions (subtle, semi-transparent)
-    ctx.fillStyle = 'rgba(96, 165, 250, 0.25)';
-    // Draw a subset of landmarks for performance (every 3rd)
-    for (let i = 0; i < landmarks.length; i += 3) {
-        const lm = landmarks[i];
-        const x = lm.x * videoWidth;
-        const y = lm.y * videoHeight;
-        ctx.beginPath();
-        ctx.arc(x, y, 1, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Draw connections for face outline (jawline + face oval subset)
-    const faceOval = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
-                      397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
-                      172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10];
-    ctx.strokeStyle = 'rgba(96, 165, 250, 0.12)';
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    for (let i = 0; i < faceOval.length; i++) {
-        const lm = landmarks[faceOval[i]];
-        if (!lm) continue;
-        const x = lm.x * videoWidth;
-        const y = lm.y * videoHeight;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
 }
 
 // ---- Dormant / on-demand camera ----
@@ -416,16 +141,17 @@ async function startFaceIdPanel() {
     }
 }
 
-// ---- Detection loop (MediaPipe landmarks in-browser + InsightFace via IPC) ----
+// ---- Detection loop (InsightFace + rPPG + moiré via Python IPC) ----
 async function faceDetectLoop(video, canvas) {
     const ctx       = canvas.getContext('2d');
-    const meshCanvas = document.getElementById('faceMeshCanvas');
     const offscreen = document.createElement('canvas');
 
-    // Throttle IPC calls to Python (every ~300ms) — MediaPipe runs every frame
+    // Send frames to Python every ~150ms for rPPG (higher rate than before for pulse accuracy)
     let lastIPCTime = 0;
     let pendingIPC = false;
-    let lastEmbeddingResult = null; // { embedding, bbox, det_score, depth_variance, is_live_depth }
+    let lastFaceResult = null; // { embedding, bbox, det_score, has_pulse, pulse_confidence, moire_score, is_screen }
+    let faceLostTicks = 0;    // tolerance for momentary detection drops
+    const FACE_LOST_TOLERANCE = 5; // ~500ms at 100ms tick before resetting liveness
 
     const tick = async () => {
         if (!faceLoopActive) return;
@@ -436,34 +162,8 @@ async function faceDetectLoop(video, canvas) {
 
         const now = performance.now();
 
-        // --- MediaPipe: run on every frame for landmarks ---
-        let mpResult = null;
-        if (mediapipeReady && faceLandmarker) {
-            try {
-                mpResult = faceLandmarker.detectForVideo(video, now);
-            } catch (_) {}
-        }
-
-        const hasMediaPipeFace = mpResult && mpResult.faceLandmarks && mpResult.faceLandmarks.length > 0;
-
-        // Draw mesh overlay
-        if (hasMediaPipeFace) {
-            drawLandmarkMesh(meshCanvas, mpResult.faceLandmarks[0], video.videoWidth, video.videoHeight);
-
-            // Add to landmark history for liveness analysis
-            const landmarks2D = extractLandmarks(mpResult.faceLandmarks[0]);
-            landmarkHistory.push({ landmarks: landmarks2D, timestamp: now });
-            if (landmarkHistory.length > LANDMARK_HISTORY_LEN) landmarkHistory.shift();
-        } else {
-            // Clear mesh
-            if (meshCanvas) {
-                const mCtx = meshCanvas.getContext('2d');
-                mCtx.clearRect(0, 0, meshCanvas.width, meshCanvas.height);
-            }
-        }
-
-        // --- IPC to Python: throttled for ArcFace embedding + MiDaS depth ---
-        if (!pendingIPC && (now - lastIPCTime > 300)) {
+        // --- IPC to Python: throttled for ArcFace + rPPG + moiré ---
+        if (!pendingIPC && (now - lastIPCTime > 150)) {
             pendingIPC = true;
             lastIPCTime = now;
 
@@ -474,24 +174,17 @@ async function faceDetectLoop(video, canvas) {
 
             window.electronAPI.faceProcessFrame(base64).then(result => {
                 pendingIPC = false;
-                if (result?.face) {
-                    lastEmbeddingResult = result.face;
-                    if (result.face.depth_variance !== undefined) {
-                        lastDepthVariance = result.face.depth_variance;
-                    }
-                } else {
-                    lastEmbeddingResult = null;
-                }
+                lastFaceResult = result?.face || null;
             }).catch(() => { pendingIPC = false; });
         }
 
         // --- Process detections ---
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const face = lastEmbeddingResult;
-        const hasFace = hasMediaPipeFace && face;
+        const face = lastFaceResult;
 
-        if (hasFace) {
+        if (face) {
+            faceLostTicks = 0;
             resetInactivityTimer();
             const [fx1, fy1, fx2, fy2] = face.bbox;
             const box = { x: fx1, y: fy1, width: fx2 - fx1, height: fy2 - fy1 };
@@ -514,56 +207,60 @@ async function faceDetectLoop(video, canvas) {
             }
 
             if (bestMatch && bestDist <= MATCH_THRESHOLD) {
+                // Track screen flags
+                if (face.is_screen) {
+                    screenFlagCount++;
+                }
+
+                // Instant reject if moiré consistently detects a screen
+                if (face.is_screen && screenFlagCount >= 3) {
+                    drawFaceBox(ctx, box, false);
+                    resetLivenessState();
+                    setProgressRing(0, 'verifying');
+                    setFaceUI('idle', 'Screen detected — use a real face');
+                    if (faceState === 'matched') enterIdleState();
+                    setTimeout(tick, 200);
+                    return;
+                }
+
                 drawFaceBox(ctx, box, true);
 
                 if (faceState === 'idle') {
-                    // Start liveness accumulation timer
-                    if (livenessStartTime === 0) {
-                        livenessStartTime = now;
+                    // Start pulse accumulation timer
+                    if (pulseStartTime === 0) {
+                        pulseStartTime = now;
                     }
 
-                    // Compute liveness signals
-                    const liveness = computeLivenessScore();
+                    // Track consecutive pulse-positive frames
+                    if (face.has_pulse) {
+                        pulseConsecutive++;
+                    } else {
+                        pulseConsecutive = 0;
+                    }
 
-                    // Update accumulator
-                    livenessAccumulator.total++;
-                    if (liveness.rigidPass) livenessAccumulator.rigidPass++;
-                    if (liveness.motionPass) livenessAccumulator.motionPass++;
-                    if (liveness.depthPass) livenessAccumulator.depthPass++;
-
-                    const elapsed = now - livenessStartTime;
-                    const progress = Math.min(1, elapsed / LIVENESS_ACCUMULATE_MS);
+                    const elapsed = now - pulseStartTime;
+                    const progress = Math.min(1, elapsed / PULSE_ACCUMULATE_MS);
 
                     // Update progress ring
                     setProgressRing(progress, 'verifying');
 
-                    // Phase labels
-                    if (elapsed < 400) {
-                        setPhaseLabel('detecting', 'Detecting');
-                        setScanCircle(true);
-                    } else if (elapsed < 1000) {
-                        setPhaseLabel('analyzing', 'Analyzing');
-                        setScanCircle(true);
-                    } else {
-                        setPhaseLabel('verifying', 'Verifying');
-                        setScanCircle(false);
-                    }
+                    // Liveness: rPPG pulse is MANDATORY — no timeout bypass.
+                    // A static photo cannot produce periodic skin-color changes.
+                    const pulsePass = pulseConsecutive >= PULSE_CONSECUTIVE_REQUIRED;
 
-                    console.log(`Liveness: rigid_residual=${liveness.rigidResidual.toFixed(2)} micro_motion=${liveness.microMotion.toFixed(3)} depth_var=${liveness.depthVar.toFixed(4)} → ${liveness.isLive ? 'PASS' : 'FAIL'} (${elapsed.toFixed(0)}ms)`);
+                    console.log(`Liveness: has_pulse=${face.has_pulse} confidence=${face.pulse_confidence} bpm=${face.pulse_bpm} moire=${face.moire_score} consecutive=${pulseConsecutive} screenFlags=${screenFlagCount} elapsed=${elapsed.toFixed(0)}ms → ${pulsePass ? 'PULSE_PASS' : 'accumulating'}`);
 
-                    if (elapsed >= LIVENESS_ACCUMULATE_MS && liveness.isLive) {
-                        // Enough time and liveness confirmed — proceed to matched
+                    if (pulsePass) {
                         resetLivenessState();
-                        hidePhaseLabel();
-                        setScanCircle(false);
                         setProgressRing(1, 'matched');
                         faceCurrentMatch = { ufid: bestMatch.ufid, name: bestMatch.name, action: null };
                         enterMatchedState(bestMatch.ufid, bestMatch.name);
-                    } else if (elapsed >= LIVENESS_ACCUMULATE_MS && !liveness.isLive) {
-                        // Time elapsed but liveness failed — keep trying, show hint
-                        setFaceUI('idle', 'Move naturally — verifying…');
+                    } else if (elapsed > PULSE_TIMEOUT_MS) {
+                        setFaceUI('idle', 'No pulse detected — ensure good lighting');
+                    } else if (elapsed > PULSE_ACCUMULATE_MS) {
+                        setFaceUI('idle', 'Hold still — verifying…');
                     } else {
-                        setFaceUI('idle', 'Verifying identity…');
+                        setFaceUI('idle', 'Verifying pulse…');
                     }
                 }
                 // faceState === 'matched': waiting for Enter/click, no change
@@ -571,37 +268,25 @@ async function faceDetectLoop(video, canvas) {
                 drawFaceBox(ctx, box, false);
                 resetLivenessState();
                 setProgressRing(0, 'verifying');
-                hidePhaseLabel();
-                setScanCircle(true);
                 if (faceState === 'matched') {
                     enterIdleState();
                 }
                 setFaceUI('idle', 'Face not recognized');
             }
-        } else if (hasMediaPipeFace && !face) {
-            // MediaPipe sees a face but Python hasn't returned embeddings yet
-            resetInactivityTimer();
-            setPhaseLabel('detecting', 'Detecting');
-            setScanCircle(true);
-            setFaceUI('idle', 'Searching for face…');
         } else {
-            resetLivenessState();
-            setProgressRing(0, 'verifying');
-            hidePhaseLabel();
-            setScanCircle(false);
-            if (faceState === 'matched') {
-                enterIdleState();
-            }
-            setFaceUI('idle', 'Look at the camera to sign in or out');
-
-            // Clear mesh canvas
-            if (meshCanvas) {
-                const mCtx = meshCanvas.getContext('2d');
-                mCtx.clearRect(0, 0, meshCanvas.width, meshCanvas.height);
+            faceLostTicks++;
+            // Only reset liveness after sustained face loss (tolerance for flicker)
+            if (faceLostTicks >= FACE_LOST_TOLERANCE) {
+                resetLivenessState();
+                setProgressRing(0, 'verifying');
+                if (faceState === 'matched') {
+                    enterIdleState();
+                }
+                setFaceUI('idle', 'Look at the camera to sign in or out');
             }
         }
 
-        setTimeout(tick, 50); // ~20fps for MediaPipe; IPC is throttled separately
+        setTimeout(tick, 100); // ~10fps tick; IPC is throttled separately at ~7fps
     };
 
     tick();
@@ -631,9 +316,7 @@ function enterIdleState() {
     resetLivenessState();
     window.electronAPI.faceResetLiveness().catch(() => {});
     setScanRing('detecting');
-    setScanCircle(true);
     setProgressRing(0, 'verifying');
-    hidePhaseLabel();
     hideFaceNameBadge();
     hideFaceConfirmPrompt();
     setConfirmBar(0);
@@ -645,8 +328,6 @@ function enterIdleState() {
 async function enterMatchedState(ufid, name) {
     faceState = 'matched';
     setScanRing('matched');
-    setScanCircle(false);
-    setPhaseLabel('matched', 'Matched');
     showFaceNameBadge(name, null);
     showFaceConfirmPrompt();
     setConfirmBar(100);
@@ -704,8 +385,6 @@ async function confirmFaceAction() {
 function startCooldown() {
     faceState = 'cooldown';
     setScanRing('idle');
-    setScanCircle(false);
-    hidePhaseLabel();
     setProgressRing(0, 'verifying');
     hideFaceNameBadge();
     setConfirmBar(0);
@@ -798,8 +477,6 @@ function stopFaceCamera() {
     }
     hideFaceSuccessOverlay();
     setScanRing('idle');
-    setScanCircle(false);
-    hidePhaseLabel();
     setProgressRing(0, 'verifying');
     faceState = 'idle';
     faceCurrentMatch = null;

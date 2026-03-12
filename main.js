@@ -2175,15 +2175,6 @@ ipcMain.handle('backup-data', async (event) => {
   }
 });
 
-// MediaPipe paths — resolved from main process (renderer can't use path/require)
-ipcMain.handle('get-mediapipe-paths', async () => {
-  return {
-    wasmPath: path.join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm'),
-    visionBundlePath: path.join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'vision_bundle.mjs'),
-    faceLandmarkerModelPath: path.join(__dirname, 'models', 'face_landmarker.task'),
-  };
-});
-
 // Face ID — frame processing via InsightFace Python service
 ipcMain.handle('face-process-frame', async (event, base64jpeg) => {
   try {

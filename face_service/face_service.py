@@ -4,16 +4,21 @@ InsightFace recognition service for SMILE Lab Attendance.
 Runs as a local FastAPI server. Prints READY:<port> to stdout when ready.
 Main process communicates via HTTP on localhost.
 
-Liveness: MiDaS v2.1 small monocular depth estimation — real faces show
-3D depth variation (nose closer than cheeks/ears), while photos on a phone
-screen show uniform depth across the face region.
+Liveness:
+  - rPPG (remote photoplethysmography): detects blood pulse from subtle skin
+    colour changes — physically unforgeable since screens cannot produce cardiac
+    pulse signals.  Uses the POS (Plane Orthogonal to Skin) algorithm with
+    bandpass filtering and FFT peak detection.
+  - Moiré FFT: identifies phone-screen pixel-grid artefacts in the 2D frequency
+    domain — provides an instant per-frame signal.
 """
 import sys
 import os
 import base64
 import socket
+import time
 import traceback
-from typing import Optional
+from typing import Optional, List, Dict
 
 import numpy as np
 import cv2
@@ -21,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+from scipy.signal import butter, filtfilt
 
 # ---------------------------------------------------------------------------
 # Model initialisation
@@ -63,12 +69,235 @@ def health():
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# rPPG — remote photoplethysmography (POS algorithm)
+# ---------------------------------------------------------------------------
+
+_rppg_buffer: List[Dict] = []   # [{ mean_rgb: [R,G,B], timestamp: float }, …]
+_RPPG_MAX_FRAMES = 120          # ~4 seconds at 30fps (or ~40s at 3fps; trimmed by time)
+_RPPG_MIN_FRAMES = 12           # minimum frames before attempting analysis (~2-4s)
+_RPPG_WINDOW_SEC = 6.0          # keep at most this many seconds of history
+_RPPG_SNR_THRESHOLD = 3.5       # SNR above which we declare a pulse found
+_RPPG_BPM_LOW = 45.0            # reject pulse below this (not physiological)
+_RPPG_BPM_HIGH = 180.0          # reject pulse above this (not physiological)
+
+
+def _butterworth_bandpass(lowcut: float, highcut: float, fs: float, order: int = 3):
+    """Design a Butterworth bandpass filter."""
+    nyq = 0.5 * fs
+    low = max(lowcut / nyq, 0.01)
+    high = min(highcut / nyq, 0.80)   # cap well below Nyquist for stability
+    if high <= low:
+        high = low + 0.01
+    return butter(order, [low, high], btype="band")
+
+
+def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
+    """
+    Extract forehead ROI mean RGB, append to buffer, run POS algorithm.
+    Returns { has_pulse, pulse_confidence, pulse_bpm }.
+    """
+    global _rppg_buffer
+
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    h, w = img_bgr.shape[:2]
+    face_h = y2 - y1
+    face_w = x2 - x1
+
+    # Forehead ROI: upper 30% of face bbox, inner 60% width
+    roi_x1 = max(0, x1 + int(face_w * 0.2))
+    roi_x2 = min(w, x2 - int(face_w * 0.2))
+    roi_y1 = max(0, y1)
+    roi_y2 = max(roi_y1 + 1, y1 + int(face_h * 0.3))
+    roi_y2 = min(h, roi_y2)
+
+    roi = img_bgr[roi_y1:roi_y2, roi_x1:roi_x2]
+    if roi.size == 0:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    # Mean RGB (BGR→RGB)
+    mean_bgr = roi.mean(axis=(0, 1))
+    mean_rgb = [float(mean_bgr[2]), float(mean_bgr[1]), float(mean_bgr[0])]
+
+    now = time.monotonic()
+    _rppg_buffer.append({"mean_rgb": mean_rgb, "timestamp": now})
+
+    # Trim buffer by time window
+    cutoff = now - _RPPG_WINDOW_SEC
+    _rppg_buffer = [f for f in _rppg_buffer if f["timestamp"] >= cutoff]
+
+    if len(_rppg_buffer) < _RPPG_MIN_FRAMES:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    # Build signal arrays
+    timestamps = np.array([f["timestamp"] for f in _rppg_buffer])
+    rgb = np.array([f["mean_rgb"] for f in _rppg_buffer])  # (N, 3)
+
+    # Estimate sample rate from timestamps
+    dt = np.diff(timestamps)
+    if len(dt) == 0 or dt.mean() < 1e-6:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+    fs = 1.0 / dt.mean()
+
+    # Need at least ~2 seconds of data for meaningful FFT
+    duration = timestamps[-1] - timestamps[0]
+    if duration < 1.5:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    n = len(timestamps)
+
+    # Check temporal variance of green channel — static photos have near-zero variance
+    # (only JPEG compression noise ~0.1-0.5), while real skin shows ~1-5+ from blood flow
+    green_vals = rgb[:, 1]
+    green_var = float(np.var(green_vals))
+    if green_var < 0.3:
+        print(f"[rPPG] frames={n} green_var={green_var:.3f} → STATIC (no temporal change)", flush=True)
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    # Detrend: subtract rolling mean (window = 15 frames or n//3)
+    win = min(15, max(3, n // 3))
+    R = rgb[:, 0].copy()
+    G = rgb[:, 1].copy()
+    B = rgb[:, 2].copy()
+    for ch in (R, G, B):
+        kernel = np.ones(win) / win
+        smooth = np.convolve(ch, kernel, mode="same")
+        ch -= smooth
+
+    # POS algorithm: Plane Orthogonal to Skin
+    S1 = G - B
+    S2 = G + B - 2 * R
+
+    std_s1 = np.std(S1)
+    std_s2 = np.std(S2)
+    if std_s2 < 1e-8:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    H = S1 + (std_s1 / std_s2) * S2
+
+    # Bandpass filter: 0.7 Hz – min(3.0, 0.8*Nyquist) Hz
+    # At ~7fps Nyquist is ~3.5Hz; capping at 0.8*Nyq keeps the filter stable
+    highcut_actual = min(3.0, 0.8 * 0.5 * fs)
+    try:
+        b_coeff, a_coeff = _butterworth_bandpass(0.7, highcut_actual, fs, order=3)
+        # Need enough samples for filtfilt (3 * max(len(a), len(b)) - 1)
+        min_padlen = 3 * max(len(a_coeff), len(b_coeff)) - 1
+        if len(H) <= min_padlen:
+            return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+        H_filtered = filtfilt(b_coeff, a_coeff, H)
+    except Exception:
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    # FFT
+    N = len(H_filtered)
+    fft_vals = np.fft.rfft(H_filtered)
+    fft_mag = np.abs(fft_vals)
+    freqs = np.fft.rfftfreq(N, d=1.0 / fs)
+
+    # Restrict to pulse-plausible range
+    mask = (freqs >= 0.7) & (freqs <= highcut_actual)
+    if not np.any(mask):
+        return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
+
+    pulse_freqs = freqs[mask]
+    pulse_mag = fft_mag[mask]
+
+    peak_idx = np.argmax(pulse_mag)
+    peak_power = pulse_mag[peak_idx] ** 2
+    peak_freq = pulse_freqs[peak_idx]
+
+    # SNR: peak power vs mean power outside a ±0.2 Hz band around peak
+    band_mask = np.abs(pulse_freqs - peak_freq) > 0.2
+    if np.any(band_mask):
+        noise_power = np.mean(pulse_mag[band_mask] ** 2)
+    else:
+        noise_power = np.mean(pulse_mag ** 2)
+
+    snr = peak_power / max(noise_power, 1e-10)
+    pulse_bpm = float(peak_freq * 60.0)
+
+    # Require both sufficient SNR AND physiologically plausible BPM
+    bpm_ok = _RPPG_BPM_LOW <= pulse_bpm <= _RPPG_BPM_HIGH
+    has_pulse = bool(snr > _RPPG_SNR_THRESHOLD and bpm_ok)
+    pulse_confidence = min(1.0, snr / 6.0) if bpm_ok else 0.0
+
+    print(f"[rPPG] frames={n} fs={fs:.1f} snr={snr:.2f} bpm={pulse_bpm:.0f} bpm_ok={bpm_ok} → {'PULSE' if has_pulse else 'no pulse'}", flush=True)
+
+    return {
+        "has_pulse": has_pulse,
+        "pulse_confidence": round(pulse_confidence, 3),
+        "pulse_bpm": round(pulse_bpm, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Moiré FFT — screen pixel-grid detection
+# ---------------------------------------------------------------------------
+
+_MOIRE_THRESHOLD = 80.0   # real faces score 28-50; screens with pixel-grid moiré score 100+
+
+
+def _moire_analyze(img_bgr: np.ndarray, bbox) -> dict:
+    """
+    2D FFT on face crop to detect periodic moiré patterns from phone screens.
+    Returns { moire_score, is_screen }.
+    """
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    h, w = img_bgr.shape[:2]
+    cx1 = max(0, x1)
+    cy1 = max(0, y1)
+    cx2 = min(w, x2)
+    cy2 = min(h, y2)
+
+    crop = img_bgr[cy1:cy2, cx1:cx2]
+    if crop.size == 0:
+        return {"moire_score": 0.0, "is_screen": False}
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(gray, (256, 256)).astype(np.float32)
+
+    # Apply 2D Hanning window to reduce edge artefacts
+    hanning = np.outer(np.hanning(256), np.hanning(256)).astype(np.float32)
+    windowed = resized * hanning
+
+    # 2D FFT → magnitude spectrum
+    fft2 = np.fft.fft2(windowed)
+    fft_shift = np.fft.fftshift(fft2)
+    magnitude = np.abs(fft_shift) + 1e-8  # avoid log(0)
+
+    # Mask out low-frequency center (radius ~30 pixels)
+    cy_f, cx_f = 128, 128
+    Y, X = np.ogrid[:256, :256]
+    dist = np.sqrt((X - cx_f) ** 2 + (Y - cy_f) ** 2)
+    high_freq_mask = dist > 30
+
+    high_mag = magnitude[high_freq_mask]
+    if high_mag.size == 0:
+        return {"moire_score": 0.0, "is_screen": False}
+
+    moire_score = float(np.max(high_mag) / np.mean(high_mag))
+    is_screen = moire_score > _MOIRE_THRESHOLD
+
+    print(f"[Moiré] score={moire_score:.1f} threshold={_MOIRE_THRESHOLD} → {'SCREEN' if is_screen else 'ok'}", flush=True)
+
+    return {
+        "moire_score": round(moire_score, 2),
+        "is_screen": bool(is_screen),
+    }
+
+
+# ---------------------------------------------------------------------------
+# /analyze endpoint
+# ---------------------------------------------------------------------------
+
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     """
     Detect the largest face in the image.
     Returns:
-      { face: { bbox, embedding, kps, det_score, depth_variance } }
+      { face: { bbox, embedding, kps, det_score,
+                 has_pulse, pulse_confidence, pulse_bpm,
+                 moire_score, is_screen } }
       or  { face: null }
     """
     try:
@@ -88,13 +317,18 @@ def analyze(req: AnalyzeRequest):
             "embedding": face.embedding.tolist(), # 512-dim ArcFace vector
         }
         if face.kps is not None:
-            # 5 keypoints: left_eye, right_eye, nose, left_mouth, right_mouth
             result["kps"] = face.kps.tolist()
 
-        # MiDaS depth-based liveness analysis
-        liveness = liveness_check(img, face.bbox)
-        result["depth_variance"] = liveness["depth_variance"]
-        result["is_live_depth"] = liveness["is_live_depth"]
+        # rPPG pulse detection
+        rppg = _rppg_analyze(img, face.bbox)
+        result["has_pulse"] = rppg["has_pulse"]
+        result["pulse_confidence"] = rppg["pulse_confidence"]
+        result["pulse_bpm"] = rppg["pulse_bpm"]
+
+        # Moiré screen detection
+        moire = _moire_analyze(img, face.bbox)
+        result["moire_score"] = moire["moire_score"]
+        result["is_screen"] = moire["is_screen"]
 
         return {"face": result}
 
@@ -103,105 +337,12 @@ def analyze(req: AnalyzeRequest):
         return {"face": None, "error": traceback.format_exc(limit=3)}
 
 
-# ---------------------------------------------------------------------------
-# Liveness — MiDaS v2.1 small monocular depth estimation
-#
-# Real faces have 3D structure: nose protrudes, cheeks recede, ears are
-# further back. MiDaS estimates a relative depth map from a single image.
-# We compute the standard deviation of depth values across the face crop —
-# real faces show high variance, flat screens show low variance.
-# ---------------------------------------------------------------------------
-
-import onnxruntime as _ort
-
-_midas_sess = None   # loaded lazily on first call
-
-# ImageNet normalization constants (MiDaS v2.1 small uses these)
-_MIDAS_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-_MIDAS_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-# Depth variance threshold — tuned so real faces pass, flat screens fail
-DEPTH_VARIANCE_THRESHOLD = 0.04
-
-
-def _load_midas_model():
-    """Load the MiDaS v2.1 small ONNX model."""
-    global _midas_sess
-    model_path = os.path.join(os.path.dirname(__file__), "..", "models",
-                              "midas_v21_small_256.onnx")
-    if not os.path.exists(model_path):
-        print(f"[Liveness] MiDaS model not found at {model_path}")
-        return
-    _midas_sess = _ort.InferenceSession(
-        model_path, providers=["CPUExecutionProvider"],
-    )
-    print("[Liveness] MiDaS v2.1 small depth model loaded")
-
-
 @app.post("/reset-liveness")
 def reset_liveness():
+    """Clear the rPPG frame buffer (e.g. after sign-in/out or camera restart)."""
+    global _rppg_buffer
+    _rppg_buffer = []
     return {"ok": True}
-
-
-def liveness_check(img_bgr, bbox):
-    """
-    Run MiDaS depth estimation on the face crop.
-    Returns { depth_variance, is_live_depth }.
-    """
-    if _midas_sess is None:
-        _load_midas_model()
-
-    if _midas_sess is None:
-        # Model not available — fall back to always-pass
-        return {"depth_variance": 1.0, "is_live_depth": True}
-
-    # Crop face region with some padding
-    x1, y1, x2, y2 = [int(v) for v in bbox]
-    h, w = img_bgr.shape[:2]
-    pad_w = int((x2 - x1) * 0.3)
-    pad_h = int((y2 - y1) * 0.3)
-    cx1 = max(0, x1 - pad_w)
-    cy1 = max(0, y1 - pad_h)
-    cx2 = min(w, x2 + pad_w)
-    cy2 = min(h, y2 + pad_h)
-
-    crop = img_bgr[cy1:cy2, cx1:cx2]
-    if crop.size == 0:
-        return {"depth_variance": 0.0, "is_live_depth": False}
-
-    # Preprocess for MiDaS: resize to 256x256, BGR→RGB, normalize
-    resized = cv2.resize(crop, (256, 256))
-    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    normalized = (rgb - _MIDAS_MEAN) / _MIDAS_STD
-    # HWC → NCHW
-    blob = normalized.transpose(2, 0, 1)[np.newaxis]
-
-    # Run MiDaS inference
-    input_name = _midas_sess.get_inputs()[0].name
-    depth_map = _midas_sess.run(None, {input_name: blob})[0]
-
-    # depth_map shape: (1, 256, 256) or (1, 1, 256, 256)
-    depth_map = depth_map.squeeze()
-
-    # Normalize depth map to [0, 1] for consistent variance measurement
-    d_min, d_max = depth_map.min(), depth_map.max()
-    if d_max - d_min > 1e-6:
-        depth_norm = (depth_map - d_min) / (d_max - d_min)
-    else:
-        depth_norm = np.zeros_like(depth_map)
-
-    # Sample the central face region (inner 60% of the crop)
-    h_d, w_d = depth_norm.shape
-    margin_h, margin_w = int(h_d * 0.2), int(w_d * 0.2)
-    face_depth = depth_norm[margin_h:h_d - margin_h, margin_w:w_d - margin_w]
-
-    # Compute depth standard deviation across the face
-    depth_var = float(np.std(face_depth))
-
-    return {
-        "depth_variance": round(depth_var, 4),
-        "is_live_depth": depth_var >= DEPTH_VARIANCE_THRESHOLD,
-    }
 
 
 # ---------------------------------------------------------------------------
