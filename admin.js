@@ -4245,26 +4245,41 @@ if (typeof module !== 'undefined' && module.exports) {
 // Uses MediaPipe FaceMesh for landmark visualization + InsightFace ArcFace via IPC.
 // Each pose collects ~20 embeddings over ~2 seconds and averages them for higher quality.
 
-const { FaceLandmarker: EnrollFaceLandmarker, FilesetResolver: EnrollFilesetResolver } = require('@mediapipe/tasks-vision');
-
 let enrollStream    = null;
 let enrollAnimFrame = null;
 let enrollFaceLandmarker = null;
 let enrollMediapipeReady = false;
 
-// Initialize MediaPipe for enrollment (separate instance from index.js)
+// Initialize MediaPipe for enrollment
+// window.vision is loaded by <script type="module"> in admin.html
 async function initEnrollMediaPipe() {
+    // Get paths from main process, then dynamically import the MediaPipe vision bundle
+    let paths;
     try {
-        const vision = await EnrollFilesetResolver.forVisionTasks(
-            require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
-        );
-        enrollFaceLandmarker = await EnrollFaceLandmarker.createFromOptions(vision, {
-            baseOptions: {
-                modelAssetPath: require('path').join(
-                    __dirname, 'models', 'face_landmarker.task'
-                ),
-                delegate: 'GPU',
-            },
+        paths = await window.electronAPI.getMediaPipePaths();
+    } catch (err) {
+        console.warn('[MediaPipe Enroll] Failed to get paths:', err);
+        return;
+    }
+
+    let visionModule;
+    try {
+        visionModule = await import('file://' + paths.visionBundlePath);
+        console.log('[MediaPipe Enroll] Vision bundle loaded');
+    } catch (err) {
+        console.warn('[MediaPipe Enroll] Failed to load vision bundle:', err);
+        console.warn('[MediaPipe Enroll] Enrollment uses Python only');
+        return;
+    }
+
+    const { FaceLandmarker, FilesetResolver } = visionModule;
+    const wasmPath = paths.wasmPath;
+    const modelPath = paths.faceLandmarkerModelPath;
+
+    try {
+        const vision = await FilesetResolver.forVisionTasks(wasmPath);
+        enrollFaceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
             runningMode: 'VIDEO',
             numFaces: 1,
             outputFacialTransformationMatrixes: false,
@@ -4275,17 +4290,9 @@ async function initEnrollMediaPipe() {
     } catch (err) {
         console.warn('[MediaPipe Enroll] GPU failed, trying CPU:', err.message);
         try {
-            const vision = await EnrollFilesetResolver.forVisionTasks(
-                require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
-            );
-            enrollFaceLandmarker = await EnrollFaceLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: require('path').join(
-                        __dirname, 'node_modules', '@mediapipe', 'tasks-vision',
-                        'models', 'face_landmarker.task'
-                    ),
-                    delegate: 'CPU',
-                },
+            const vision = await FilesetResolver.forVisionTasks(wasmPath);
+            enrollFaceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: modelPath, delegate: 'CPU' },
                 runningMode: 'VIDEO',
                 numFaces: 1,
             });

@@ -1,8 +1,9 @@
 // ==================== FACE ID ====================
 // MediaPipe FaceMesh (468 landmarks) + InsightFace ArcFace (512-dim embeddings)
 // Passive liveness: non-rigid motion analysis + micro-motion variance + MiDaS depth
-
-const { FaceLandmarker, FilesetResolver } = require('@mediapipe/tasks-vision');
+//
+// MediaPipe is loaded via <script type="module"> in index.html and exposed
+// as window.vision. Paths come from preload.js (window.electronAPI.*Path).
 
 const SUCCESS_DISPLAY_MS = 2000;
 // ArcFace cosine-distance threshold — lower = stricter. 0.40 is recommended.
@@ -37,18 +38,33 @@ let livenessAccumulator = { rigidPass: 0, motionPass: 0, depthPass: 0, total: 0 
 // ---- MediaPipe Initialization ----
 
 async function initMediaPipe() {
+    // Get paths from main process, then dynamically import the MediaPipe vision bundle
+    let paths;
     try {
-        const vision = await FilesetResolver.forVisionTasks(
-            // In Electron, resolve from node_modules
-            require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
-        );
+        paths = await window.electronAPI.getMediaPipePaths();
+    } catch (err) {
+        console.warn('[MediaPipe] Failed to get paths:', err);
+        return;
+    }
+
+    let visionModule;
+    try {
+        visionModule = await import('file://' + paths.visionBundlePath);
+        console.log('[MediaPipe] Vision bundle loaded');
+    } catch (err) {
+        console.warn('[MediaPipe] Failed to load vision bundle:', err);
+        console.warn('[MediaPipe] Face ID will use Python-only detection');
+        return;
+    }
+
+    const { FaceLandmarker, FilesetResolver } = visionModule;
+    const wasmPath = paths.wasmPath;
+    const modelPath = paths.faceLandmarkerModelPath;
+
+    try {
+        const vision = await FilesetResolver.forVisionTasks(wasmPath);
         faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: {
-                modelAssetPath: require('path').join(
-                    __dirname, 'models', 'face_landmarker.task'
-                ),
-                delegate: 'GPU',
-            },
+            baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
             runningMode: 'VIDEO',
             numFaces: 1,
             outputFacialTransformationMatrixes: false,
@@ -57,20 +73,11 @@ async function initMediaPipe() {
         mediapipeReady = true;
         console.log('[MediaPipe] FaceLandmarker initialized');
     } catch (err) {
-        console.error('[MediaPipe] Failed to initialize:', err);
-        // Fallback: try CPU delegate
+        console.error('[MediaPipe] GPU failed, trying CPU:', err);
         try {
-            const vision = await FilesetResolver.forVisionTasks(
-                require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
-            );
+            const vision = await FilesetResolver.forVisionTasks(wasmPath);
             faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: require('path').join(
-                        __dirname, 'node_modules', '@mediapipe', 'tasks-vision',
-                        'models', 'face_landmarker.task'
-                    ),
-                    delegate: 'CPU',
-                },
+                baseOptions: { modelAssetPath: modelPath, delegate: 'CPU' },
                 runningMode: 'VIDEO',
                 numFaces: 1,
                 outputFacialTransformationMatrixes: false,
