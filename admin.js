@@ -650,6 +650,12 @@ function displayStudents(students) {
               data-ufid="${student.ufid}">
               <i class="fas fa-edit"></i>
             </button>
+            <button class="btn btn-secondary enroll-face-btn"
+              style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: var(--uf-blue);"
+              data-ufid="${student.ufid}" data-name="${student.name}"
+              title="Enroll Face ID">
+              <i class="fas fa-face-smile"></i>
+            </button>
             <button class="btn btn-secondary delete-student-btn"
               style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #ef4444;"
               data-ufid="${student.ufid}">
@@ -673,6 +679,14 @@ function displayStudents(students) {
         btn.addEventListener('click', function () {
             const ufid = this.getAttribute('data-ufid');
             deleteStudent(ufid);
+        });
+    });
+
+    document.querySelectorAll('.enroll-face-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const ufid = this.getAttribute('data-ufid');
+            const name = this.getAttribute('data-name');
+            openFaceEnrollModal(ufid, name);
         });
     });
 }
@@ -4225,4 +4239,461 @@ if (typeof module !== 'undefined' && module.exports) {
         sendPendingForStudent,
         sendAllPendingEmails
     };
+}
+
+// ==================== FACE ENROLLMENT ====================
+// Uses MediaPipe FaceMesh for landmark visualization + InsightFace ArcFace via IPC.
+// Each pose collects ~20 embeddings over ~2 seconds and averages them for higher quality.
+
+const { FaceLandmarker: EnrollFaceLandmarker, FilesetResolver: EnrollFilesetResolver } = require('@mediapipe/tasks-vision');
+
+let enrollStream    = null;
+let enrollAnimFrame = null;
+let enrollFaceLandmarker = null;
+let enrollMediapipeReady = false;
+
+// Initialize MediaPipe for enrollment (separate instance from index.js)
+async function initEnrollMediaPipe() {
+    try {
+        const vision = await EnrollFilesetResolver.forVisionTasks(
+            require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
+        );
+        enrollFaceLandmarker = await EnrollFaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: require('path').join(
+                    __dirname, 'models', 'face_landmarker.task'
+                ),
+                delegate: 'GPU',
+            },
+            runningMode: 'VIDEO',
+            numFaces: 1,
+            outputFacialTransformationMatrixes: false,
+            outputFaceBlendshapes: false,
+        });
+        enrollMediapipeReady = true;
+        console.log('[MediaPipe Enroll] FaceLandmarker initialized');
+    } catch (err) {
+        console.warn('[MediaPipe Enroll] GPU failed, trying CPU:', err.message);
+        try {
+            const vision = await EnrollFilesetResolver.forVisionTasks(
+                require('path').join(__dirname, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm')
+            );
+            enrollFaceLandmarker = await EnrollFaceLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: require('path').join(
+                        __dirname, 'node_modules', '@mediapipe', 'tasks-vision',
+                        'models', 'face_landmarker.task'
+                    ),
+                    delegate: 'CPU',
+                },
+                runningMode: 'VIDEO',
+                numFaces: 1,
+            });
+            enrollMediapipeReady = true;
+            console.log('[MediaPipe Enroll] FaceLandmarker initialized (CPU)');
+        } catch (err2) {
+            console.error('[MediaPipe Enroll] Failed:', err2);
+        }
+    }
+}
+
+initEnrollMediaPipe();
+
+// Enrollment requires 3 distinct captures: center, slight left, slight right.
+// Each capture averages ~20 ArcFace embeddings over ~2 seconds for higher quality.
+const ENROLL_POSES = [
+    { label: 'Look straight at camera',  yawMin: -0.15, yawMax: 0.15 },
+    { label: 'Turn head slightly left',   yawMin: -Infinity, yawMax: -0.15 },
+    { label: 'Turn head slightly right',  yawMin: 0.15, yawMax: Infinity },
+];
+const ENROLL_MIN_EMBED_DIST = 0.05; // min cosine distance between averaged captures
+const ENROLL_MIN_DET_SCORE  = 0.5;  // minimum face detection confidence
+const ENROLL_MIN_FACE_SIZE  = 80;   // minimum face width in px
+const ENROLL_AVG_FRAMES     = 20;   // number of embeddings to average per pose
+const ENROLL_AVG_TIMEOUT_MS = 3000; // max time to collect embeddings per pose
+
+function _enrollYaw(kps) {
+    if (!kps || kps.length < 3) return 0;
+    const lx = kps[0][0], rx = kps[1][0], nx = kps[2][0];
+    const span = rx - lx;
+    if (span < 5) return 0;
+    return Math.max(-1, Math.min(1, (nx - (lx + rx) / 2) / span * 2.0));
+}
+
+function _enrollCosDist(a, b) {
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+    const d = Math.sqrt(na) * Math.sqrt(nb);
+    return d === 0 ? 1 : 1 - dot / d;
+}
+
+/** Average an array of embedding vectors element-wise. */
+function _averageEmbeddings(embeddings) {
+    if (embeddings.length === 0) return [];
+    if (embeddings.length === 1) return embeddings[0];
+    const dim = embeddings[0].length;
+    const avg = new Array(dim).fill(0);
+    for (const emb of embeddings) {
+        for (let i = 0; i < dim; i++) avg[i] += emb[i];
+    }
+    for (let i = 0; i < dim; i++) avg[i] /= embeddings.length;
+    return avg;
+}
+
+/** Draw MediaPipe landmark mesh on enrollment canvas. */
+function drawEnrollMesh(ctx, faceLandmarks, videoWidth, videoHeight) {
+    if (!faceLandmarks || faceLandmarks.length === 0) return;
+    ctx.fillStyle = 'rgba(96, 165, 250, 0.2)';
+    for (let i = 0; i < faceLandmarks.length; i += 4) {
+        const lm = faceLandmarks[i];
+        ctx.beginPath();
+        ctx.arc(lm.x * videoWidth, lm.y * videoHeight, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function openFaceEnrollModal(ufid, name) {
+    const modal = document.getElementById('faceEnrollModal');
+    if (!modal) return;
+
+    // Reset state
+    document.getElementById('enrollModalTitle').textContent = name;
+    document.getElementById('enrollModalSub').textContent = ENROLL_POSES[0].label;
+    document.getElementById('enrollLoading').style.display = 'flex';
+    setEnrollStatus('idle', ENROLL_POSES[0].label);
+    resetEnrollProgress();
+
+    modal.style.display = 'flex';
+
+    // Wire listeners (replace to avoid duplicates)
+    const closeBtn = document.getElementById('enrollCloseBtn');
+    const clearBtn = document.getElementById('enrollClearBtn');
+    const newClose = closeBtn.cloneNode(true);
+    const newClear = clearBtn.cloneNode(true);
+    closeBtn.parentNode.replaceChild(newClose, closeBtn);
+    clearBtn.parentNode.replaceChild(newClear, clearBtn);
+
+    newClose.addEventListener('click', closeEnrollModal);
+    newClear.addEventListener('click', async () => {
+        await window.electronAPI.clearFaceDescriptor(ufid);
+        showNotification('Face ID cleared for ' + name, 'info');
+        closeEnrollModal();
+    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeEnrollModal(); });
+
+    startEnrollCamera(ufid, name);
+}
+
+function resetEnrollProgress() {
+    const svg = document.getElementById('enrollRingSVG');
+    if (svg) while (svg.firstChild) svg.removeChild(svg.firstChild);
+    buildEnrollTickRing();
+    updateEnrollRing(0);
+}
+
+async function startEnrollCamera(ufid, name) {
+    const video   = document.getElementById('enrollVideo');
+    const canvas  = document.getElementById('enrollCanvas');
+    const loading = document.getElementById('enrollLoading');
+
+    try {
+        enrollStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: 640, height: 480 }
+        });
+        video.srcObject = enrollStream;
+        await new Promise(res => { video.onloadedmetadata = res; });
+        canvas.width  = video.videoWidth;
+        canvas.height = video.videoHeight;
+    } catch (e) {
+        loading.style.display = 'none';
+        setEnrollStatus('error', 'Camera access denied');
+        return;
+    }
+
+    loading.style.display = 'none';
+    setEnrollStatus('scanning', 'Position face in camera');
+    runEnrollDetectionLoop(video, canvas, ufid, name);
+}
+
+function setEnrollStatus(type, msg) {
+    const el = document.getElementById('enrollStatus');
+    if (!el) return;
+    const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'camera';
+    const color = type === 'success' ? '#34d399' : type === 'error' ? '#f87171' : '#60a5fa';
+    const ring = document.getElementById('enrollScanRing');
+    if (ring) {
+        ring.style.borderColor = type === 'success' ? 'rgba(52,211,153,0.5)' : type === 'error' ? 'rgba(248,113,113,0.4)' : 'rgba(96,165,250,0.3)';
+        ring.style.boxShadow = type === 'success' ? '0 0 0 4px rgba(52,211,153,0.1)' : type === 'scanning' ? '0 0 0 4px rgba(96,165,250,0.08)' : 'none';
+    }
+    el.style.color = color;
+    el.innerHTML = `<i class="fas fa-${icon}"></i><span>${msg}</span>`;
+}
+
+// 3 ArcFace samples give excellent coverage — more than enough for SMILE Lab use.
+const ENROLL_SAMPLE_COUNT = 3;
+
+// ---- Tick ring helpers ----
+
+function buildEnrollTickRing() {
+    const svg = document.getElementById('enrollRingSVG');
+    if (!svg) return;
+    const cx = 150, cy = 150, r1 = 118, r2 = 134, N = 36;
+    for (let i = 0; i < N; i++) {
+        const angle = (Math.PI / 180) * (-90 + i * (360 / N));
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', cx + r1 * Math.cos(angle));
+        line.setAttribute('y1', cy + r1 * Math.sin(angle));
+        line.setAttribute('x2', cx + r2 * Math.cos(angle));
+        line.setAttribute('y2', cy + r2 * Math.sin(angle));
+        line.style.stroke = 'rgba(255,255,255,0.18)';
+        line.setAttribute('stroke-width', '3');
+        line.setAttribute('stroke-linecap', 'round');
+        line.id = 'enrollTick' + i;
+        svg.appendChild(line);
+    }
+}
+
+function updateEnrollRing(count) {
+    const N = 36;
+    const filled  = Math.round((count / ENROLL_SAMPLE_COUNT) * N);
+    const nextEnd = count < ENROLL_SAMPLE_COUNT
+        ? Math.round(((count + 1) / ENROLL_SAMPLE_COUNT) * N)
+        : N;
+    for (let i = 0; i < N; i++) {
+        const tick = document.getElementById('enrollTick' + i);
+        if (!tick) continue;
+        if (i < filled) {
+            tick.style.stroke = '#34d399';                        // captured — green
+        } else if (i < nextEnd) {
+            tick.style.stroke = 'rgba(96,165,250,0.35)';          // next segment — blue preview
+        } else {
+            tick.style.stroke = 'rgba(255,255,255,0.18)';         // remaining — dim
+        }
+    }
+    const cnt = document.getElementById('enrollProgressCount');
+    if (cnt) cnt.textContent = `${count} / ${ENROLL_SAMPLE_COUNT}`;
+}
+
+function drawEnrollBox(ctx, x, y, w, h, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    const br = Math.min(w, h) * 0.18;
+    const corners = [
+        [x+br,y, x,y, x,y+br], [x+w-br,y, x+w,y, x+w,y+br],
+        [x,y+h-br, x,y+h, x+br,y+h], [x+w,y+h-br, x+w,y+h, x+w-br,y+h]
+    ];
+    for (const [x1,y1,xc,yc,x2,y2] of corners) {
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xc,yc); ctx.lineTo(x2,y2); ctx.stroke();
+    }
+}
+
+function runEnrollDetectionLoop(video, canvas, ufid, name) {
+    const ctx       = canvas.getContext('2d');
+    const offscreen = document.createElement('canvas');
+    let active      = true;
+    let samples     = [];       // collected averaged embeddings (one per pose)
+    let hasFace     = false;
+    let dwellStart  = 0;
+    let poseOkStart = 0;        // when the correct pose was first detected
+    const DWELL_MS  = 800;      // ms the correct pose must be held before averaging begins
+
+    // Averaging state: collect embeddings over ~2s per pose
+    let avgEmbeddings = [];     // embeddings collected for current pose
+    let avgStartTime  = 0;      // when averaging started
+
+    window._enrollLoopStop = () => { active = false; };
+
+    function flashCapture() {
+        const ring = document.getElementById('enrollScanRing');
+        if (!ring) return;
+        ring.style.borderColor = '#34d399';
+        ring.style.boxShadow   = '0 0 0 6px rgba(52,211,153,0.2)';
+        setTimeout(() => { ring.style.borderColor = ''; ring.style.boxShadow = ''; }, 300);
+    }
+
+    function currentPose() { return ENROLL_POSES[samples.length] || ENROLL_POSES[0]; }
+
+    const detect = async () => {
+        if (!active || !document.getElementById('enrollVideo')) return;
+
+        const now = performance.now();
+
+        // --- MediaPipe mesh overlay (runs every frame) ---
+        if (enrollMediapipeReady && enrollFaceLandmarker) {
+            try {
+                const mpResult = enrollFaceLandmarker.detectForVideo(video, now);
+                if (mpResult?.faceLandmarks?.length > 0) {
+                    drawEnrollMesh(ctx, mpResult.faceLandmarks[0], canvas.width, canvas.height);
+                }
+            } catch (_) {}
+        }
+
+        // --- IPC to Python for ArcFace embedding ---
+        offscreen.width  = video.videoWidth;
+        offscreen.height = video.videoHeight;
+        offscreen.getContext('2d').drawImage(video, 0, 0);
+        const base64 = offscreen.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+        // Don't clear canvas fully — keep mesh overlay, just clear the box overlay area
+        // We'll draw boxes on top of mesh
+
+        let faceResult = null;
+        try { faceResult = await window.electronAPI.faceProcessFrame(base64); } catch (_) {}
+
+        const face = faceResult?.face;
+        if (face) {
+            const [x1, y1, x2, y2] = face.bbox;
+            const faceW = x2 - x1;
+            const pose = currentPose();
+
+            // Quality gates
+            if (face.det_score < ENROLL_MIN_DET_SCORE) {
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
+                setEnrollStatus('error', 'Move closer — face too small or blurry');
+                hasFace = false; poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
+                return;
+            }
+            if (faceW < ENROLL_MIN_FACE_SIZE) {
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
+                setEnrollStatus('error', 'Move closer to the camera');
+                hasFace = false; poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
+                return;
+            }
+
+            // Check yaw against required pose
+            const yaw = _enrollYaw(face.kps);
+            const poseCorrect = yaw >= pose.yawMin && yaw <= pose.yawMax;
+
+            if (poseCorrect) {
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1,
+                    samples.length >= ENROLL_SAMPLE_COUNT ? '#34d399' : '#60a5fa');
+
+                if (!hasFace || poseOkStart === 0) {
+                    hasFace = true; poseOkStart = Date.now(); dwellStart = Date.now();
+                    avgEmbeddings = []; avgStartTime = 0;
+                }
+
+                const elapsed  = Date.now() - poseOkStart;
+                const dwellFraction = Math.min(1, elapsed / DWELL_MS);
+
+                // Animate ring border during dwell
+                const ring = document.getElementById('enrollScanRing');
+                if (ring && samples.length < ENROLL_SAMPLE_COUNT) {
+                    const progress = avgStartTime > 0
+                        ? Math.min(1, avgEmbeddings.length / ENROLL_AVG_FRAMES)
+                        : dwellFraction * 0.3; // dwell shows up to 30%
+                    ring.style.borderColor = `rgba(96,165,250,${(0.3 + 0.7 * progress).toFixed(2)})`;
+                    ring.style.boxShadow   = `0 0 0 ${Math.round(progress * 8)}px rgba(96,165,250,${(0.08 * progress).toFixed(2)})`;
+                }
+
+                if (samples.length < ENROLL_SAMPLE_COUNT && dwellFraction >= 1) {
+                    const emb = Array.from(face.embedding);
+
+                    // Start or continue averaging
+                    if (avgStartTime === 0) {
+                        avgStartTime = Date.now();
+                        avgEmbeddings = [emb];
+                        setEnrollStatus('scanning', `Capturing (1/${ENROLL_AVG_FRAMES})…`);
+                    } else {
+                        avgEmbeddings.push(emb);
+                        const count = avgEmbeddings.length;
+                        const timeElapsed = Date.now() - avgStartTime;
+
+                        setEnrollStatus('scanning', `Capturing (${count}/${ENROLL_AVG_FRAMES})…`);
+
+                        // Complete when we have enough frames or timeout
+                        if (count >= ENROLL_AVG_FRAMES || timeElapsed >= ENROLL_AVG_TIMEOUT_MS) {
+                            const averaged = _averageEmbeddings(avgEmbeddings);
+
+                            // Verify this capture is distinct from previous ones
+                            let tooSimilar = false;
+                            for (const prev of samples) {
+                                if (_enrollCosDist(averaged, prev) < ENROLL_MIN_EMBED_DIST) {
+                                    tooSimilar = true;
+                                    break;
+                                }
+                            }
+                            if (tooSimilar) {
+                                poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                                setEnrollStatus('error', 'Too similar — adjust your pose');
+                                if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
+                                return;
+                            }
+
+                            samples.push(averaged);
+                            poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                            updateEnrollRing(samples.length);
+                            flashCapture();
+
+                            if (samples.length < ENROLL_SAMPLE_COUNT) {
+                                const nextPose = ENROLL_POSES[samples.length];
+                                setEnrollStatus('success', `${samples.length}/${ENROLL_SAMPLE_COUNT} captured (${count} frames averaged)`);
+                                const sub = document.getElementById('enrollModalSub');
+                                if (sub) sub.textContent = nextPose.label;
+                                setTimeout(() => {
+                                    setEnrollStatus('scanning', nextPose.label);
+                                }, 600);
+                            } else {
+                                setEnrollStatus('scanning', 'Saving enrollment…');
+                                active = false;
+                                try {
+                                    const res = await window.electronAPI.saveFaceDescriptor(ufid, samples);
+                                    if (res.success) {
+                                        setEnrollStatus('success', `Face ID enrolled for ${name}!`);
+                                        showNotification(`Face ID enrolled for ${name}`, 'success');
+                                        setTimeout(closeEnrollModal, 1200);
+                                    } else {
+                                        setEnrollStatus('error', 'Save failed: ' + (res.error || 'unknown'));
+                                    }
+                                } catch (e) {
+                                    setEnrollStatus('error', 'Error: ' + e.message);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                } else if (dwellFraction < 1) {
+                    setEnrollStatus('scanning', 'Hold still…');
+                }
+            } else {
+                // Wrong pose — show guidance
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#fbbf24');
+                poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+                setEnrollStatus('scanning', pose.label);
+            }
+        } else {
+            hasFace = false;
+            poseOkStart = 0; avgEmbeddings = []; avgStartTime = 0;
+            const ring = document.getElementById('enrollScanRing');
+            if (ring) { ring.style.borderColor = ''; ring.style.boxShadow = ''; }
+            updateEnrollRing(samples.length);
+            const pose = currentPose();
+            setEnrollStatus('scanning', samples.length > 0
+                ? `${samples.length}/${ENROLL_SAMPLE_COUNT} — ${pose.label}`
+                : 'Position face in camera');
+        }
+
+        if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
+    };
+
+    detect();
+}
+
+function closeEnrollModal() {
+    if (window._enrollLoopStop) window._enrollLoopStop();
+    if (enrollAnimFrame) cancelAnimationFrame(enrollAnimFrame);
+    if (enrollStream) {
+        enrollStream.getTracks().forEach(t => t.stop());
+        enrollStream = null;
+    }
+    const modal = document.getElementById('faceEnrollModal');
+    if (modal) modal.style.display = 'none';
+    // Clear video
+    const video = document.getElementById('enrollVideo');
+    if (video) video.srcObject = null;
+    const canvas = document.getElementById('enrollCanvas');
+    if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); }
 }
