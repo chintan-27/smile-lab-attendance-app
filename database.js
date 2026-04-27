@@ -203,6 +203,17 @@ class SQLiteDatabase {
                         // Column might already exist
                     }
                 }
+            },
+            // Migration 4: Add weekly_warning_streak column for attendance warning emails
+            {
+                version: 4,
+                up: () => {
+                    try {
+                        this.db.run('ALTER TABLE students ADD COLUMN weekly_warning_streak INTEGER DEFAULT 0');
+                    } catch (e) {
+                        // Column might already exist
+                    }
+                }
             }
         ];
 

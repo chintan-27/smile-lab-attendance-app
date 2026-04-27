@@ -8,9 +8,10 @@
  *   faceService.stop();
  */
 
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const http = require('http');
 const path = require('path');
+const fs   = require('fs');
 
 class FaceService {
     constructor() {
@@ -19,18 +20,49 @@ class FaceService {
         this._ready = false;
     }
 
+    _findPython() {
+        // In packaged app, use bundled binary
+        const isPackaged = typeof process !== 'undefined' && process.resourcesPath
+            && !process.resourcesPath.includes('node_modules');
+        if (isPackaged) {
+            const bundled = path.join(process.resourcesPath, 'face_service_dist', 'face_service', 'face_service');
+            if (fs.existsSync(bundled)) {
+                return { exe: bundled, args: [], bundled: true };
+            }
+        }
+
+        // Dev mode: prefer python3.11 (has pyorbbecsdk), fallback to python3
+        for (const py of ['python3.11', 'python3']) {
+            try {
+                execSync(`${py} -c "import pyorbbecsdk"`, { stdio: 'ignore' });
+                return { exe: py, args: [], bundled: false };
+            } catch (_) { /* try next */ }
+        }
+        return { exe: 'python3', args: [], bundled: false };
+    }
+
     /**
      * Spawn the Python service.  Resolves when the process prints "READY:<port>".
-     * @param {string} [python='python3']  Python executable name / path.
-     * @param {string} [modelDir]          Optional override for InsightFace model cache dir.
+     * @param {string} [python]    Python executable name / path (auto-detected if omitted).
+     * @param {string} [modelDir]  Optional override for InsightFace model cache dir.
      * @returns {Promise<void>}
      */
-    start(python = 'python3', modelDir = undefined) {
+    start(python = undefined, modelDir = undefined) {
         return new Promise((resolve, reject) => {
-            const script = path.join(__dirname, 'face_service', 'face_service.py');
-            const args   = modelDir ? [script, modelDir] : [script];
+            const detected = this._findPython();
+            const exe = python || detected.exe;
 
-            this._proc = spawn(python, args, {
+            let spawnArgs;
+            if (detected.bundled) {
+                spawnArgs = modelDir ? [modelDir] : [];
+            } else {
+                const script = path.join(__dirname, 'face_service', 'face_service.py');
+                spawnArgs = modelDir ? [script, modelDir] : [script];
+            }
+
+            console.log(`[FaceService] starting: ${exe} ${spawnArgs.join(' ')}`);
+
+            this._proc = spawn(exe, spawnArgs, {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 env: { ...process.env, PYTHONUNBUFFERED: '1' },
             });

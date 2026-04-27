@@ -373,7 +373,8 @@ class DropboxService {
             server.listen(PORT, '127.0.0.1', () => {
                 // Open the system browser to Dropbox’s consent screen
                 try {
-                    shell.openExternal(authUrl.toString());
+                    if (shellOpenExternal) shellOpenExternal(authUrl.toString());
+                    else require('child_process').exec(`open "${authUrl.toString()}"`);
                 } catch (e) {
                     console.log('Open this URL:', authUrl.toString());
                 }

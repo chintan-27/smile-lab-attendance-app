@@ -55,7 +55,8 @@ class DatabaseManager {
             SELECT ufid, name, email, active, role,
                    expected_hours_per_week as expectedHoursPerWeek,
                    expected_days_per_week as expectedDaysPerWeek,
-                   added_date as addedDate
+                   added_date as addedDate,
+                   weekly_warning_streak as weeklyWarningStreak
             FROM students WHERE ufid = ?
         `, [ufid]);
 
@@ -66,7 +67,8 @@ class DatabaseManager {
             active: Boolean(row.active),
             role: (row.role || 'volunteer').toLowerCase(),
             expectedHoursPerWeek: Number(row.expectedHoursPerWeek || 0),
-            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0)
+            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0),
+            weeklyWarningStreak: Number(row.weeklyWarningStreak || 0)
         };
     }
 
@@ -84,7 +86,8 @@ class DatabaseManager {
             SELECT ufid, name, email, active, role,
                    expected_hours_per_week as expectedHoursPerWeek,
                    expected_days_per_week as expectedDaysPerWeek,
-                   added_date as addedDate
+                   added_date as addedDate,
+                   weekly_warning_streak as weeklyWarningStreak
             FROM students
         `;
 
@@ -105,7 +108,8 @@ class DatabaseManager {
             active: Boolean(row.active),
             role: (row.role || 'volunteer').toLowerCase(),
             expectedHoursPerWeek: Number(row.expectedHoursPerWeek || 0),
-            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0)
+            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0),
+            weeklyWarningStreak: Number(row.weeklyWarningStreak || 0)
         }));
     }
 
@@ -146,7 +150,8 @@ class DatabaseManager {
             SELECT ufid, name, email, active, role,
                    expected_hours_per_week as expectedHoursPerWeek,
                    expected_days_per_week as expectedDaysPerWeek,
-                   added_date as addedDate
+                   added_date as addedDate,
+                   weekly_warning_streak as weeklyWarningStreak
             FROM students
             ${whereClause}
             ORDER BY name ASC
@@ -160,7 +165,8 @@ class DatabaseManager {
             active: Boolean(row.active),
             role: (row.role || 'volunteer').toLowerCase(),
             expectedHoursPerWeek: Number(row.expectedHoursPerWeek || 0),
-            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0)
+            expectedDaysPerWeek: Number(row.expectedDaysPerWeek || 0),
+            weeklyWarningStreak: Number(row.weeklyWarningStreak || 0)
         }));
 
         return { students, totalCount };
@@ -193,8 +199,9 @@ class DatabaseManager {
         try {
             this.sqliteDb.run(`
                 INSERT OR REPLACE INTO students (ufid, name, email, active, role,
-                                     expected_hours_per_week, expected_days_per_week, added_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                     expected_hours_per_week, expected_days_per_week, added_date,
+                                     weekly_warning_streak)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
                 student.ufid,
                 student.name,
@@ -203,7 +210,8 @@ class DatabaseManager {
                 (student.role || 'volunteer').toLowerCase(),
                 Number(student.expectedHoursPerWeek || 0),
                 Number(student.expectedDaysPerWeek || 0),
-                student.addedDate || new Date().toISOString()
+                student.addedDate || new Date().toISOString(),
+                Number(student.weeklyWarningStreak || 0)
             ]);
 
             return { success: true, student: this.getStudentByUfid(student.ufid) };
@@ -311,6 +319,30 @@ class DatabaseManager {
             ORDER BY timestamp ASC, id ASC
         `, [startDate.toISOString(), endDate.toISOString()]);
 
+        return rows.map(row => ({
+            ...row,
+            synthetic: Boolean(row.synthetic),
+            pendingTimestamp: Boolean(row.pendingTimestamp),
+            autoSignout: Boolean(row.autoSignout)
+        }));
+    }
+
+    getStudentAttendanceForRange(ufid, start, end) {
+        if (!this.isReady()) return [];
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        const rows = this.sqliteDb.all(`
+            SELECT id, ufid, name, action, timestamp, synthetic,
+                   pending_timestamp as pendingTimestamp,
+                   pending_record_id as pendingRecordId,
+                   resolved_at as resolvedAt,
+                   auto_signout as autoSignout
+            FROM attendance
+            WHERE ufid = ? AND timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC, id ASC
+        `, [ufid, startDate.toISOString(), endDate.toISOString()]);
         return rows.map(row => ({
             ...row,
             synthetic: Boolean(row.synthetic),
@@ -655,8 +687,9 @@ class DatabaseManager {
             try {
                 this.sqliteDb.run(`
                     INSERT OR REPLACE INTO students (ufid, name, email, active, role,
-                                                    expected_hours_per_week, expected_days_per_week, added_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                                    expected_hours_per_week, expected_days_per_week, added_date,
+                                                    weekly_warning_streak)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [
                     s.ufid,
                     s.name,
@@ -665,7 +698,8 @@ class DatabaseManager {
                     (s.role || 'volunteer').toLowerCase(),
                     Number(s.expectedHoursPerWeek || 0),
                     Number(s.expectedDaysPerWeek || 0),
-                    s.addedDate || new Date().toISOString()
+                    s.addedDate || new Date().toISOString(),
+                    Number(s.weeklyWarningStreak || 0)
                 ]);
                 imported++;
             } catch (error) {

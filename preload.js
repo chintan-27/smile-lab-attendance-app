@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   signOut: (data) => ipcRenderer.invoke('sign-out', data),
   checkStudent: (ufid) => ipcRenderer.invoke('check-student', ufid),
   getStudentStatus: (ufid) => ipcRenderer.invoke('get-student-status', ufid),
+  getStudentSummary: (ufid) => ipcRenderer.invoke('get-student-summary', { ufid }),
 
   // Admin
   verifyAdmin: (password) => ipcRenderer.invoke('verify-admin', password),

@@ -264,7 +264,8 @@ class EmailService {
             return {
                 success: true,
                 messageId: info.messageId,
-                filePath: reportResult.filePath
+                filePath: reportResult.filePath,
+                weekReport: reportResult.reportData
             };
         } catch (error) {
             return { success: false, error: error.message };
@@ -311,6 +312,10 @@ class EmailService {
 
             if (result.success) {
                 console.log('Weekly report sent successfully:', result.messageId);
+                if (result.weekReport) {
+                    const config = this.dataManager.getConfig();
+                    await this.checkAndSendAttendanceWarnings(result.weekReport, config);
+                }
             } else {
                 console.error('Failed to send weekly report:', result.error);
             }
@@ -382,6 +387,134 @@ class EmailService {
         const nextRun = isRunning ? this.getNextRunText() : 'Not scheduled';
         // console.log('Scheduler status:', isRunning ? 'Running' : 'Stopped')
         return { running: isRunning, nextRun, initialized: !!this.scheduledTask };
+    }
+
+    generateAttendanceWarningHTML(student, streak, weekSummary) {
+        const { startDate, actualHours, expectedHours } = weekSummary;
+        const weekLabel = new Date(startDate).toLocaleDateString('en-US', {
+            month: 'long', day: 'numeric', year: 'numeric'
+        });
+
+        let toneHeader, toneMessage, borderColor;
+        if (streak === 1) {
+            toneHeader = 'Attendance Heads-Up';
+            toneMessage = `Just a heads up — you were a bit short on hours this week. You logged <strong>${actualHours}h</strong> against your expected <strong>${expectedHours}h</strong>. No worries, just something to keep in mind going forward.`;
+            borderColor = '#FA4616';
+        } else if (streak === 2) {
+            toneHeader = 'Second Week Below Expectations';
+            toneMessage = `This is the second week in a row that your hours have fallen below expectations. You logged <strong>${actualHours}h</strong> against your expected <strong>${expectedHours}h</strong>. Please make sure you're planning enough lab time in the coming week.`;
+            borderColor = '#e67e22';
+        } else {
+            toneHeader = `${streak} Consecutive Weeks Below Expectations`;
+            toneMessage = `This is your <strong>${streak}th consecutive week</strong> below the expected hours. You logged <strong>${actualHours}h</strong> against your expected <strong>${expectedHours}h</strong>. Continued underperformance may result in a review of your lab participation status. Please reach out to your supervisor if you are facing any difficulties.`;
+            borderColor = '#c0392b';
+        }
+
+        return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4;">
+  <div style="max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 30px;">
+      <div style="background: linear-gradient(135deg, #0021A5, #001A85); width: 60px; height: 60px; border-radius: 12px; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;">
+        <span style="color: white; font-size: 28px; font-weight: bold;">S</span>
+      </div>
+      <h1 style="color: #0021A5; margin: 0; font-size: 22px;">${toneHeader}</h1>
+      <p style="color: #64748b; margin: 6px 0 0; font-size: 14px;">Week of ${weekLabel}</p>
+    </div>
+
+    <p style="color: #333; font-size: 16px; line-height: 1.6;">Hello <strong>${student.name}</strong>,</p>
+
+    <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${borderColor};">
+      <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">${toneMessage}</p>
+    </div>
+
+    <div style="background: #f0f4ff; padding: 16px; border-radius: 8px; margin: 20px 0; text-align: center;">
+      <p style="margin: 0; color: #0021A5; font-size: 15px;">
+        <strong>${actualHours}h</strong> logged &nbsp;·&nbsp; <strong>${expectedHours}h</strong> expected
+      </p>
+    </div>
+
+    <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;">
+
+    <p style="color: #64748b; font-size: 12px; text-align: center; margin: 0;">
+      SMILE Lab Attendance System<br>
+      University of Florida<br>
+      <span style="color: #94a3b8;">This is an automated message.</span>
+    </p>
+  </div>
+</body>
+</html>
+        `;
+    }
+
+    async sendAttendanceWarningEmail(transporter, emailConfig, student, streak, weekSummary) {
+        const { startDate } = weekSummary;
+        const weekLabel = new Date(startDate).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric'
+        });
+
+        const html = this.generateAttendanceWarningHTML(student, streak, weekSummary);
+
+        const mailOptions = {
+            from: { name: 'SMILE Lab Attendance', address: emailConfig.email },
+            to: student.email,
+            subject: `Attendance Reminder — Week of ${weekLabel}`,
+            html
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        return { success: true, messageId: info.messageId };
+    }
+
+    async checkAndSendAttendanceWarnings(weekReport, config) {
+        try {
+            if (!config.emailSettings?.enabled || !config.emailSettings?.email) return;
+
+            const transporter = this.createTransporter(config.emailSettings);
+            const students = this.dataManager.getStudents();
+            const studentMap = {};
+            for (const s of students) studentMap[s.ufid] = s;
+
+            for (const [ufid, rep] of Object.entries(weekReport.studentReports)) {
+                const expectedHours = Number(rep.expectedHoursPerWeek ?? 0);
+                if (expectedHours === 0) continue;
+                if (!rep.email) continue;
+
+                const actualHours = Number(rep.totalHours ?? 0);
+                const threshold = expectedHours * 0.80;
+                const student = studentMap[ufid];
+                if (!student) continue;
+
+                const currentStreak = Number(student.weeklyWarningStreak ?? 0);
+                let newStreak;
+
+                if (actualHours >= threshold) {
+                    newStreak = 0;
+                } else {
+                    newStreak = currentStreak + 1;
+                }
+
+                await this.dataManager.updateStudent(ufid, { weeklyWarningStreak: newStreak });
+
+                if (newStreak > 0) {
+                    const weekSummary = {
+                        startDate: weekReport.startDate,
+                        actualHours: Math.round(actualHours * 100) / 100,
+                        expectedHours
+                    };
+                    try {
+                        await this.sendAttendanceWarningEmail(transporter, config.emailSettings, rep, newStreak, weekSummary);
+                        console.log(`Attendance warning (streak ${newStreak}) sent to ${rep.email}`);
+                    } catch (err) {
+                        console.error(`Failed to send attendance warning to ${rep.email}:`, err.message);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error in checkAndSendAttendanceWarnings:', err.message);
+        }
     }
 
     startTestScheduler() {

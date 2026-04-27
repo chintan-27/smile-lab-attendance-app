@@ -5,6 +5,9 @@ Runs as a local FastAPI server. Prints READY:<port> to stdout when ready.
 Main process communicates via HTTP on localhost.
 
 Liveness:
+  - Depth (Orbbec Astra): 3D face structure verification — flat photos/screens
+    have no depth variance, real faces do.  Primary liveness signal when camera
+    is connected.
   - rPPG (remote photoplethysmography): detects blood pulse from subtle skin
     colour changes — physically unforgeable since screens cannot produce cardiac
     pulse signals.  Uses the POS (Plane Orthogonal to Skin) algorithm with
@@ -18,6 +21,8 @@ import base64
 import socket
 import time
 import traceback
+import threading
+import multiprocessing
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -49,6 +54,196 @@ def _init_model(model_dir: Optional[str] = None):
 
 
 # ---------------------------------------------------------------------------
+# Depth camera (Orbbec Astra) — background thread
+# ---------------------------------------------------------------------------
+
+_depth_lock = threading.Lock()
+_latest_depth: Optional[np.ndarray] = None  # (H, W) uint16 in mm
+_depth_available = False
+_depth_proc: Optional[multiprocessing.Process] = None
+
+_DEPTH_VARIANCE_THRESHOLD = 150  # real face ~200-2000; flat surface <50
+_DEPTH_COVERAGE_MIN = 0.3        # at least 30% of face ROI must have valid depth
+_DEPTH_RANGE_MM = (300, 1500)    # plausible face distance in mm
+
+# Shared memory for depth frames (640*480*2 bytes = 614400)
+_DEPTH_W, _DEPTH_H = 640, 480
+_depth_shm: Optional[multiprocessing.Array] = None
+_depth_flag: Optional[multiprocessing.Value] = None  # 1 = new frame ready
+
+
+def _depth_subprocess(shm_array, flag_value, stop_event):
+    """Runs in a SEPARATE PROCESS. If pyorbbecsdk segfaults, only this process dies."""
+    import signal
+    signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
+
+    try:
+        from pyorbbecsdk import Context, OBSensorType
+        import numpy as np
+
+        ctx = Context()
+        dl = ctx.query_devices()
+        if dl.get_count() == 0:
+            print("[Depth-proc] no camera", flush=True)
+            return
+
+        dev = dl.get_device_by_index(0)
+        sensor = dev.get_sensor(OBSensorType.DEPTH_SENSOR)
+        profile_list = sensor.get_stream_profile_list()
+
+        profile = None
+        for i in range(profile_list.get_count()):
+            p = profile_list.get_stream_profile_by_index(i)
+            vp = p.as_video_stream_profile()
+            if vp.get_width() == 640 and vp.get_height() == 480 and vp.get_fps() == 30:
+                profile = p
+                break
+        if profile is None:
+            profile = profile_list.get_default_video_stream_profile()
+
+        vp = profile.as_video_stream_profile()
+        print(f"[Depth-proc] starting {vp.get_width()}x{vp.get_height()}@{vp.get_fps()}fps", flush=True)
+
+        def on_frame(frame):
+            try:
+                w, h = frame.get_width(), frame.get_height()
+                data = np.frombuffer(frame.get_data(), dtype=np.uint16)
+                if data.size >= w * h:
+                    arr = np.frombuffer(shm_array.get_obj(), dtype=np.uint16)
+                    np.copyto(arr, data[:w * h])
+                    flag_value.value = 1
+            except Exception:
+                pass
+
+        sensor.start(profile, on_frame)
+        print("[Depth-proc] sensor started", flush=True)
+
+        stop_event.wait()
+        try:
+            sensor.stop()
+        except Exception:
+            pass
+
+    except Exception as e:
+        print(f"[Depth-proc] error: {e}", flush=True)
+
+
+def _start_depth_thread():
+    """Spawn depth camera in an isolated subprocess. Safe against segfaults."""
+    global _depth_available, _depth_proc, _depth_shm, _depth_flag
+
+    try:
+        from pyorbbecsdk import Context
+    except ImportError:
+        print("[Depth] pyorbbecsdk not installed — depth liveness disabled", flush=True)
+        return
+
+    try:
+        ctx = Context()
+        dl = ctx.query_devices()
+        if dl.get_count() == 0:
+            print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
+            return
+        info = dl.get_device_by_index(0).get_device_info()
+        print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
+        del ctx, dl  # release device before subprocess claims it
+    except Exception as e:
+        print(f"[Depth] detection failed: {e}", flush=True)
+        return
+
+    _depth_shm = multiprocessing.Array('H', _DEPTH_W * _DEPTH_H)  # uint16
+    _depth_flag = multiprocessing.Value('i', 0)
+    stop_event = multiprocessing.Event()
+
+    _depth_proc = multiprocessing.Process(
+        target=_depth_subprocess,
+        args=(_depth_shm, _depth_flag, stop_event),
+        daemon=True,
+    )
+    _depth_proc.start()
+    print(f"[Depth] subprocess started (PID {_depth_proc.pid})", flush=True)
+
+    # Wait up to 15s for first frame
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if _depth_flag.value == 1:
+            _depth_available = True
+            print("[Depth] receiving depth frames — liveness enabled", flush=True)
+            # Start a local thread to copy frames from shared memory
+            t = threading.Thread(target=_depth_shm_reader, daemon=True)
+            t.start()
+            return
+        if not _depth_proc.is_alive():
+            print("[Depth] subprocess exited — depth liveness disabled", flush=True)
+            return
+        time.sleep(0.5)
+
+    print("[Depth] timeout waiting for frames — depth liveness disabled", flush=True)
+    _depth_proc.kill()
+
+
+def _depth_shm_reader():
+    """Copy depth frames from shared memory into _latest_depth."""
+    global _latest_depth
+    while _depth_available and _depth_proc and _depth_proc.is_alive():
+        if _depth_flag.value == 1:
+            _depth_flag.value = 0
+            arr = np.frombuffer(_depth_shm.get_obj(), dtype=np.uint16).copy()
+            with _depth_lock:
+                _latest_depth = arr.reshape((_DEPTH_H, _DEPTH_W))
+        time.sleep(0.03)  # ~30 Hz polling
+
+
+def _depth_liveness(bbox) -> dict:
+    """Check if the face region has real 3D depth structure."""
+    with _depth_lock:
+        depth_map = _latest_depth
+
+    if depth_map is None:
+        return {"has_depth": None, "depth_score": 0.0, "median_depth_mm": 0}
+
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    h, w = depth_map.shape[:2]
+
+    # Clamp to depth frame bounds
+    x1 = max(0, min(x1, w - 1))
+    x2 = max(x1 + 1, min(x2, w))
+    y1 = max(0, min(y1, h - 1))
+    y2 = max(y1 + 1, min(y2, h))
+
+    face_depth = depth_map[y1:y2, x1:x2]
+    if face_depth.size == 0:
+        return {"has_depth": None, "depth_score": 0.0, "median_depth_mm": 0}
+
+    nonzero = face_depth[face_depth > 0].astype(np.float64)
+    coverage = len(nonzero) / max(face_depth.size, 1)
+
+    if coverage < _DEPTH_COVERAGE_MIN:
+        print(f"[Depth] coverage={coverage:.2f} < {_DEPTH_COVERAGE_MIN} → insufficient data", flush=True)
+        return {"has_depth": False, "depth_score": 0.0, "median_depth_mm": 0}
+
+    variance = float(np.var(nonzero))
+    median_mm = int(np.median(nonzero))
+
+    has_depth = (
+        variance > _DEPTH_VARIANCE_THRESHOLD
+        and _DEPTH_RANGE_MM[0] < median_mm < _DEPTH_RANGE_MM[1]
+    )
+
+    print(
+        f"[Depth] coverage={coverage:.2f} var={variance:.0f} median={median_mm}mm "
+        f"→ {'3D_FACE' if has_depth else 'FLAT'}",
+        flush=True,
+    )
+
+    return {
+        "has_depth": has_depth,
+        "depth_score": round(variance, 1),
+        "median_depth_mm": median_mm,
+    }
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 app = FastAPI()
@@ -75,7 +270,7 @@ def health():
 
 _rppg_buffer: List[Dict] = []   # [{ mean_rgb: [R,G,B], timestamp: float }, …]
 _RPPG_MAX_FRAMES = 120          # ~4 seconds at 30fps (or ~40s at 3fps; trimmed by time)
-_RPPG_MIN_FRAMES = 12           # minimum frames before attempting analysis (~2-4s)
+_RPPG_MIN_FRAMES = 9            # minimum frames before attempting analysis (~1s at 10fps)
 _RPPG_WINDOW_SEC = 6.0          # keep at most this many seconds of history
 _RPPG_SNR_THRESHOLD = 3.5       # SNR above which we declare a pulse found
 _RPPG_BPM_LOW = 45.0            # reject pulse below this (not physiological)
@@ -139,9 +334,9 @@ def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
         return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
     fs = 1.0 / dt.mean()
 
-    # Need at least ~2 seconds of data for meaningful FFT
+    # Need at least ~1 second of data for meaningful FFT
     duration = timestamps[-1] - timestamps[0]
-    if duration < 1.5:
+    if duration < 1.0:
         return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
 
     n = len(timestamps)
@@ -330,6 +525,17 @@ def analyze(req: AnalyzeRequest):
         result["moire_score"] = moire["moire_score"]
         result["is_screen"] = moire["is_screen"]
 
+        # Depth liveness (Orbbec Astra)
+        if _depth_available:
+            depth = _depth_liveness(face.bbox)
+            result["has_depth"] = depth["has_depth"]
+            result["depth_score"] = depth["depth_score"]
+            result["median_depth_mm"] = depth["median_depth_mm"]
+        else:
+            result["has_depth"] = None
+            result["depth_score"] = 0.0
+            result["median_depth_mm"] = 0
+
         return {"face": result}
 
     except Exception:
@@ -343,6 +549,12 @@ def reset_liveness():
     global _rppg_buffer
     _rppg_buffer = []
     return {"ok": True}
+
+
+@app.get("/depth-status")
+def depth_status():
+    """Check if depth camera is available."""
+    return {"available": _depth_available}
 
 
 # ---------------------------------------------------------------------------
@@ -364,11 +576,18 @@ def _find_free_port() -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # required for PyInstaller + multiprocessing on macOS/Win
     model_dir = sys.argv[1] if len(sys.argv) > 1 else None
     _init_model(model_dir)
+
+    # Start depth camera in background (non-blocking — doesn't delay READY signal)
+    threading.Thread(target=_start_depth_thread, daemon=True).start()
 
     port = _find_free_port()
     # Signal to the Node parent that we are ready
     print(f"READY:{port}", flush=True)
 
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
+
+    if _depth_proc and _depth_proc.is_alive():
+        _depth_proc.kill()

@@ -452,6 +452,23 @@ class PendingSignoutService {
   }
 
   /**
+   * Check if a student already has an unresolved pending sign-out within the past N hours.
+   * Used to rate-limit pending emails — only one per 48h window.
+   * @param {string} ufid - Student UFID
+   * @param {number} hoursBack - Lookback window in hours (default 48)
+   * @returns {boolean}
+   */
+  hasRecentPendingForStudent(ufid, hoursBack = 48) {
+    const pending = this.getLocalPendingSignouts();
+    const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+    return pending.some(p =>
+      p.ufid === ufid &&
+      p.status === 'pending' &&
+      new Date(p.createdAt) >= cutoff
+    );
+  }
+
+  /**
    * Get pending record by token (from local cache)
    */
   getPendingByToken(token) {

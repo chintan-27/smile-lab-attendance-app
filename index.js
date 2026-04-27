@@ -146,7 +146,7 @@ async function faceDetectLoop(video, canvas) {
     const ctx       = canvas.getContext('2d');
     const offscreen = document.createElement('canvas');
 
-    // Send frames to Python every ~150ms for rPPG (higher rate than before for pulse accuracy)
+    // Send frames to Python every ~100ms for rPPG
     let lastIPCTime = 0;
     let pendingIPC = false;
     let lastFaceResult = null; // { embedding, bbox, det_score, has_pulse, pulse_confidence, moire_score, is_screen }
@@ -163,7 +163,7 @@ async function faceDetectLoop(video, canvas) {
         const now = performance.now();
 
         // --- IPC to Python: throttled for ArcFace + rPPG + moiré ---
-        if (!pendingIPC && (now - lastIPCTime > 150)) {
+        if (!pendingIPC && (now - lastIPCTime > 100)) {
             pendingIPC = true;
             lastIPCTime = now;
 
@@ -226,41 +226,44 @@ async function faceDetectLoop(video, canvas) {
                 drawFaceBox(ctx, box, true);
 
                 if (faceState === 'idle') {
-                    // Start pulse accumulation timer
-                    if (pulseStartTime === 0) {
-                        pulseStartTime = now;
+                    // Depth liveness: instant pass if depth camera confirms 3D face
+                    const depthPass = face.has_depth === true;
+
+                    if (!depthPass) {
+                        // Fall back to rPPG pulse accumulation
+                        if (pulseStartTime === 0) {
+                            pulseStartTime = now;
+                        }
+
+                        if (face.has_pulse) {
+                            pulseConsecutive++;
+                        } else {
+                            pulseConsecutive = 0;
+                        }
                     }
 
-                    // Track consecutive pulse-positive frames
-                    if (face.has_pulse) {
-                        pulseConsecutive++;
-                    } else {
-                        pulseConsecutive = 0;
-                    }
-
-                    const elapsed = now - pulseStartTime;
-                    const progress = Math.min(1, elapsed / PULSE_ACCUMULATE_MS);
-
-                    // Update progress ring
-                    setProgressRing(progress, 'verifying');
-
-                    // Liveness: rPPG pulse is MANDATORY — no timeout bypass.
-                    // A static photo cannot produce periodic skin-color changes.
+                    const elapsed = pulseStartTime > 0 ? now - pulseStartTime : 0;
                     const pulsePass = pulseConsecutive >= PULSE_CONSECUTIVE_REQUIRED;
+                    const livenessPass = depthPass || pulsePass;
 
-                    console.log(`Liveness: has_pulse=${face.has_pulse} confidence=${face.pulse_confidence} bpm=${face.pulse_bpm} moire=${face.moire_score} consecutive=${pulseConsecutive} screenFlags=${screenFlagCount} elapsed=${elapsed.toFixed(0)}ms → ${pulsePass ? 'PULSE_PASS' : 'accumulating'}`);
+                    const progress = depthPass ? 1 : Math.min(1, elapsed / PULSE_ACCUMULATE_MS);
+                    setProgressRing(progress, livenessPass ? 'matched' : 'verifying');
 
-                    if (pulsePass) {
+                    console.log(`Liveness: depth=${face.has_depth} depth_score=${face.depth_score} has_pulse=${face.has_pulse} bpm=${face.pulse_bpm} consecutive=${pulseConsecutive} screenFlags=${screenFlagCount} → ${livenessPass ? (depthPass ? 'DEPTH_PASS' : 'PULSE_PASS') : 'accumulating'}`);
+
+                    if (livenessPass) {
                         resetLivenessState();
                         setProgressRing(1, 'matched');
                         faceCurrentMatch = { ufid: bestMatch.ufid, name: bestMatch.name, action: null };
                         enterMatchedState(bestMatch.ufid, bestMatch.name);
                     } else if (elapsed > PULSE_TIMEOUT_MS) {
                         setFaceUI('idle', 'No pulse detected — ensure good lighting');
+                    } else if (face.has_depth === null) {
+                        setFaceUI('idle', 'Verifying pulse…');
                     } else if (elapsed > PULSE_ACCUMULATE_MS) {
                         setFaceUI('idle', 'Hold still — verifying…');
                     } else {
-                        setFaceUI('idle', 'Verifying pulse…');
+                        setFaceUI('idle', 'Verifying…');
                     }
                 }
                 // faceState === 'matched': waiting for Enter/click, no change
@@ -368,8 +371,9 @@ async function confirmFaceAction() {
             : await window.electronAPI.signIn({ ufid, name });
 
         if (result.success) {
-            const action = statusResult.status === 'signin' ? 'Signed Out' : 'Signed In';
-            showFaceSuccess(result.studentName, action);
+            const faceAction = statusResult.status === 'signin' ? 'signout' : 'signin';
+            showFaceSuccess(result.studentName, faceAction === 'signout' ? 'Signed Out' : 'Signed In');
+            showStudentSummary(ufid, faceAction);
             startCooldown();
         } else {
             setFaceUI('error', result.message || 'Action failed');
@@ -539,6 +543,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto-start: dormant is already shown via CSS; activate immediately
     activateFaceCamera();
+
+    // Summary modal: dismiss on backdrop click, Enter, or Escape
+    const summaryModal = document.getElementById('summaryModal');
+    if (summaryModal) {
+        summaryModal.addEventListener('click', (e) => {
+            if (e.target === summaryModal) closeSummaryModal();
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (!summaryIsOpen) return;
+        if (e.key === 'Enter' || e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSummaryModal();
+            // Re-focus first UFID digit so the next student can start typing
+            if (ufidInputs && ufidInputs[0]) ufidInputs[0].focus();
+        }
+    }, true);
 
     console.log('UF Lab Attendance System initialized');
 });
@@ -866,7 +888,7 @@ async function handleActionClick() {
             result = await window.electronAPI.signOut({ ufid, name: '' });
 
             if (result.success) {
-                showStatus(`Goodbye, ${result.studentName}! You've signed out successfully.`, 'success');
+                showStudentSummary(ufid, 'signout');
                 clearUfid();
             } else {
                 showStatus(result.message || 'Sign out failed', 'error');
@@ -879,7 +901,7 @@ async function handleActionClick() {
             result = await window.electronAPI.signIn({ ufid, name: '' });
 
             if (result.success) {
-                showStatus(`Welcome, ${result.studentName}! You've signed in successfully.`, 'success');
+                showStudentSummary(ufid, 'signin');
                 clearUfid();
             } else {
                 showStatus(result.message || 'Sign in failed', 'error');
@@ -898,6 +920,219 @@ async function handleActionClick() {
             actionBtn.classList.remove('loading');
         }
         validateUfid();
+    }
+}
+
+// ==================== CONFETTI ====================
+
+function launchConfetti(type) {
+    const canvas = document.getElementById('confettiCanvas');
+    if (!canvas) return;
+    canvas.style.display = 'block';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const ctx = canvas.getContext('2d');
+
+    const colors = type === 'signin'
+        ? ['#f4845f','#7ec8a0','#f7b267','#f7d070','#c4a0e8','#7eb8d4','#f28b82','#81c995']
+        : ['#8bb4e0','#b5c8e8','#a8b4d4','#c4c8e0','#9eb0b8','#7cb5d0','#a8d4e8'];
+
+    const particles = Array.from({ length: type === 'signin' ? 70 : 40 }, () => {
+        const angle = (Math.random() * 160 - 80) * Math.PI / 180; // spread upward
+        const speed = 6 + Math.random() * 10;
+        return {
+            x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+            y: canvas.height * 0.45,
+            vx: Math.sin(angle) * speed,
+            vy: -Math.abs(Math.cos(angle)) * speed,
+            rotation: Math.random() * 360,
+            rotSpeed: (Math.random() - 0.5) * 12,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            w: 7 + Math.random() * 7,
+            h: 4 + Math.random() * 4,
+            alpha: 1,
+            gravity: 0.35 + Math.random() * 0.2
+        };
+    });
+
+    let frame;
+    const startTime = Date.now();
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const elapsed = Date.now() - startTime;
+        const fadeStart = 2200;
+        const fadeDuration = 1000;
+
+        let alive = false;
+        particles.forEach(p => {
+            p.vy += p.gravity;
+            p.x += p.vx;
+            p.y += p.vy;
+            p.rotation += p.rotSpeed;
+            if (elapsed > fadeStart) p.alpha = Math.max(0, 1 - (elapsed - fadeStart) / fadeDuration);
+            if (p.alpha > 0 && p.y < canvas.height + 20) {
+                alive = true;
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rotation * Math.PI / 180);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                ctx.restore();
+            }
+        });
+
+        if (alive && elapsed < fadeStart + fadeDuration) {
+            frame = requestAnimationFrame(draw);
+        } else {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.style.display = 'none';
+        }
+    }
+    if (frame) cancelAnimationFrame(frame);
+    draw();
+}
+
+// ==================== STUDENT SUMMARY MODAL ====================
+
+let summaryDismissTimeout = null;
+let summaryIsOpen = false;
+
+function closeSummaryModal() {
+    const modal = document.getElementById('summaryModal');
+    if (!modal) return;
+    modal.classList.remove('show');
+    summaryIsOpen = false;
+    if (summaryDismissTimeout) { clearTimeout(summaryDismissTimeout); summaryDismissTimeout = null; }
+}
+
+async function showStudentSummary(ufid, action) {
+    const modal = document.getElementById('summaryModal');
+    const progressBar = document.getElementById('summaryProgressBar');
+    if (!modal) return;
+
+    closeSummaryModal();
+    progressBar.classList.remove('running');
+    void progressBar.offsetWidth;
+
+    try {
+        const summary = await window.electronAPI.getStudentSummary(ufid);
+        if (!summary || summary.error) return;
+
+        const fmtMins = (minutes) => {
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            if (h > 0 && m > 0) return `${h}<span>h</span> ${m}<span>m</span>`;
+            if (h > 0) return `${h}<span>h</span>`;
+            return `${m}<span>m</span>`;
+        };
+
+        const fmtTime = (iso) => {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+
+        const fmtDur = (inIso, outIso) => {
+            const diff = Math.round((new Date(outIso) - new Date(inIso)) / 60000);
+            const h = Math.floor(diff / 60), m = diff % 60;
+            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        };
+
+        // Greeting
+        const isSignIn = action === 'signin';
+        document.getElementById('summaryHeaderBand').className = `summary-header-band ${isSignIn ? 'signin' : 'signout'}`;
+        const iconEl = document.getElementById('summaryGreetingIcon');
+        const iconI = document.getElementById('summaryGreetingIconEl');
+        iconEl.className = `summary-greeting-icon ${isSignIn ? 'signin' : 'signout'}`;
+        iconI.className = isSignIn ? 'fas fa-right-to-bracket' : 'fas fa-right-from-bracket';
+        document.getElementById('summaryGreetingTitle').textContent =
+            isSignIn ? `Welcome, ${summary.name}!` : `Goodbye, ${summary.name}!`;
+        document.getElementById('summaryGreetingSubtitle').textContent =
+            isSignIn ? 'Signed in successfully.' : 'Signed out successfully. See you next time!';
+
+        const badge = document.getElementById('summaryBadge');
+        badge.className = `summary-badge ${isSignIn ? 'signed-in' : 'signed-out'}`;
+        document.getElementById('summaryBadgeText').textContent = isSignIn ? 'Now Signed In' : 'Now Signed Out';
+
+        const progressBar = document.getElementById('summaryProgressBar');
+        progressBar.className = `summary-progress-bar ${isSignIn ? 'signin' : 'signout'}`;
+
+        // Pending warning
+        const pendingEl = document.getElementById('summaryPending');
+        if (summary.pendingCount > 0) {
+            document.getElementById('summaryPendingText').textContent =
+                `You have ${summary.pendingCount} unresolved pending sign-out${summary.pendingCount > 1 ? 's' : ''} — check your email to submit your sign-out time.`;
+            pendingEl.style.display = 'flex';
+        } else {
+            pendingEl.style.display = 'none';
+        }
+
+        // Stats
+        document.getElementById('summaryTodayHours').innerHTML = fmtMins(summary.todayMinutes);
+        document.getElementById('summaryWeekHours').innerHTML = fmtMins(summary.weekMinutes);
+        document.getElementById('summarySessionCount').textContent = summary.todaySessionCount;
+        document.getElementById('summarySessionSub').textContent =
+            summary.todaySessionCount === 1 ? 'session today' : 'sessions today';
+
+        // Weekly day breakdown
+        const weekContainer = document.getElementById('summaryWeekDays');
+        weekContainer.innerHTML = '';
+        const todayStr = new Date().toDateString();
+        (summary.weekDays || []).forEach(day => {
+            const isToday = new Date(day.date).toDateString() === todayStr;
+            const row = document.createElement('div');
+            row.className = 'summary-day-row';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = `summary-day-label${isToday ? ' today' : ''}`;
+            labelEl.textContent = isToday ? 'Today' : day.label;
+
+            const sessionsEl = document.createElement('div');
+            sessionsEl.className = 'summary-day-sessions';
+            if (day.sessions.length === 0) {
+                const none = document.createElement('span');
+                none.className = 'summary-day-none';
+                none.textContent = 'No activity';
+                sessionsEl.appendChild(none);
+            } else {
+                day.sessions.forEach(s => {
+                    const sessEl = document.createElement('div');
+                    sessEl.className = `summary-day-session${s.running ? ' running' : ''}`;
+                    const timeSpan = document.createElement('span');
+                    timeSpan.className = 'sess-time';
+                    timeSpan.textContent = s.running
+                        ? `${fmtTime(s.in)} → now`
+                        : `${fmtTime(s.in)} → ${fmtTime(s.out)}`;
+                    const durSpan = document.createElement('span');
+                    durSpan.className = 'sess-dur';
+                    durSpan.textContent = fmtDur(s.in, s.out);
+                    sessEl.appendChild(timeSpan);
+                    sessEl.appendChild(durSpan);
+                    sessionsEl.appendChild(sessEl);
+                });
+            }
+
+            const hoursEl = document.createElement('div');
+            hoursEl.className = `summary-day-hours${day.minutes > 0 ? ' has-hours' : ''}`;
+            hoursEl.textContent = day.minutes > 0
+                ? `${Math.floor(day.minutes / 60)}h ${day.minutes % 60}m`
+                : '—';
+
+            row.appendChild(labelEl);
+            row.appendChild(sessionsEl);
+            row.appendChild(hoursEl);
+            weekContainer.appendChild(row);
+        });
+
+        modal.classList.add('show');
+        summaryIsOpen = true;
+        progressBar.classList.add('running');
+        summaryDismissTimeout = setTimeout(closeSummaryModal, 12000);
+
+        launchConfetti(action);
+    } catch (e) {
+        console.error('showStudentSummary error:', e);
     }
 }
 

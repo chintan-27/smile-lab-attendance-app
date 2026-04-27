@@ -161,3 +161,12 @@ CLAUDE_CONTEXT.md
 # ML models (large binaries — downloaded at setup time)
 models/*.onnx
 models/*.task
+inspo
+
+# App runtime logs
+Log/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo

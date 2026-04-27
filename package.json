@@ -1,6 +1,6 @@
 {
   "name": "smile-lab-attendance-app",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "New Analytics and functions, autoupdate + sending canvas image to email",
   "main": "main.js",
   "scripts": {
@@ -17,6 +17,8 @@
     "posttest": "node tests/setup/teardown.js",
     "postinstall": "npx @electron/rebuild -f -w better-sqlite3 || true",
     "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
+    "bundle-python": "python3.11 -m PyInstaller --name face_service --onedir --distpath face_service_dist --workpath face_service_build --specpath face_service_build --hidden-import=insightface --hidden-import=onnxruntime --hidden-import=pyorbbecsdk --collect-data insightface --collect-binaries pyorbbecsdk face_service/face_service.py",
+    "predist": "npm run bundle-python",
     "pack": "electron-builder --dir",
     "dist": "electron-builder -mwl",
     "release": "electron-builder -mwl --publish always"
@@ -74,7 +76,15 @@
     "files": [
       "**/*",
       "!node_modules/**/{test,__tests__,examples}/**",
-      "!**/*.map"
+      "!**/*.map",
+      "!face_service_dist/**"
+    ],
+    "extraResources": [
+      {
+        "from": "face_service_dist/face_service/",
+        "to": "face_service_dist/face_service/",
+        "filter": ["**/*"]
+      }
     ],
     "asar": true,
     "mac": {

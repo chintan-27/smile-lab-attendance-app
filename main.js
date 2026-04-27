@@ -888,6 +888,19 @@ ipcMain.handle('get-student-status', async (event, ufid) => {
   }
 });
 
+ipcMain.handle('get-student-summary', async (event, { ufid }) => {
+  try {
+    const summary = dataManager.getStudentAttendanceSummary(ufid);
+    try {
+      const pending = await pendingSignoutService.getPendingSignouts();
+      summary.pendingCount = pending.filter(p => p.ufid === ufid && p.status === 'pending').length;
+    } catch { summary.pendingCount = 0; }
+    return summary;
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // Admin handlers
 ipcMain.handle('verify-admin', async (event, password) => {
   try {

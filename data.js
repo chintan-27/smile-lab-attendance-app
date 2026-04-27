@@ -920,6 +920,7 @@ class DataManager {
                 role: meta.role || 'volunteer',
                 expectedHoursPerWeek: Number(meta.expectedHoursPerWeek ?? 0),
                 expectedDaysPerWeek: Number(meta.expectedDaysPerWeek ?? 0),
+                weeklyWarningStreak: 0,
             };
 
             // SQLite-first: Write to SQLite (source of truth)
@@ -981,6 +982,7 @@ class DataManager {
                 role: (s.role || 'volunteer').toLowerCase(),
                 expectedHoursPerWeek: Number(s.expectedHoursPerWeek ?? 0),
                 expectedDaysPerWeek: Number(s.expectedDaysPerWeek ?? 0),
+                weeklyWarningStreak: Number(s.weeklyWarningStreak ?? 0),
             }));
         } catch (error) {
             console.error('Error loading students:', error);
@@ -1043,6 +1045,7 @@ class DataManager {
                     role: (updates.role ?? existing.role ?? 'volunteer').toLowerCase(),
                     expectedHoursPerWeek: Number(updates.expectedHoursPerWeek ?? existing.expectedHoursPerWeek ?? 0),
                     expectedDaysPerWeek: Number(updates.expectedDaysPerWeek ?? existing.expectedDaysPerWeek ?? 0),
+                    weeklyWarningStreak: Number(updates.weeklyWarningStreak ?? existing.weeklyWarningStreak ?? 0),
                 };
 
                 const result = this.dbManager.upsertStudent(updatedStudent);
@@ -1071,6 +1074,7 @@ class DataManager {
                 role: (updates.role ?? prev.role ?? 'volunteer').toLowerCase(),
                 expectedHoursPerWeek: Number(updates.expectedHoursPerWeek ?? prev.expectedHoursPerWeek ?? 0),
                 expectedDaysPerWeek: Number(updates.expectedDaysPerWeek ?? prev.expectedDaysPerWeek ?? 0),
+                weeklyWarningStreak: Number(updates.weeklyWarningStreak ?? prev.weeklyWarningStreak ?? 0),
             };
 
             const dataToSave = this.encryptSensitiveFields(students, ['name', 'email']);
@@ -2007,6 +2011,92 @@ class DataManager {
     }
 
 
+
+    getStudentAttendanceSummary(ufid) {
+        const student = this.isStudentAuthorized(ufid);
+        if (!student) return { error: 'Student not found' };
+
+        const now = new Date();
+
+        // Monday of current week (local time)
+        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const dow = weekStart.getDay(); // 0=Sun
+        weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1));
+
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+        const records = this.dbManager.getStudentAttendanceForRange(ufid, weekStart, now);
+
+        const pairSessions = (evs, effectiveNow) => {
+            const sessions = [];
+            let open = null;
+            for (const ev of evs) {
+                if (ev.action === 'signin') {
+                    open = ev;
+                } else if (ev.action === 'signout' && open) {
+                    sessions.push({ in: open.timestamp, out: ev.timestamp, running: false });
+                    open = null;
+                }
+            }
+            if (open) {
+                sessions.push({ in: open.timestamp, out: effectiveNow.toISOString(), running: true });
+            }
+            return sessions;
+        };
+
+        const sumMinutes = (sessions) =>
+            sessions.reduce((acc, s) => acc + (new Date(s.out) - new Date(s.in)) / 60000, 0);
+
+        // Per-day breakdown for the week
+        const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const weekDays = [];
+        for (let i = 0; i < 7; i++) {
+            const dayStart = new Date(weekStart);
+            dayStart.setDate(weekStart.getDate() + i);
+            if (dayStart > now) break;
+            const dayEnd = new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate(), 23, 59, 59, 999);
+            const effectiveEnd = dayEnd > now ? now : dayEnd;
+            const dayRecs = records.filter(r => {
+                const t = new Date(r.timestamp);
+                return t >= dayStart && t <= dayEnd;
+            });
+            const daySessions = pairSessions(dayRecs, effectiveEnd);
+            const dayMinutes = Math.round(sumMinutes(daySessions));
+            weekDays.push({
+                label: DAY_LABELS[dayStart.getDay()],
+                date: dayStart.toISOString(),
+                minutes: dayMinutes,
+                sessions: daySessions
+            });
+        }
+
+        const todayDay = weekDays[weekDays.length - 1];
+        const todayMinutes = todayDay ? todayDay.minutes : 0;
+        const todaySessions = todayDay ? todayDay.sessions : [];
+
+        const weekMinutes = Math.round(weekDays.reduce((acc, d) => acc + d.minutes, 0));
+
+        const status = this.getCurrentStatus(ufid);
+
+        // Last session: most recent from today, fallback to prev days
+        let lastSession = null;
+        for (let i = weekDays.length - 1; i >= 0; i--) {
+            const s = weekDays[i].sessions;
+            if (s.length > 0) { lastSession = s[s.length - 1]; break; }
+        }
+
+        return {
+            name: student.name,
+            status,
+            todayMinutes,
+            todayHours: Math.round((todayMinutes / 60) * 100) / 100,
+            todaySessionCount: todaySessions.filter(s => !s.running).length + (status === 'signin' ? 1 : 0),
+            weekMinutes,
+            weekHours: Math.round((weekMinutes / 60) * 100) / 100,
+            weekDays,
+            lastSession
+        };
+    }
 
     saveDailySummaryCSV(dateLike, options = {}) {
         try {
