@@ -73,14 +73,17 @@ _depth_flag: Optional[multiprocessing.Value] = None  # 1 = new frame ready
 
 
 def _detect_depth_sdk():
-    """Returns 'v2', 'v1', or None depending on which SDK is installed."""
+    """Returns 'v2', 'v1', or None.
+    pyorbbecsdk2 (PyPI) installs its module as 'pyorbbecsdk', so we distinguish
+    v1 vs v2 by checking for the Pipeline class (v2 API) vs Context-only (v1 API).
+    """
     try:
-        import pyorbbecsdk2  # noqa
+        from pyorbbecsdk import Pipeline  # noqa — v2 API
         return 'v2'
-    except ImportError:
+    except (ImportError, AttributeError):
         pass
     try:
-        import pyorbbecsdk  # noqa
+        from pyorbbecsdk import Context  # noqa — v1 API
         return 'v1'
     except ImportError:
         pass
@@ -88,12 +91,14 @@ def _detect_depth_sdk():
 
 
 def _depth_subprocess_v2(shm_array, flag_value, stop_event):
-    """pyorbbecsdk2 (OrbbecSDK 2.x) — Pipeline-based depth stream."""
+    """pyorbbecsdk2 (OrbbecSDK 2.x) — Pipeline-based depth stream.
+    pyorbbecsdk2 installs as the 'pyorbbecsdk' module name.
+    """
     import signal
     signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
 
     try:
-        from pyorbbecsdk2 import Pipeline, Config, OBSensorType
+        from pyorbbecsdk import Pipeline, Config, OBSensorType
         import numpy as np
 
         pipeline = Pipeline()
@@ -205,22 +210,15 @@ def _start_depth_thread():
 
     # Quick device detection before spawning subprocess
     try:
-        if sdk_ver == 'v2':
-            from pyorbbecsdk2 import Pipeline
-            p = Pipeline()
-            dev_info = p.get_device().get_device_info()
-            print(f"[Depth] found {dev_info.get_name()} (SN: {dev_info.get_serial_number()})", flush=True)
-            del p
-        else:
-            from pyorbbecsdk import Context
-            ctx = Context()
-            dl = ctx.query_devices()
-            if dl.get_count() == 0:
-                print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
-                return
-            info = dl.get_device_by_index(0).get_device_info()
-            print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
-            del ctx, dl
+        from pyorbbecsdk import Context
+        ctx = Context()
+        dl = ctx.query_devices()
+        if dl.get_count() == 0:
+            print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
+            return
+        info = dl.get_device_by_index(0).get_device_info()
+        print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
+        del ctx, dl
     except Exception as e:
         print(f"[Depth] detection failed: {e} — depth liveness disabled", flush=True)
         return
