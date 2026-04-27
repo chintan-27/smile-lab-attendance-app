@@ -31,6 +31,15 @@ class FaceService {
             }
         }
 
+        // Project-local .venv takes highest priority (avoids Anaconda conflicts)
+        const venvPython = process.platform === 'win32'
+            ? path.join(__dirname, '.venv', 'Scripts', 'python.exe')
+            : path.join(__dirname, '.venv', 'bin', 'python3');
+        if (fs.existsSync(venvPython)) {
+            console.log(`[FaceService] using local venv: ${venvPython}`);
+            return { exe: venvPython, args: [], bundled: false };
+        }
+
         // Dev mode: prefer python with Orbbec SDK (either v2 or v1)
         for (const py of ['python3.11', 'python3', 'python']) {
             for (const mod of ['pyorbbecsdk2', 'pyorbbecsdk']) {
