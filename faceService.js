@@ -31,10 +31,17 @@ class FaceService {
             }
         }
 
-        // Dev mode: prefer python3.11 (has pyorbbecsdk), fallback to python3
-        for (const py of ['python3.11', 'python3']) {
+        // Dev mode: prefer python3.11 (has pyorbbecsdk), fallback to python3/python
+        for (const py of ['python3.11', 'python3', 'python']) {
             try {
                 execSync(`${py} -c "import pyorbbecsdk"`, { stdio: 'ignore' });
+                return { exe: py, args: [], bundled: false };
+            } catch (_) { /* try next */ }
+        }
+        // Last resort: use whichever python is available
+        for (const py of ['python3.11', 'python3', 'python']) {
+            try {
+                execSync(`${py} --version`, { stdio: 'ignore' });
                 return { exe: py, args: [], bundled: false };
             } catch (_) { /* try next */ }
         }
