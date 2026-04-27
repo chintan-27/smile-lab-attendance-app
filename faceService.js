@@ -31,12 +31,14 @@ class FaceService {
             }
         }
 
-        // Dev mode: prefer python3.11 (has pyorbbecsdk), fallback to python3/python
+        // Dev mode: prefer python with Orbbec SDK (either v2 or v1)
         for (const py of ['python3.11', 'python3', 'python']) {
-            try {
-                execSync(`${py} -c "import pyorbbecsdk"`, { stdio: 'ignore' });
-                return { exe: py, args: [], bundled: false };
-            } catch (_) { /* try next */ }
+            for (const mod of ['pyorbbecsdk2', 'pyorbbecsdk']) {
+                try {
+                    execSync(`${py} -c "import ${mod}"`, { stdio: 'ignore' });
+                    return { exe: py, args: [], bundled: false };
+                } catch (_) { /* try next */ }
+            }
         }
         // Last resort: use whichever python is available
         for (const py of ['python3.11', 'python3', 'python']) {

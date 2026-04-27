@@ -72,8 +72,73 @@ _depth_shm: Optional[multiprocessing.Array] = None
 _depth_flag: Optional[multiprocessing.Value] = None  # 1 = new frame ready
 
 
-def _depth_subprocess(shm_array, flag_value, stop_event):
-    """Runs in a SEPARATE PROCESS. If pyorbbecsdk segfaults, only this process dies."""
+def _detect_depth_sdk():
+    """Returns 'v2', 'v1', or None depending on which SDK is installed."""
+    try:
+        import pyorbbecsdk2  # noqa
+        return 'v2'
+    except ImportError:
+        pass
+    try:
+        import pyorbbecsdk  # noqa
+        return 'v1'
+    except ImportError:
+        pass
+    return None
+
+
+def _depth_subprocess_v2(shm_array, flag_value, stop_event):
+    """pyorbbecsdk2 (OrbbecSDK 2.x) — Pipeline-based depth stream."""
+    import signal
+    signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
+
+    try:
+        from pyorbbecsdk2 import Pipeline, Config, OBSensorType
+        import numpy as np
+
+        pipeline = Pipeline()
+        config = Config()
+        profile_list = pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
+        if profile_list is None or profile_list.get_count() == 0:
+            print("[Depth-proc-v2] no depth profiles found", flush=True)
+            return
+
+        profile = None
+        for i in range(profile_list.get_count()):
+            p = profile_list.get_video_stream_profile(i)
+            if p and p.get_width() == 640 and p.get_height() == 480 and p.get_fps() == 30:
+                profile = p
+                break
+        if profile is None:
+            profile = profile_list.get_default_video_stream_profile()
+
+        config.enable_stream(profile)
+        pipeline.start(config)
+        print(f"[Depth-proc-v2] pipeline started {profile.get_width()}x{profile.get_height()}@{profile.get_fps()}fps", flush=True)
+
+        while not stop_event.is_set():
+            frames = pipeline.wait_for_frames(timeout_ms=100)
+            if frames is None:
+                continue
+            depth_frame = frames.get_depth_frame()
+            if depth_frame is None:
+                continue
+            w = depth_frame.get_width()
+            h = depth_frame.get_height()
+            data = np.frombuffer(depth_frame.get_data(), dtype=np.uint16)
+            if data.size >= w * h:
+                arr = np.frombuffer(shm_array.get_obj(), dtype=np.uint16)
+                np.copyto(arr[:w * h], data[:w * h])
+                flag_value.value = 1
+
+        pipeline.stop()
+
+    except Exception as e:
+        print(f"[Depth-proc-v2] error: {e}", flush=True)
+
+
+def _depth_subprocess_v1(shm_array, flag_value, stop_event):
+    """pyorbbecsdk (OrbbecSDK 1.x) — sensor callback depth stream."""
     import signal
     signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
 
@@ -84,7 +149,7 @@ def _depth_subprocess(shm_array, flag_value, stop_event):
         ctx = Context()
         dl = ctx.query_devices()
         if dl.get_count() == 0:
-            print("[Depth-proc] no camera", flush=True)
+            print("[Depth-proc-v1] no camera", flush=True)
             return
 
         dev = dl.get_device_by_index(0)
@@ -102,7 +167,7 @@ def _depth_subprocess(shm_array, flag_value, stop_event):
             profile = profile_list.get_default_video_stream_profile()
 
         vp = profile.as_video_stream_profile()
-        print(f"[Depth-proc] starting {vp.get_width()}x{vp.get_height()}@{vp.get_fps()}fps", flush=True)
+        print(f"[Depth-proc-v1] starting {vp.get_width()}x{vp.get_height()}@{vp.get_fps()}fps", flush=True)
 
         def on_frame(frame):
             try:
@@ -116,8 +181,7 @@ def _depth_subprocess(shm_array, flag_value, stop_event):
                 pass
 
         sensor.start(profile, on_frame)
-        print("[Depth-proc] sensor started", flush=True)
-
+        print("[Depth-proc-v1] sensor started", flush=True)
         stop_event.wait()
         try:
             sensor.stop()
@@ -125,38 +189,49 @@ def _depth_subprocess(shm_array, flag_value, stop_event):
             pass
 
     except Exception as e:
-        print(f"[Depth-proc] error: {e}", flush=True)
+        print(f"[Depth-proc-v1] error: {e}", flush=True)
 
 
 def _start_depth_thread():
-    """Spawn depth camera in an isolated subprocess. Safe against segfaults."""
+    """Spawn depth camera in an isolated subprocess. Supports pyorbbecsdk2 (v2) and pyorbbecsdk (v1)."""
     global _depth_available, _depth_proc, _depth_shm, _depth_flag
 
-    try:
-        from pyorbbecsdk import Context
-    except ImportError:
-        print("[Depth] pyorbbecsdk not installed — depth liveness disabled", flush=True)
+    sdk_ver = _detect_depth_sdk()
+    if sdk_ver is None:
+        print("[Depth] no Orbbec SDK installed — depth liveness disabled", flush=True)
         return
 
+    print(f"[Depth] using SDK {sdk_ver}", flush=True)
+
+    # Quick device detection before spawning subprocess
     try:
-        ctx = Context()
-        dl = ctx.query_devices()
-        if dl.get_count() == 0:
-            print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
-            return
-        info = dl.get_device_by_index(0).get_device_info()
-        print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
-        del ctx, dl  # release device before subprocess claims it
+        if sdk_ver == 'v2':
+            from pyorbbecsdk2 import Pipeline
+            p = Pipeline()
+            dev_info = p.get_device().get_device_info()
+            print(f"[Depth] found {dev_info.get_name()} (SN: {dev_info.get_serial_number()})", flush=True)
+            del p
+        else:
+            from pyorbbecsdk import Context
+            ctx = Context()
+            dl = ctx.query_devices()
+            if dl.get_count() == 0:
+                print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
+                return
+            info = dl.get_device_by_index(0).get_device_info()
+            print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
+            del ctx, dl
     except Exception as e:
-        print(f"[Depth] detection failed: {e}", flush=True)
+        print(f"[Depth] detection failed: {e} — depth liveness disabled", flush=True)
         return
 
-    _depth_shm = multiprocessing.Array('H', _DEPTH_W * _DEPTH_H)  # uint16
+    _depth_shm = multiprocessing.Array('H', _DEPTH_W * _DEPTH_H)
     _depth_flag = multiprocessing.Value('i', 0)
     stop_event = multiprocessing.Event()
 
+    target_fn = _depth_subprocess_v2 if sdk_ver == 'v2' else _depth_subprocess_v1
     _depth_proc = multiprocessing.Process(
-        target=_depth_subprocess,
+        target=target_fn,
         args=(_depth_shm, _depth_flag, stop_event),
         daemon=True,
     )
@@ -169,7 +244,6 @@ def _start_depth_thread():
         if _depth_flag.value == 1:
             _depth_available = True
             print("[Depth] receiving depth frames — liveness enabled", flush=True)
-            # Start a local thread to copy frames from shared memory
             t = threading.Thread(target=_depth_shm_reader, daemon=True)
             t.start()
             return
