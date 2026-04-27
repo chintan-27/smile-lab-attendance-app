@@ -96,6 +96,13 @@ class FaceService {
                     console.log(`[FaceService] ready on port ${this._port}`);
                     resolve();
                 }
+                // Forward all stdout lines (depth/rPPG diagnostics)
+                chunk.toString().split('\n').forEach(line => {
+                    const l = line.trim();
+                    if (l && !l.startsWith('READY:') && !/INFO|WARNING|UserWarning|warn|albumentations/.test(l)) {
+                        console.log(`[FaceService] ${l}`);
+                    }
+                });
             });
 
             this._proc.stderr.on('data', (chunk) => {
