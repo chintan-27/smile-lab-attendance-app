@@ -82,7 +82,7 @@ class FaceService {
 
             this._proc = spawn(exe, spawnArgs, {
                 stdio: ['ignore', 'pipe', 'pipe'],
-                env: { ...process.env, PYTHONUNBUFFERED: '1' },
+                env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
             });
 
             let stdout = '';

@@ -12,7 +12,7 @@ Liveness:
     colour changes — physically unforgeable since screens cannot produce cardiac
     pulse signals.  Uses the POS (Plane Orthogonal to Skin) algorithm with
     bandpass filtering and FFT peak detection.
-  - Moiré FFT: identifies phone-screen pixel-grid artefacts in the 2D frequency
+  - Moire FFT: identifies phone-screen pixel-grid artefacts in the 2D frequency
     domain — provides an instant per-frame signal.
 """
 import sys
@@ -293,7 +293,7 @@ def _depth_liveness(bbox) -> dict:
     coverage = len(nonzero) / max(face_depth.size, 1)
 
     if coverage < _DEPTH_COVERAGE_MIN:
-        print(f"[Depth] coverage={coverage:.2f} < {_DEPTH_COVERAGE_MIN} → insufficient data", flush=True)
+        print(f"[Depth] coverage={coverage:.2f} < {_DEPTH_COVERAGE_MIN} -> insufficient data", flush=True)
         return {"has_depth": False, "depth_score": 0.0, "median_depth_mm": 0}
 
     variance = float(np.var(nonzero))
@@ -306,7 +306,7 @@ def _depth_liveness(bbox) -> dict:
 
     print(
         f"[Depth] coverage={coverage:.2f} var={variance:.0f} median={median_mm}mm "
-        f"→ {'3D_FACE' if has_depth else 'FLAT'}",
+        f"-> {'3D_FACE' if has_depth else 'FLAT'}",
         flush=True,
     )
 
@@ -384,7 +384,7 @@ def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
     if roi.size == 0:
         return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
 
-    # Mean RGB (BGR→RGB)
+    # Mean RGB (BGR->RGB)
     mean_bgr = roi.mean(axis=(0, 1))
     mean_rgb = [float(mean_bgr[2]), float(mean_bgr[1]), float(mean_bgr[0])]
 
@@ -420,7 +420,7 @@ def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
     green_vals = rgb[:, 1]
     green_var = float(np.var(green_vals))
     if green_var < 0.3:
-        print(f"[rPPG] frames={n} green_var={green_var:.3f} → STATIC (no temporal change)", flush=True)
+        print(f"[rPPG] frames={n} green_var={green_var:.3f} -> STATIC (no temporal change)", flush=True)
         return {"has_pulse": False, "pulse_confidence": 0.0, "pulse_bpm": 0.0}
 
     # Detrend: subtract rolling mean (window = 15 frames or n//3)
@@ -490,7 +490,7 @@ def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
     has_pulse = bool(snr > _RPPG_SNR_THRESHOLD and bpm_ok)
     pulse_confidence = min(1.0, snr / 6.0) if bpm_ok else 0.0
 
-    print(f"[rPPG] frames={n} fs={fs:.1f} snr={snr:.2f} bpm={pulse_bpm:.0f} bpm_ok={bpm_ok} → {'PULSE' if has_pulse else 'no pulse'}", flush=True)
+    print(f"[rPPG] frames={n} fs={fs:.1f} snr={snr:.2f} bpm={pulse_bpm:.0f} bpm_ok={bpm_ok} -> {'PULSE' if has_pulse else 'no pulse'}", flush=True)
 
     return {
         "has_pulse": has_pulse,
@@ -500,7 +500,7 @@ def _rppg_analyze(img_bgr: np.ndarray, bbox) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Moiré FFT — screen pixel-grid detection
+# Moire FFT — screen pixel-grid detection
 # ---------------------------------------------------------------------------
 
 _MOIRE_THRESHOLD = 80.0   # real faces score 28-50; screens with pixel-grid moiré score 100+
@@ -529,7 +529,7 @@ def _moire_analyze(img_bgr: np.ndarray, bbox) -> dict:
     hanning = np.outer(np.hanning(256), np.hanning(256)).astype(np.float32)
     windowed = resized * hanning
 
-    # 2D FFT → magnitude spectrum
+    # 2D FFT -> magnitude spectrum
     fft2 = np.fft.fft2(windowed)
     fft_shift = np.fft.fftshift(fft2)
     magnitude = np.abs(fft_shift) + 1e-8  # avoid log(0)
@@ -547,7 +547,7 @@ def _moire_analyze(img_bgr: np.ndarray, bbox) -> dict:
     moire_score = float(np.max(high_mag) / np.mean(high_mag))
     is_screen = moire_score > _MOIRE_THRESHOLD
 
-    print(f"[Moiré] score={moire_score:.1f} threshold={_MOIRE_THRESHOLD} → {'SCREEN' if is_screen else 'ok'}", flush=True)
+    print(f"[Moire] score={moire_score:.1f} threshold={_MOIRE_THRESHOLD} -> {'SCREEN' if is_screen else 'ok'}", flush=True)
 
     return {
         "moire_score": round(moire_score, 2),
@@ -594,7 +594,7 @@ def analyze(req: AnalyzeRequest):
         result["pulse_confidence"] = rppg["pulse_confidence"]
         result["pulse_bpm"] = rppg["pulse_bpm"]
 
-        # Moiré screen detection
+        # Moire screen detection
         moire = _moire_analyze(img, face.bbox)
         result["moire_score"] = moire["moire_score"]
         result["is_screen"] = moire["is_screen"]
