@@ -1,22 +1,21 @@
 # UF Lab Attendance
 
-A modern, cross-platform Electron app for tracking lab attendance with automated daily/weekly reporting and cloud sync.
+A premium Electron desktop app for the SMILE Lab at the University of Florida. Tracks lab attendance with biometric Face ID (Orbbec Astra depth + IR liveness), automated reporting, Google Sheets sync, and Dropbox backup.
 
-> **Latest release:** [v1.0.3](https://github.com/chintan-27/smile-lab-attendance-app/releases/tag/v1.0.3)
+> **Latest release:** [v1.3.0](https://github.com/chintan-27/smile-lab-attendance-app/releases/latest)
 > **All releases:** [Releases page](../../releases)
 
 ---
 
 ## Table of contents
 
+* [What's new in v1.3.0](#whats-new-in-v130)
 * [Features](#features)
 * [Downloads (macOS / Windows / Linux)](#downloads-macos--windows--linux)
 * [Quick start (dev)](#quick-start-dev)
+* [Face ID setup](#face-id-setup)
 * [How it works](#how-it-works)
 * [Configuration](#configuration)
-
-  * [Google Sheets setup](#google-sheets-setup)
-  * [Dropbox setup (optional)](#dropbox-setup-optional)
 * [Daily summaries & catch-up](#daily-summaries--catch-up)
 * [Admin UI cheatsheet](#admin-ui-cheatsheet)
 * [Building locally](#building-locally)
@@ -26,8 +25,25 @@ A modern, cross-platform Electron app for tracking lab attendance with automated
 
 ---
 
+## What's new in v1.3.0
+
+- **Complete UI redesign** — split-panel sign-in screen with UF Blue left panel, clock, recent sign-ins. Light mode: white + blue. Dark mode: black + orange.
+- **Orbbec Astra depth+IR liveness** — instant, spoof-proof sign-in using the structured-light IR and depth sensor. No more slow rPPG pulse detection when the Astra is connected.
+- **3D face mesh overlay** — a canonical 50-point face model is projected onto the detected face in real-time, with depth-shaded dots and an animated scan line. Turns green on match.
+- **Auto Python environment** — `faceService.js` automatically creates a `.venv`, installs all requirements, and tries `orbbec-astra-raw>=0.2.0` on first launch. No manual pip needed.
+- **Face ID admin tab** — dedicated Face ID management page in the admin dashboard: service status, camera mode (Astra All Sensors / Astra Depth+IR / Standard), per-student enrollment table with search and filter.
+- **Startup speed** — window now opens immediately; all service initialization happens in the background.
+- **Face ID setup nudge** — after UFID sign-in, if the student has no face enrolled, the summary modal shows a “Set up Face ID” prompt.
+
+---
+
 ## Features
 
+* **Dual sign-in paths** — 8-digit UFID entry or Face ID (biometric)
+* **Face ID with liveness detection**
+  * **Orbbec Astra** (primary): instant depth variance + IR structured-light texture — rejects photos, screens, and masks
+  * **Standard webcam** (fallback): rPPG pulse detection (POS algorithm, bandpass FFT)
+  * Moiré FFT screen detection runs on every frame as an additional layer
 * **Simple sign-in / sign-out** with UFID and name
 * **Student roster management** (add/remove, active flag)
 * **Automated daily summary @ 10pm ET**
@@ -43,7 +59,7 @@ A modern, cross-platform Electron app for tracking lab attendance with automated
   * Real-time single-row append on each sign-in/out when auto-sync is enabled
 * **Dropbox backup & (optional) master-mode sync**
 * **Robust logging** (view & clear from UI)
-* **Crash-safe JSON storage** (`data/attendance.json`, `data/students.json`, `data/config.json`)
+* **Crash-safe JSON + SQLite storage**
 * **Works offline** and reconciles later
 
 ---
@@ -88,6 +104,31 @@ npm install
 # Run
 npm start
 ```
+
+On first run the app auto-creates a Python `.venv`, installs dependencies (InsightFace, FastAPI, scipy, etc.), and attempts to install `orbbec-astra-raw` if Python ≥3.9 is available. This may take a few minutes — the window opens immediately and Face ID becomes available in the background.
+
+---
+
+## Face ID setup
+
+### Without a depth camera (standard webcam)
+1. Open Admin → **Face ID** tab
+2. Find the student in the enrollment table and click **Enroll**
+3. Follow the 3-pose capture (center, slight left, slight right)
+4. Sign in via the Face ID camera — liveness is verified via rPPG pulse detection (~3s)
+
+### With an Orbbec Astra camera
+1. Connect the Astra camera via USB before launching the app
+2. Install the driver: `pip install orbbec-astra-raw` (or let the app auto-install it)
+3. The app detects the camera at startup — the badge shows **Astra Depth + IR**
+4. Enroll faces as above — liveness verification is now instant (depth variance + IR texture)
+
+**Camera badge meanings:**
+| Badge | What it means |
+|---|---|
+| `Astra · All Sensors` | Orbbec Astra providing color + depth + IR — fully aligned |
+| `Astra Depth + IR` | Astra providing depth + IR liveness; color from webcam |
+| `Standard Camera` | Webcam only; rPPG pulse liveness (~3–5s) |
 
 ---
 
