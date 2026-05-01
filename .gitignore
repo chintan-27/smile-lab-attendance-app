@@ -170,3 +170,4 @@ Log/
 __pycache__/
 *.pyc
 *.pyo
+.venv

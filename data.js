@@ -1208,6 +1208,24 @@ class DataManager {
     }
 
     /**
+     * Get the N most recent sign-in records (for the left panel ticker).
+     * @param {number} n - Max records to return
+     * @returns {Array<{ ufid, name, timestamp }>}
+     */
+    getRecentSignins(n = 4) {
+        try {
+            const records = this.getAttendance();
+            return records
+                .filter(r => r.action === 'signin' || r.signIn)
+                .sort((a, b) => new Date(b.timestamp || b.signIn) - new Date(a.timestamp || a.signIn))
+                .slice(0, n)
+                .map(r => ({ ufid: r.ufid, name: r.name || '', timestamp: r.timestamp || r.signIn }));
+        } catch (_) {
+            return [];
+        }
+    }
+
+    /**
      * Get attendance records with pagination (for admin UI)
      * @param {number} offset - Offset for pagination
      * @param {number} limit - Number of records to return

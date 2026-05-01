@@ -22,7 +22,6 @@ import socket
 import time
 import traceback
 import threading
-import multiprocessing
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -54,24 +53,130 @@ def _init_model(model_dir: Optional[str] = None):
 
 
 # ---------------------------------------------------------------------------
-# Depth camera (Orbbec Astra) — background thread
+# Depth + IR camera (Orbbec Astra via orbbec-astra-raw) — background thread
 # ---------------------------------------------------------------------------
 
 _depth_lock = threading.Lock()
-_latest_depth: Optional[np.ndarray] = None  # (H, W) uint16 in mm
+_latest_depth: Optional[np.ndarray] = None  # (480, 640) float32 in mm
+_latest_ir: Optional[np.ndarray] = None     # (480, 640) uint16 structured-light IR
+_latest_color: Optional[np.ndarray] = None  # (480, 640, 3) uint8 BGR from Astra color sensor
 _depth_available = False
-_depth_proc: Optional[multiprocessing.Process] = None
+_color_from_astra = False  # True when read_color() is providing frames
+_astra_cam = None  # AstraIRCamera instance
 
 _DEPTH_VARIANCE_THRESHOLD = 150  # real face ~200-2000; flat surface <50
-_DEPTH_COVERAGE_MIN = 0.3        # at least 30% of face ROI must have valid depth
-_DEPTH_RANGE_MM = (300, 1500)    # plausible face distance in mm
-
-# Shared memory for depth frames (640*480*2 bytes = 614400)
-_DEPTH_W, _DEPTH_H = 640, 480
-_depth_shm: Optional[multiprocessing.Array] = None
-_depth_flag: Optional[multiprocessing.Value] = None  # 1 = new frame ready
+_DEPTH_COVERAGE_MIN = 0.25       # at least 25% of face ROI must have valid depth
+_DEPTH_RANGE_MM = (150, 2000)    # 15cm–2m — widened from 300-1500 to handle close-up use
+_IR_TEXTURE_VAR_THRESHOLD = 500  # uint16 std dev; real faces distort structured dots
 
 
+def _start_astra_thread():
+    """Non-blocking: try to open AstraIRCamera, probe for frames, start poll loop."""
+    global _depth_available, _astra_cam
+
+    try:
+        from astra_raw import AstraIRCamera
+    except ImportError:
+        print("[Astra] orbbec-astra-raw not installed — depth+IR liveness disabled", flush=True)
+        return
+
+    try:
+        cam = AstraIRCamera()
+        cam.open()  # must call open() to start the background USB streaming thread
+        print("[Astra] camera opened, waiting for first frames…", flush=True)
+    except Exception as e:
+        print(f"[Astra] camera init failed: {e} — depth+IR liveness disabled", flush=True)
+        return
+
+    # Probe: read_depth_mm blocks up to `timeout` seconds waiting for first frame
+    try:
+        d  = cam.read_depth_mm(timeout=8.0)
+        ir = cam.read_ir(timeout=8.0)
+    except Exception as e:
+        print(f"[Astra] probe read failed: {e} — depth+IR liveness disabled", flush=True)
+        try: cam.close()
+        except Exception: pass
+        return
+
+    if d is None or ir is None:
+        print("[Astra] no frames received in 8s — camera connected but not streaming; depth+IR disabled", flush=True)
+        try: cam.close()
+        except Exception: pass
+        return
+
+    _astra_cam = cam
+    _depth_available = True
+    print(f"[Astra] camera ready — depth shape={d.shape} IR shape={ir.shape} — depth+IR liveness enabled", flush=True)
+    threading.Thread(target=_astra_poll_loop, args=(cam,), daemon=True).start()
+
+
+def _astra_poll_loop(cam):
+    """Background thread: polls AstraIRCamera at ~30fps, stores latest depth+IR+color frames."""
+    global _latest_depth, _latest_ir, _latest_color, _color_from_astra
+    has_color_api = hasattr(cam, 'read_color')
+    if has_color_api:
+        print("[Astra] read_color() available — using Astra color for face detection", flush=True)
+    while True:
+        try:
+            depth = cam.read_depth_mm(timeout=0.5)
+            ir    = cam.read_ir(timeout=0.5)
+            color = cam.read_color() if has_color_api else None  # (480,640,3) BGR or None
+            if depth is not None and ir is not None:
+                with _depth_lock:
+                    _latest_depth = depth.astype(np.float32)
+                    _latest_ir    = ir
+                    if color is not None:
+                        _latest_color     = color
+                        _color_from_astra = True
+        except Exception as e:
+            print(f"[Astra] poll error: {e}", flush=True)
+            time.sleep(1.0)
+            continue
+        time.sleep(1 / 30)
+
+
+def _center_region(frame_h: int, frame_w: int):
+    """Return (y1, y2, x1, x2) for the central 50% of the frame."""
+    return frame_h // 4, 3 * frame_h // 4, frame_w // 4, 3 * frame_w // 4
+
+
+def _ir_liveness(bbox) -> dict:
+    """
+    Structured-light IR texture variance check.
+    Uses the center region of the IR frame rather than the color-camera bbox
+    to avoid coordinate-space misalignment between the Mac camera and Astra sensor.
+    Real 3D faces distort the projected dot pattern → high spatial std.
+    Flat photos/screens reflect dots uniformly → low std.
+    """
+    with _depth_lock:
+        ir_map = _latest_ir
+
+    if ir_map is None:
+        return {"has_ir": None, "ir_score": 0.0}
+
+    h, w = ir_map.shape[:2]
+    y1, y2, x1, x2 = _center_region(h, w)
+    region_ir = ir_map[y1:y2, x1:x2].astype(np.float32)
+
+    if region_ir.size == 0:
+        return {"has_ir": None, "ir_score": 0.0}
+
+    valid = region_ir[(region_ir > 10) & (region_ir < 65000)]
+    if valid.size < region_ir.size * 0.1:
+        return {"has_ir": None, "ir_score": 0.0}
+
+    score = float(np.std(valid))
+    has_ir = score > _IR_TEXTURE_VAR_THRESHOLD
+
+    print(
+        f"[IR] score={score:.1f} threshold={_IR_TEXTURE_VAR_THRESHOLD} "
+        f"-> {'REAL_FACE' if has_ir else 'FLAT'}",
+        flush=True,
+    )
+    return {"has_ir": has_ir, "ir_score": round(score, 1)}
+
+
+# Keep legacy stub so any leftover pyorbbecsdk detection code doesn't break at import
 def _detect_depth_sdk():
     """Returns 'v2', 'v1', or None.
     pyorbbecsdk2 (PyPI) installs its module as 'pyorbbecsdk', so we distinguish
@@ -90,213 +195,42 @@ def _detect_depth_sdk():
     return None
 
 
-def _depth_subprocess_v2(shm_array, flag_value, stop_event):
-    """pyorbbecsdk2 (OrbbecSDK 2.x) — Pipeline-based depth stream.
-    pyorbbecsdk2 installs as the 'pyorbbecsdk' module name.
-    """
-    import signal
-    signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
-
-    try:
-        from pyorbbecsdk import Pipeline, Config, OBSensorType
-        import numpy as np
-
-        pipeline = Pipeline()
-        config = Config()
-        profile_list = pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
-        if profile_list is None or profile_list.get_count() == 0:
-            print("[Depth-proc-v2] no depth profiles found", flush=True)
-            return
-
-        profile = None
-        for i in range(profile_list.get_count()):
-            p = profile_list.get_video_stream_profile(i)
-            if p and p.get_width() == 640 and p.get_height() == 480 and p.get_fps() == 30:
-                profile = p
-                break
-        if profile is None:
-            profile = profile_list.get_default_video_stream_profile()
-
-        config.enable_stream(profile)
-        pipeline.start(config)
-        print(f"[Depth-proc-v2] pipeline started {profile.get_width()}x{profile.get_height()}@{profile.get_fps()}fps", flush=True)
-
-        while not stop_event.is_set():
-            frames = pipeline.wait_for_frames(timeout_ms=100)
-            if frames is None:
-                continue
-            depth_frame = frames.get_depth_frame()
-            if depth_frame is None:
-                continue
-            w = depth_frame.get_width()
-            h = depth_frame.get_height()
-            data = np.frombuffer(depth_frame.get_data(), dtype=np.uint16)
-            if data.size >= w * h:
-                arr = np.frombuffer(shm_array.get_obj(), dtype=np.uint16)
-                np.copyto(arr[:w * h], data[:w * h])
-                flag_value.value = 1
-
-        pipeline.stop()
-
-    except Exception as e:
-        print(f"[Depth-proc-v2] error: {e}", flush=True)
-
-
-def _depth_subprocess_v1(shm_array, flag_value, stop_event):
-    """pyorbbecsdk (OrbbecSDK 1.x) — sensor callback depth stream."""
-    import signal
-    signal.signal(signal.SIGSEGV, lambda s, f: os._exit(1))
-
-    try:
-        from pyorbbecsdk import Context, OBSensorType
-        import numpy as np
-
-        ctx = Context()
-        dl = ctx.query_devices()
-        if dl.get_count() == 0:
-            print("[Depth-proc-v1] no camera", flush=True)
-            return
-
-        dev = dl.get_device_by_index(0)
-        sensor = dev.get_sensor(OBSensorType.DEPTH_SENSOR)
-        profile_list = sensor.get_stream_profile_list()
-
-        profile = None
-        for i in range(profile_list.get_count()):
-            p = profile_list.get_stream_profile_by_index(i)
-            vp = p.as_video_stream_profile()
-            if vp.get_width() == 640 and vp.get_height() == 480 and vp.get_fps() == 30:
-                profile = p
-                break
-        if profile is None:
-            profile = profile_list.get_default_video_stream_profile()
-
-        vp = profile.as_video_stream_profile()
-        print(f"[Depth-proc-v1] starting {vp.get_width()}x{vp.get_height()}@{vp.get_fps()}fps", flush=True)
-
-        def on_frame(frame):
-            try:
-                w, h = frame.get_width(), frame.get_height()
-                data = np.frombuffer(frame.get_data(), dtype=np.uint16)
-                if data.size >= w * h:
-                    arr = np.frombuffer(shm_array.get_obj(), dtype=np.uint16)
-                    np.copyto(arr, data[:w * h])
-                    flag_value.value = 1
-            except Exception:
-                pass
-
-        sensor.start(profile, on_frame)
-        print("[Depth-proc-v1] sensor started", flush=True)
-        stop_event.wait()
-        try:
-            sensor.stop()
-        except Exception:
-            pass
-
-    except Exception as e:
-        print(f"[Depth-proc-v1] error: {e}", flush=True)
-
-
-def _start_depth_thread():
-    """Spawn depth camera in an isolated subprocess. Supports pyorbbecsdk2 (v2) and pyorbbecsdk (v1)."""
-    global _depth_available, _depth_proc, _depth_shm, _depth_flag
-
-    sdk_ver = _detect_depth_sdk()
-    if sdk_ver is None:
-        print("[Depth] no Orbbec SDK installed — depth liveness disabled", flush=True)
-        return
-
-    print(f"[Depth] using SDK {sdk_ver}", flush=True)
-
-    # Quick device detection before spawning subprocess
-    try:
-        from pyorbbecsdk import Context
-        ctx = Context()
-        dl = ctx.query_devices()
-        if dl.get_count() == 0:
-            print("[Depth] no Orbbec camera detected — depth liveness disabled", flush=True)
-            return
-        info = dl.get_device_by_index(0).get_device_info()
-        print(f"[Depth] found {info.get_name()} (SN: {info.get_serial_number()})", flush=True)
-        del ctx, dl
-    except Exception as e:
-        print(f"[Depth] detection failed: {e} — depth liveness disabled", flush=True)
-        return
-
-    _depth_shm = multiprocessing.Array('H', _DEPTH_W * _DEPTH_H)
-    _depth_flag = multiprocessing.Value('i', 0)
-    stop_event = multiprocessing.Event()
-
-    target_fn = _depth_subprocess_v2 if sdk_ver == 'v2' else _depth_subprocess_v1
-    _depth_proc = multiprocessing.Process(
-        target=target_fn,
-        args=(_depth_shm, _depth_flag, stop_event),
-        daemon=True,
-    )
-    _depth_proc.start()
-    print(f"[Depth] subprocess started (PID {_depth_proc.pid})", flush=True)
-
-    # Wait up to 15s for first frame
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if _depth_flag.value == 1:
-            _depth_available = True
-            print("[Depth] receiving depth frames — liveness enabled", flush=True)
-            t = threading.Thread(target=_depth_shm_reader, daemon=True)
-            t.start()
-            return
-        if not _depth_proc.is_alive():
-            print("[Depth] subprocess exited — depth liveness disabled", flush=True)
-            return
-        time.sleep(0.5)
-
-    print("[Depth] timeout waiting for frames — depth liveness disabled", flush=True)
-    _depth_proc.kill()
-
-
-def _depth_shm_reader():
-    """Copy depth frames from shared memory into _latest_depth."""
-    global _latest_depth
-    while _depth_available and _depth_proc and _depth_proc.is_alive():
-        if _depth_flag.value == 1:
-            _depth_flag.value = 0
-            arr = np.frombuffer(_depth_shm.get_obj(), dtype=np.uint16).copy()
-            with _depth_lock:
-                _latest_depth = arr.reshape((_DEPTH_H, _DEPTH_W))
-        time.sleep(0.03)  # ~30 Hz polling
 
 
 def _depth_liveness(bbox) -> dict:
-    """Check if the face region has real 3D depth structure."""
+    """
+    Check if the face region has real 3D depth structure.
+    When using an external color camera (not Astra), the face bbox may not align
+    with the depth sensor — in that case falls back to the center region of the frame.
+    """
     with _depth_lock:
         depth_map = _latest_depth
 
     if depth_map is None:
         return {"has_depth": None, "depth_score": 0.0, "median_depth_mm": 0}
 
-    x1, y1, x2, y2 = [int(v) for v in bbox]
     h, w = depth_map.shape[:2]
 
-    # Clamp to depth frame bounds
-    x1 = max(0, min(x1, w - 1))
-    x2 = max(x1 + 1, min(x2, w))
-    y1 = max(0, min(y1, h - 1))
-    y2 = max(y1 + 1, min(y2, h))
-
-    face_depth = depth_map[y1:y2, x1:x2]
-    if face_depth.size == 0:
-        return {"has_depth": None, "depth_score": 0.0, "median_depth_mm": 0}
-
-    nonzero = face_depth[face_depth > 0].astype(np.float64)
-    coverage = len(nonzero) / max(face_depth.size, 1)
+    # Try the face bbox first (works correctly when color comes from Astra)
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    x1 = max(0, min(x1, w - 1)); x2 = max(x1 + 1, min(x2, w))
+    y1 = max(0, min(y1, h - 1)); y2 = max(y1 + 1, min(y2, h))
+    region = depth_map[y1:y2, x1:x2]
+    nonzero = region[region > 0.0].astype(np.float64)
+    coverage = len(nonzero) / max(region.size, 1)
 
     if coverage < _DEPTH_COVERAGE_MIN:
-        print(f"[Depth] coverage={coverage:.2f} < {_DEPTH_COVERAGE_MIN} -> insufficient data", flush=True)
-        return {"has_depth": False, "depth_score": 0.0, "median_depth_mm": 0}
+        # Bbox misaligned (non-Astra color camera) — fall back to center 50% of frame
+        cy1, cy2, cx1, cx2 = _center_region(h, w)
+        center = depth_map[cy1:cy2, cx1:cx2]
+        nonzero = center[center > 0.0].astype(np.float64)
+        coverage = len(nonzero) / max(center.size, 1)
+        if coverage < _DEPTH_COVERAGE_MIN:
+            print(f"[Depth] coverage={coverage:.2f} < {_DEPTH_COVERAGE_MIN} -> insufficient data", flush=True)
+            return {"has_depth": None, "depth_score": 0.0, "median_depth_mm": 0}
 
     variance = float(np.var(nonzero))
     median_mm = int(np.median(nonzero))
-
     has_depth = (
         variance > _DEPTH_VARIANCE_THRESHOLD
         and _DEPTH_RANGE_MM[0] < median_mm < _DEPTH_RANGE_MM[1]
@@ -307,12 +241,7 @@ def _depth_liveness(bbox) -> dict:
         f"-> {'3D_FACE' if has_depth else 'FLAT'}",
         flush=True,
     )
-
-    return {
-        "has_depth": has_depth,
-        "depth_score": round(variance, 1),
-        "median_depth_mm": median_mm,
-    }
+    return {"has_depth": has_depth, "depth_score": round(variance, 1), "median_depth_mm": median_mm}
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +497,15 @@ def analyze(req: AnalyzeRequest):
       or  { face: null }
     """
     try:
-        img = _b64_to_bgr(req.image)
+        # Use Astra color frame when available — it's natively aligned with depth/IR
+        # so face bbox coordinates directly map onto the depth and IR frames.
+        # Fall back to browser-sent frame when Astra color isn't available.
+        if _color_from_astra and _latest_color is not None:
+            with _depth_lock:
+                img = _latest_color.copy()
+        else:
+            img = _b64_to_bgr(req.image)
+
         faces = _fa.get(img)
         if not faces:
             return {"face": None}
@@ -586,27 +523,47 @@ def analyze(req: AnalyzeRequest):
         if face.kps is not None:
             result["kps"] = face.kps.tolist()
 
-        # rPPG pulse detection
-        rppg = _rppg_analyze(img, face.bbox)
-        result["has_pulse"] = rppg["has_pulse"]
-        result["pulse_confidence"] = rppg["pulse_confidence"]
-        result["pulse_bpm"] = rppg["pulse_bpm"]
-
-        # Moire screen detection
+        # Moire screen detection (always run — instant per-frame signal)
         moire = _moire_analyze(img, face.bbox)
         result["moire_score"] = moire["moire_score"]
         result["is_screen"] = moire["is_screen"]
 
-        # Depth liveness (Orbbec Astra)
+        # Depth + IR liveness (Orbbec Astra via orbbec-astra-raw)
         if _depth_available:
-            depth = _depth_liveness(face.bbox)
-            result["has_depth"] = depth["has_depth"]
-            result["depth_score"] = depth["depth_score"]
-            result["median_depth_mm"] = depth["median_depth_mm"]
+            depth_r = _depth_liveness(face.bbox)
+            ir_r = _ir_liveness(face.bbox)
+            d_ok, i_ok = depth_r["has_depth"], ir_r["has_ir"]
+            # IR alone is sufficient (structured-light is highly reliable).
+            # Depth adds extra confidence but its range/coverage can be marginal.
+            # Reject only when BOTH signals say flat, or when we have no data yet.
+            if i_ok is True:
+                combined = True   # IR confirms 3D face — pass regardless of depth
+            elif i_ok is False and d_ok is False:
+                combined = False  # both say flat → reject
+            elif d_ok is True:
+                combined = True   # depth confirms 3D face (IR still warming up)
+            elif d_ok is False:
+                combined = False  # depth says flat, IR uncertain → reject
+            else:
+                combined = None   # waiting for data
+            result["has_depth"] = combined
+            result["depth_score"] = depth_r["depth_score"]
+            result["median_depth_mm"] = depth_r["median_depth_mm"]
+            result["ir_score"] = ir_r["ir_score"]
+            # rPPG not needed when depth+IR is present; set neutral values
+            result["has_pulse"] = False
+            result["pulse_confidence"] = 0.0
+            result["pulse_bpm"] = 0.0
         else:
+            # No Astra camera: fall back to rPPG pulse accumulation
+            rppg = _rppg_analyze(img, face.bbox)
+            result["has_pulse"] = rppg["has_pulse"]
+            result["pulse_confidence"] = rppg["pulse_confidence"]
+            result["pulse_bpm"] = rppg["pulse_bpm"]
             result["has_depth"] = None
             result["depth_score"] = 0.0
             result["median_depth_mm"] = 0
+            result["ir_score"] = 0.0
 
         return {"face": result}
 
@@ -621,6 +578,15 @@ def reset_liveness():
     global _rppg_buffer
     _rppg_buffer = []
     return {"ok": True}
+
+
+@app.get("/camera-status")
+def camera_status():
+    """Full camera status: depth/IR availability and whether Astra color is active."""
+    return {
+        "depth_available": _depth_available,
+        "color_from_astra": _color_from_astra,
+    }
 
 
 @app.get("/depth-status")
@@ -648,12 +614,11 @@ def _find_free_port() -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    multiprocessing.freeze_support()  # required for PyInstaller + multiprocessing on macOS/Win
     model_dir = sys.argv[1] if len(sys.argv) > 1 else None
     _init_model(model_dir)
 
-    # Start depth camera in background (non-blocking — doesn't delay READY signal)
-    threading.Thread(target=_start_depth_thread, daemon=True).start()
+    # Start Astra camera in background (non-blocking — doesn't delay READY signal)
+    threading.Thread(target=_start_astra_thread, daemon=True).start()
 
     port = _find_free_port()
     # Signal to the Node parent that we are ready
@@ -661,5 +626,7 @@ if __name__ == "__main__":
 
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
 
-    if _depth_proc and _depth_proc.is_alive():
-        _depth_proc.kill()
+    # Clean up: stop Astra camera streaming
+    if _astra_cam is not None:
+        try: _astra_cam.close()
+        except Exception: pass

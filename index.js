@@ -51,7 +51,7 @@ function setProgressRing(progress, state) {
     const ring = document.getElementById('faceProgressRing');
     const fg = document.getElementById('faceProgressFg');
     if (!fg || !ring) return;
-    const circumference = 2 * Math.PI * 95; // r=95
+    const circumference = 2 * Math.PI * 134; // r=134 for 280px rounded-square viewport
     fg.setAttribute('stroke-dashoffset', circumference * (1 - Math.min(1, progress)));
     ring.className = 'face-progress-ring ' + (state || 'verifying');
 }
@@ -92,6 +92,30 @@ async function activateFaceCamera() {
     resetInactivityTimer();
 }
 
+// ---- Camera type badge ----
+async function updateCameraTypeBadge() {
+    const badge = document.getElementById('cameraTypeBadge');
+    const name  = document.getElementById('cameraTypeName');
+    if (!badge || !name) return;
+    try {
+        const status = await window.electronAPI.getFaceServiceStatus();
+        if (status.colorFromAstra) {
+            badge.className = 'camera-type-badge show astra';
+            name.textContent = 'Astra · All Sensors';
+        } else if (status.depthCamera) {
+            badge.className = 'camera-type-badge show astra';
+            name.textContent = 'Astra Depth + IR';
+        } else if (status.ready) {
+            badge.className = 'camera-type-badge show webcam';
+            name.textContent = 'Standard Camera';
+        } else {
+            badge.className = 'camera-type-badge'; // hide until service ready
+        }
+    } catch (_) {
+        badge.className = 'camera-type-badge';
+    }
+}
+
 // ---- Start panel ----
 async function startFaceIdPanel() {
     setFaceUI('idle', 'Loading Face ID…');
@@ -100,6 +124,9 @@ async function startFaceIdPanel() {
     hideFaceNameBadge();
     hideFaceConfirmPrompt();
 
+    // Check face service + camera status
+    updateCameraTypeBadge();
+
     try {
         const res = await window.electronAPI.getAllFaceDescriptors();
         faceEnrolled = (res.success && res.descriptors) ? res.descriptors : [];
@@ -107,23 +134,30 @@ async function startFaceIdPanel() {
 
     if (faceEnrolled.length === 0) {
         showFaceLoading(false);
-        setFaceUI('error', 'No faces enrolled — use Admin panel to enroll');
+        setFaceUI('idle', 'No faces enrolled — use UFID below');
         return;
     }
 
-    const video  = document.getElementById('faceVideo');
-    const canvas = document.getElementById('faceCanvas');
+    const video      = document.getElementById('faceVideo');
+    const canvas     = document.getElementById('faceCanvas');
+    const noCameraEl = document.getElementById('noCameraState');
+    const badge      = document.getElementById('cameraTypeBadge');
+
     try {
         faceStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
         });
         video.srcObject = faceStream;
+        video.style.display = '';
         await new Promise(res => { video.onloadedmetadata = res; });
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
+        if (noCameraEl) noCameraEl.classList.remove('show');
     } catch (e) {
         showFaceLoading(false);
-        setFaceUI('error', 'Camera access denied');
+        if (noCameraEl) noCameraEl.classList.add('show');
+        if (badge) { badge.className = 'camera-type-badge show none'; document.getElementById('cameraTypeName').textContent = 'No Camera'; }
+        setFaceUI('idle', 'No camera available — use UFID below');
         return;
     }
 
@@ -141,17 +175,16 @@ async function startFaceIdPanel() {
     }
 }
 
-// ---- Detection loop (InsightFace + rPPG + moiré via Python IPC) ----
+// ---- Detection loop (InsightFace + depth/IR + moiré via Python IPC) ----
 async function faceDetectLoop(video, canvas) {
     const ctx       = canvas.getContext('2d');
     const offscreen = document.createElement('canvas');
 
-    // Send frames to Python every ~100ms for rPPG
     let lastIPCTime = 0;
     let pendingIPC = false;
-    let lastFaceResult = null; // { embedding, bbox, det_score, has_pulse, pulse_confidence, moire_score, is_screen }
-    let faceLostTicks = 0;    // tolerance for momentary detection drops
-    const FACE_LOST_TOLERANCE = 5; // ~500ms at 100ms tick before resetting liveness
+    let lastFaceResult = null;
+    let faceLostTicks = 0;
+    const FACE_LOST_TOLERANCE = 5;
 
     const tick = async () => {
         if (!faceLoopActive) return;
@@ -162,13 +195,13 @@ async function faceDetectLoop(video, canvas) {
 
         const now = performance.now();
 
-        // --- IPC to Python: throttled for ArcFace + rPPG + moiré ---
+        // --- IPC to Python: throttled at ~10fps ---
         if (!pendingIPC && (now - lastIPCTime > 100)) {
             pendingIPC = true;
             lastIPCTime = now;
 
-            offscreen.width  = video.videoWidth;
-            offscreen.height = video.videoHeight;
+            offscreen.width  = video.videoWidth  || 640;
+            offscreen.height = video.videoHeight || 480;
             offscreen.getContext('2d').drawImage(video, 0, 0);
             const base64 = offscreen.toDataURL('image/jpeg', 0.8).split(',')[1];
 
@@ -214,7 +247,7 @@ async function faceDetectLoop(video, canvas) {
 
                 // Instant reject if moiré consistently detects a screen
                 if (face.is_screen && screenFlagCount >= 3) {
-                    drawFaceBox(ctx, box, false);
+                    drawFaceOverlay(ctx, box, face.kps, false);
                     resetLivenessState();
                     setProgressRing(0, 'verifying');
                     setFaceUI('idle', 'Screen detected — use a real face');
@@ -223,57 +256,49 @@ async function faceDetectLoop(video, canvas) {
                     return;
                 }
 
-                drawFaceBox(ctx, box, true);
+                const isMatched = faceState === 'matched';
+                drawFaceOverlay(ctx, box, face.kps, isMatched);
 
                 if (faceState === 'idle') {
-                    // Depth liveness: instant pass if depth camera confirms 3D face
                     const depthPass = face.has_depth === true;
+                    const depthNull = face.has_depth === null; // no Astra camera connected
 
-                    if (!depthPass) {
-                        // Fall back to rPPG pulse accumulation
-                        if (pulseStartTime === 0) {
-                            pulseStartTime = now;
-                        }
-
-                        if (face.has_pulse) {
-                            pulseConsecutive++;
-                        } else {
-                            pulseConsecutive = 0;
-                        }
+                    if (depthNull) {
+                        // rPPG fallback path (Astra camera not present)
+                        if (pulseStartTime === 0) pulseStartTime = now;
+                        if (face.has_pulse) { pulseConsecutive++; } else { pulseConsecutive = 0; }
                     }
 
-                    const elapsed = pulseStartTime > 0 ? now - pulseStartTime : 0;
-                    const pulsePass = pulseConsecutive >= PULSE_CONSECUTIVE_REQUIRED;
+                    const elapsed = depthNull && pulseStartTime > 0 ? now - pulseStartTime : 0;
+                    const pulsePass = depthNull && (pulseConsecutive >= PULSE_CONSECUTIVE_REQUIRED);
                     const livenessPass = depthPass || pulsePass;
 
-                    const progress = depthPass ? 1 : Math.min(1, elapsed / PULSE_ACCUMULATE_MS);
+                    const progress = depthPass ? 1
+                        : depthNull ? Math.min(1, elapsed / PULSE_ACCUMULATE_MS)
+                        : 0;
                     setProgressRing(progress, livenessPass ? 'matched' : 'verifying');
 
-                    console.log(`Liveness: depth=${face.has_depth} depth_score=${face.depth_score} has_pulse=${face.has_pulse} bpm=${face.pulse_bpm} consecutive=${pulseConsecutive} screenFlags=${screenFlagCount} → ${livenessPass ? (depthPass ? 'DEPTH_PASS' : 'PULSE_PASS') : 'accumulating'}`);
+                    console.log(`Liveness: depth=${face.has_depth} depth_score=${face.depth_score} ir_score=${face.ir_score} has_pulse=${face.has_pulse} consecutive=${pulseConsecutive} screenFlags=${screenFlagCount} → ${livenessPass ? (depthPass ? 'DEPTH+IR_PASS' : 'PULSE_PASS') : 'pending'}`);
 
                     if (livenessPass) {
                         resetLivenessState();
                         setProgressRing(1, 'matched');
                         faceCurrentMatch = { ufid: bestMatch.ufid, name: bestMatch.name, action: null };
                         enterMatchedState(bestMatch.ufid, bestMatch.name);
-                    } else if (elapsed > PULSE_TIMEOUT_MS) {
+                    } else if (depthNull && elapsed > PULSE_TIMEOUT_MS) {
                         setFaceUI('idle', 'No pulse detected — ensure good lighting');
-                    } else if (face.has_depth === null) {
+                    } else if (depthNull) {
                         setFaceUI('idle', 'Verifying pulse…');
-                    } else if (elapsed > PULSE_ACCUMULATE_MS) {
-                        setFaceUI('idle', 'Hold still — verifying…');
                     } else {
                         setFaceUI('idle', 'Verifying…');
                     }
                 }
                 // faceState === 'matched': waiting for Enter/click, no change
             } else {
-                drawFaceBox(ctx, box, false);
+                drawFaceOverlay(ctx, box, face.kps, false);
                 resetLivenessState();
                 setProgressRing(0, 'verifying');
-                if (faceState === 'matched') {
-                    enterIdleState();
-                }
+                if (faceState === 'matched') enterIdleState();
                 setFaceUI('idle', 'Face not recognized');
             }
         } else {
@@ -295,21 +320,223 @@ async function faceDetectLoop(video, canvas) {
     tick();
 }
 
-function drawFaceBox(ctx, box, matched) {
-    const { x, y, width, height } = box;
-    ctx.strokeStyle = matched ? '#34d399' : 'rgba(96,165,250,0.7)';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    const arm = Math.min(width, height) * 0.18;
-    const corners = [
-        [x+arm,y,  x,y,  x,y+arm],
-        [x+width-arm,y,  x+width,y,  x+width,y+arm],
-        [x,y+height-arm,  x,y+height,  x+arm,y+height],
-        [x+width,y+height-arm,  x+width,y+height,  x+width-arm,y+height]
-    ];
-    for (const [x1,y1,xc,yc,x2,y2] of corners) {
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xc,yc); ctx.lineTo(x2,y2); ctx.stroke();
+/**
+ * Generate 60+ estimated face landmark points from 5 InsightFace keypoints.
+ * Creates a grid mesh constrained to a face ellipse, plus anatomical estimates.
+ */
+// ── 3D Canonical Face Model ──────────────────────────────────────────────────
+// 50 points in face-local coordinates.
+// x = right, y = up, z = toward camera (positive = closer).
+// Scale: inter-ocular distance (IOD) = 1.0 unit.
+// Canonical eye positions: left_eye=(-0.5, 0.25), right_eye=(0.5, 0.25).
+const FACE3D_PTS = [
+    // Forehead top
+    [-0.52,1.12,0.08],[-0.26,1.22,0.14],[0,1.26,0.16],[0.26,1.22,0.14],[0.52,1.12,0.08],
+    // Forehead mid
+    [-0.60,0.86,0.18],[-0.30,0.96,0.24],[0,1.01,0.26],[0.30,0.96,0.24],[0.60,0.86,0.18],
+    // Brow line
+    [-0.64,0.58,0.28],[-0.36,0.68,0.36],[-0.10,0.66,0.40],[0.10,0.66,0.40],[0.36,0.68,0.36],[0.64,0.58,0.28],
+    // Eye level (eyes at ±0.50, y≈0.25)
+    [-0.74,0.28,0.28],[-0.50,0.28,0.42],[-0.24,0.26,0.44],[0.24,0.26,0.44],[0.50,0.28,0.42],[0.74,0.28,0.28],
+    // Mid-face
+    [-0.68,0.02,0.34],[-0.40,0.06,0.46],[-0.12,0.04,0.56],[0.12,0.04,0.56],[0.40,0.06,0.46],[0.68,0.02,0.34],
+    // Nose level
+    [-0.26,-0.18,0.52],[-0.08,-0.20,0.66],[0,-0.24,0.74],[0.08,-0.20,0.66],[0.26,-0.18,0.52],
+    // Upper mouth
+    [-0.48,-0.40,0.46],[-0.22,-0.38,0.56],[0,-0.42,0.60],[0.22,-0.38,0.56],[0.48,-0.40,0.46],
+    // Mouth level
+    [-0.50,-0.60,0.42],[-0.24,-0.58,0.52],[0,-0.62,0.56],[0.24,-0.58,0.52],[0.50,-0.60,0.42],
+    // Chin
+    [-0.36,-0.80,0.38],[-0.16,-0.88,0.46],[0,-0.92,0.50],[0.16,-0.88,0.46],[0.36,-0.80,0.38],
+    // Jaw sides
+    [-0.60,-0.68,0.30],[-0.72,-0.48,0.22],[-0.76,-0.24,0.18],
+    [0.76,-0.24,0.18],[0.72,-0.48,0.22],[0.60,-0.68,0.30],
+    // Cheeks
+    [-0.80,0.16,0.24],[-0.80,-0.12,0.20],[0.80,0.16,0.24],[0.80,-0.12,0.20],
+];
+
+// Sparse connection pairs (indices into FACE3D_PTS) for mesh lines
+const FACE3D_EDGES = [
+    // Forehead rows
+    [0,1],[1,2],[2,3],[3,4],[5,6],[6,7],[7,8],[8,9],
+    // Vertical forehead
+    [0,5],[1,6],[2,7],[3,8],[4,9],[5,10],[6,11],[7,12],[8,13],[9,14],[9,15],
+    // Brow row
+    [10,11],[11,12],[12,13],[13,14],[14,15],
+    // Eye row
+    [16,17],[17,18],[18,19],[19,20],[20,21],
+    // Brow to eye verticals
+    [10,16],[11,17],[12,18],[13,19],[14,20],[15,21],
+    // Mid-face row
+    [22,23],[23,24],[24,25],[25,26],[26,27],
+    [16,22],[17,23],[18,24],[19,25],[20,26],[21,27],
+    // Nose row
+    [28,29],[29,30],[30,31],[31,32],
+    [22,28],[23,29],[24,30],[25,31],[26,32],
+    // Upper mouth row
+    [33,34],[34,35],[35,36],[36,37],
+    [28,33],[29,34],[30,35],[31,36],[32,37],
+    // Mouth row
+    [38,39],[39,40],[40,41],[41,42],
+    [33,38],[34,39],[35,40],[36,41],[37,42],
+    // Chin row
+    [43,44],[44,45],[45,46],[46,47],
+    [38,43],[39,44],[40,45],[41,46],[42,47],
+    // Jaw sides
+    [48,49],[49,50],[43,48],[38,49],[16,50],
+    [51,52],[52,53],[47,51],[42,52],[21,53],
+    // Cheeks
+    [54,55],[54,22],[55,38],[56,57],[56,27],[57,42],
+];
+
+/**
+ * Project canonical 3D face onto screen using face pose estimated from 5 keypoints.
+ * Returns array of {x, y, z} screen points with depth info.
+ */
+function project3DFace(kps) {
+    const [le, re, nose, lm, rm] = kps;
+
+    // Scale from inter-ocular distance
+    const iod = Math.hypot(re[0]-le[0], re[1]-le[1]);
+    if (iod < 5) return null; // face too small
+
+    // Roll from eye line angle
+    const roll = Math.atan2(re[1]-le[1], re[0]-le[0]);
+
+    // Face origin: eye midpoint shifted down slightly toward mouth
+    const eyeMidX = (le[0]+re[0])/2, eyeMidY = (le[1]+re[1])/2;
+    const mouthMidX = (lm[0]+rm[0])/2, mouthMidY = (lm[1]+rm[1])/2;
+    const originX = eyeMidX + (mouthMidX-eyeMidX)*0.30;
+    const originY = eyeMidY + (mouthMidY-eyeMidY)*0.30;
+
+    // Yaw: nose shifts horizontally when face turns left/right
+    // Canonical nose is at x=0; deviation → yaw
+    const noseDev = (nose[0]-eyeMidX) / iod;
+    const yaw = Math.max(-1.0, Math.min(1.0, noseDev * 1.4));
+
+    // Pitch: canonical eye-to-nose vertical ≈ 0.49 × IOD
+    const noseVertDev = (nose[1]-eyeMidY) / iod;
+    const pitch = Math.max(-0.6, Math.min(0.6, (noseVertDev - 0.49) * 0.9));
+
+    const cosR = Math.cos(-roll), sinR = Math.sin(-roll);
+    const cosY = Math.cos(-yaw),  sinY = Math.sin(-yaw);
+    const cosP = Math.cos(-pitch),sinP = Math.sin(-pitch);
+
+    return FACE3D_PTS.map(([cx, cy, cz]) => {
+        // Yaw (around Y)
+        let x = cx*cosY + cz*sinY;
+        let y = cy;
+        let z = -cx*sinY + cz*cosY;
+        // Pitch (around X)
+        const py = y*cosP - z*sinP;
+        z = y*sinP + z*cosP;
+        y = py;
+        // Roll + scale → screen
+        const sx = (x*cosR - y*sinR)*iod + originX;
+        const sy = (x*sinR + y*cosR)*(-iod) + originY; // screen y flipped
+        return { x: sx, y: sy, z };
+    });
+}
+
+function drawFaceOverlay(ctx, box, kps, matched) {
+    const { x, y, width: w, height: h } = box;
+    const green = '#00ff88';
+    const blue  = '#7cc8ff';
+    const color = matched ? green : blue;
+    const glowRgb = matched ? '0,255,136' : '100,180,255';
+
+    ctx.save();
+
+    if (kps && kps.length >= 5) {
+        const pts = project3DFace(kps);
+
+        if (pts) {
+            // ── Mesh lines ──
+            ctx.strokeStyle = color;
+            ctx.lineWidth   = 0.65;
+            ctx.globalAlpha = matched ? 0.22 : 0.14;
+            ctx.beginPath();
+            for (const [a, b] of FACE3D_EDGES) {
+                if (a < pts.length && b < pts.length) {
+                    ctx.moveTo(pts[a].x, pts[a].y);
+                    ctx.lineTo(pts[b].x, pts[b].y);
+                }
+            }
+            ctx.stroke();
+
+            // ── Depth-layered dots (near = bigger & brighter) ──
+            ctx.shadowColor = `rgba(${glowRgb},0.55)`;
+            const layers = [
+                { minZ: 0.55, r: 2.4, alpha: 0.95 },
+                { minZ: 0.35, r: 1.7, alpha: 0.75 },
+                { minZ: -9,   r: 1.1, alpha: 0.45 },
+            ];
+            for (const { minZ, r, alpha } of layers) {
+                ctx.globalAlpha = (matched ? 1.0 : 0.75) * alpha;
+                ctx.shadowBlur  = r * 2.5;
+                ctx.fillStyle   = color;
+                ctx.beginPath();
+                for (const pt of pts) {
+                    if (pt.z >= minZ) { ctx.moveTo(pt.x+r, pt.y); ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); }
+                }
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+
+            // ── Scan line clipped to face bounding box ──
+            if (!matched) {
+                const scanPos = (performance.now() % 2200) / 2200;
+                const scanY   = y + scanPos * h;
+                ctx.save();
+                ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+                const scanGrad = ctx.createLinearGradient(x, 0, x+w, 0);
+                scanGrad.addColorStop(0,   'transparent');
+                scanGrad.addColorStop(0.2, `rgba(${glowRgb},0.15)`);
+                scanGrad.addColorStop(0.5, `rgba(${glowRgb},0.8)`);
+                scanGrad.addColorStop(0.8, `rgba(${glowRgb},0.15)`);
+                scanGrad.addColorStop(1,   'transparent');
+                ctx.strokeStyle = scanGrad;
+                ctx.lineWidth   = 2;
+                ctx.shadowColor = `rgba(${glowRgb},0.9)`;
+                ctx.shadowBlur  = 10;
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath(); ctx.moveTo(x, scanY); ctx.lineTo(x+w, scanY); ctx.stroke();
+                ctx.restore();
+            }
+
+            // ── 5 InsightFace keypoints — bright white anchors ──
+            ctx.globalAlpha = 1;
+            ctx.shadowColor = matched ? 'rgba(0,255,136,1)' : 'rgba(140,210,255,0.9)';
+            ctx.shadowBlur  = matched ? 20 : 14;
+            ctx.fillStyle   = matched ? '#ffffff' : '#e0f4ff';
+            ctx.beginPath();
+            for (const [kx, ky] of kps) {
+                ctx.moveTo(kx+4, ky); ctx.arc(kx, ky, 4, 0, Math.PI*2);
+            }
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
     }
+
+    // ── Corner brackets ──
+    ctx.globalAlpha = matched ? 1 : 0.85;
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = matched ? 12 : 6;
+    ctx.lineCap     = 'round';
+    const arm = Math.min(w, h) * 0.16;
+    [[x+arm,y,x,y,x,y+arm],[x+w-arm,y,x+w,y,x+w,y+arm],
+     [x,y+h-arm,x,y+h,x+arm,y+h],[x+w,y+h-arm,x+w,y+h,x+w-arm,y+h]].forEach(([x1,y1,xc,yc,x2,y2]) => {
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xc,yc); ctx.lineTo(x2,y2); ctx.stroke();
+    });
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+}
+
+function drawFaceBox(ctx, box, matched) {
+    drawFaceOverlay(ctx, box, null, matched);
 }
 
 // ---- State transitions ----
@@ -497,7 +724,6 @@ let actionBtnIcon;
 let statusMessage;
 let userHint;
 let adminLink;
-let clockElement;
 
 // Track current mode and student status
 let currentMode = 'signin'; // 'signin' or 'signout'
@@ -515,11 +741,29 @@ document.addEventListener('DOMContentLoaded', () => {
     statusMessage = document.getElementById('statusMessage');
     userHint = document.getElementById('userHint');
     adminLink = document.getElementById('adminLink');
-    clockElement = document.getElementById('clock');
+
+    // Apply saved theme
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeIcon(savedTheme);
+
+    // When face service becomes ready, refresh camera status badge
+    if (window.electronAPI.onFaceServiceReady) {
+        window.electronAPI.onFaceServiceReady(() => {
+            updateCameraTypeBadge();
+        });
+    }
+
 
     // Start clock
     updateClock();
     setInterval(updateClock, 1000);
+
+    // Theme toggle
+    setupThemeToggle();
+
+    // Load recent sign-ins
+    loadRecentSignins();
 
     // Setup UFID inputs
     setupUfidInputs();
@@ -568,16 +812,64 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================== CLOCK ====================
 
 function updateClock() {
-    if (!clockElement) return;
-
     const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    const displayMinutes = minutes.toString().padStart(2, '0');
+    const h = document.getElementById('clockHours');
+    const m = document.getElementById('clockMinutes');
+    const s = document.getElementById('clockSeconds');
+    const d = document.getElementById('clockDate');
+    const hrs = (now.getHours() % 12 || 12).toString();
+    if (h) h.textContent = hrs;
+    if (m) m.textContent = now.getMinutes().toString().padStart(2, '0');
+    if (s) s.textContent = now.getSeconds().toString().padStart(2, '0');
+    if (d) d.textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+}
 
-    clockElement.textContent = `${displayHours}:${displayMinutes} ${ampm}`;
+// ==================== THEME ====================
+
+function setupThemeToggle() {
+    const btn = document.getElementById('themeToggleBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        updateThemeIcon(next);
+    });
+}
+
+function updateThemeIcon(theme) {
+    const icon = document.querySelector('#themeToggleBtn i');
+    if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+}
+
+// ==================== RECENT SIGN-INS ====================
+
+async function loadRecentSignins() {
+    try {
+        const result = await window.electronAPI.getRecentSignins(4);
+        if (!result || !result.signins) return;
+        const list = document.getElementById('recentList');
+        if (!list) return;
+        list.innerHTML = '';
+        result.signins.forEach(s => {
+            const nameParts = (s.name || '').trim().split(' ');
+            const initials = nameParts.map(n => n[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+            const time = s.timestamp
+                ? new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+            const item = document.createElement('div');
+            item.className = 'recent-item';
+            item.innerHTML = `
+                <div class="recent-avatar">${initials}</div>
+                <div class="recent-info">
+                    <div class="recent-name">${s.name || 'Unknown'}</div>
+                    ${time ? `<div class="recent-time">${time}</div>` : ''}
+                </div>
+            `;
+            list.appendChild(item);
+        });
+    } catch (_) { /* recent sign-ins are cosmetic — silently ignore errors */ }
 }
 
 // ==================== EVENT LISTENERS ====================
@@ -1131,9 +1423,36 @@ async function showStudentSummary(ufid, action) {
         summaryDismissTimeout = setTimeout(closeSummaryModal, 12000);
 
         launchConfetti(action);
+        loadRecentSignins();
+
+        // Show Face ID setup nudge if student has no face enrolled
+        showFaceIdNudgeIfNeeded(ufid);
     } catch (e) {
         console.error('showStudentSummary error:', e);
     }
+}
+
+// ==================== FACE ID NUDGE IN SUMMARY MODAL ====================
+
+async function showFaceIdNudgeIfNeeded(ufid) {
+    const nudge = document.getElementById('summaryFaceIdNudge');
+    const btn = document.getElementById('summaryFaceIdBtn');
+    if (!nudge) return;
+    nudge.style.display = 'none';
+    try {
+        const res = await window.electronAPI.getAllFaceDescriptors();
+        const descriptors = (res?.descriptors) || [];
+        const hasEnrolled = descriptors.some(d => d.ufid === ufid);
+        if (!hasEnrolled) {
+            nudge.style.display = 'block';
+            if (btn) {
+                btn.onclick = () => {
+                    closeSummaryModal();
+                    showAdminModal();
+                };
+            }
+        }
+    } catch (_) {}
 }
 
 // ==================== STATUS MESSAGE ====================

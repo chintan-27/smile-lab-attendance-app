@@ -325,6 +325,9 @@ async function loadSectionData(sectionName) {
         case 'reports':
             await loadReports();
             break;
+        case 'faceid':
+            await loadFaceIdSection();
+            break;
         case 'settings':
             await loadSettings();
             break;
@@ -2002,6 +2005,196 @@ async function renderTimeBands({ day = new Date(), startHour = 8, endHour = 20 }
 
 
 
+
+// ==================== FACE ID SECTION ====================
+
+async function loadFaceIdSection() {
+    await refreshFaceServiceStatus();
+    await refreshFaceEnrollTable();
+
+    // Wire refresh button
+    const refreshBtn = document.getElementById('refreshFaceStatusBtn');
+    if (refreshBtn) {
+        refreshBtn.onclick = async () => {
+            refreshBtn.disabled = true;
+            await Promise.all([refreshFaceServiceStatus(), refreshFaceEnrollTable()]);
+            refreshBtn.disabled = false;
+        };
+    }
+
+    // Wire search + filter (live)
+    const searchInput = document.getElementById('faceSearchInput');
+    const filterSelect = document.getElementById('faceFilterSelect');
+    if (searchInput) searchInput.oninput = () => renderFaceTable();
+    if (filterSelect) filterSelect.onchange = () => renderFaceTable();
+}
+
+// Module-level cache for face table data
+let _faceTableStudents = [];
+let _faceTableEnrolled = new Set();
+
+async function refreshFaceServiceStatus() {
+    const dot        = document.getElementById('faceServiceDot');
+    const label      = document.getElementById('faceServiceLabel');
+    const depthLabel = document.getElementById('faceDepthLabel');
+    const depthSub   = document.getElementById('faceDepthSub');
+    const depthIcon  = document.getElementById('faceDepthIconWrap');
+    if (!dot || !label) return;
+
+    try {
+        const status = await window.electronAPI.getFaceServiceStatus();
+
+        if (status.ready) {
+            dot.style.background = '#10b981';
+            label.textContent = 'Online';
+            label.style.color = '#059669';
+        } else {
+            dot.style.background = '#f59e0b';
+            label.textContent = 'Starting…';
+            label.style.color = '#d97706';
+        }
+
+        if (depthLabel) {
+            if (status.colorFromAstra) {
+                depthLabel.textContent = 'Orbbec Astra · All Sensors';
+                depthLabel.style.color = '#059669';
+                if (depthSub) depthSub.textContent = 'Color + Depth + IR · fully aligned · instant liveness';
+                if (depthIcon) { depthIcon.style.background = 'rgba(5,150,105,0.1)'; depthIcon.querySelector('i').style.color = '#059669'; }
+            } else if (status.depthCamera) {
+                depthLabel.textContent = 'Orbbec Astra · Depth + IR';
+                depthLabel.style.color = '#059669';
+                if (depthSub) depthSub.textContent = 'Depth + IR liveness · instant · color from external camera';
+                if (depthIcon) { depthIcon.style.background = 'rgba(5,150,105,0.1)'; depthIcon.querySelector('i').style.color = '#059669'; }
+            } else if (status.ready) {
+                depthLabel.textContent = 'Standard Camera';
+                depthLabel.style.color = '#0021A5';
+                if (depthSub) depthSub.textContent = 'rPPG pulse liveness · ~3s · no depth sensor';
+                if (depthIcon) { depthIcon.style.background = 'rgba(0,33,165,0.08)'; depthIcon.querySelector('i').style.color = '#0021A5'; }
+            } else {
+                depthLabel.textContent = 'Unknown';
+                if (depthSub) depthSub.textContent = 'Service not ready';
+            }
+        }
+    } catch (_) {
+        dot.style.background = '#ef4444';
+        label.textContent = 'Offline';
+        label.style.color = '#dc2626';
+        if (depthLabel) { depthLabel.textContent = 'Unavailable'; depthLabel.style.color = '#9ca3af'; }
+    }
+}
+
+async function refreshFaceEnrollTable() {
+    const tbody = document.getElementById('faceEnrollTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:2rem;">Loading…</td></tr>';
+
+    try {
+        const [studentsRes, descriptorsRes] = await Promise.all([
+            window.electronAPI.getStudents(),
+            window.electronAPI.getAllFaceDescriptors(),
+        ]);
+
+        // getStudents() returns a plain array; getAllFaceDescriptors() returns { success, descriptors }
+        _faceTableStudents = Array.isArray(studentsRes) ? studentsRes : (studentsRes?.students || []);
+        _faceTableEnrolled = new Set((descriptorsRes?.descriptors || []).map(d => d.ufid));
+
+        // Update summary stats
+        const total    = _faceTableStudents.length;
+        const enrolled = _faceTableEnrolled.size;
+        const missing  = total - enrolled;
+        const stat = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        stat('faceStatTotal', total);
+        stat('faceStatEnrolled', enrolled);
+        stat('faceStatMissing', missing);
+
+        renderFaceTable();
+    } catch (e) {
+        const tbody = document.getElementById('faceEnrollTableBody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#ef4444;padding:2rem;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+function renderFaceTable() {
+    const tbody  = document.getElementById('faceEnrollTableBody');
+    if (!tbody) return;
+
+    const search = (document.getElementById('faceSearchInput')?.value || '').toLowerCase().trim();
+    const filter = document.getElementById('faceFilterSelect')?.value || 'all';
+
+    const filtered = _faceTableStudents.filter(s => {
+        const enrolled = _faceTableEnrolled.has(s.ufid);
+        if (filter === 'enrolled' && !enrolled) return false;
+        if (filter === 'missing'  && enrolled)  return false;
+        if (search && !s.name?.toLowerCase().includes(search) && !s.ufid?.includes(search)) return false;
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:2rem;">No students match</td></tr>';
+        return;
+    }
+
+    // Sort: not-enrolled first, then alphabetically
+    filtered.sort((a, b) => {
+        const ae = _faceTableEnrolled.has(a.ufid), be = _faceTableEnrolled.has(b.ufid);
+        if (ae !== be) return ae ? 1 : -1;
+        return (a.name || '').localeCompare(b.name || '');
+    });
+
+    tbody.innerHTML = '';
+    filtered.forEach(student => {
+        const enrolled = _faceTableEnrolled.has(student.ufid);
+        const initials = (student.name || '?').split(' ').map(n => n[0] || '').join('').slice(0, 2).toUpperCase();
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <div style="display:flex;align-items:center;gap:0.625rem;">
+                    <div style="width:32px;height:32px;border-radius:50%;background:${enrolled ? 'rgba(5,150,105,0.12)' : 'rgba(0,0,0,0.06)'};display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:${enrolled ? '#059669' : '#9ca3af'};">${initials}</div>
+                    <span style="font-weight:600;color:var(--text-color,#1a1814);">${student.name || '—'}</span>
+                </div>
+            </td>
+            <td style="font-family:monospace;font-size:0.8125rem;color:#9ca3af;">${student.ufid}</td>
+            <td>
+                <span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.25rem 0.75rem;border-radius:20px;font-size:0.6875rem;font-weight:600;letter-spacing:0.02em;background:${enrolled ? 'rgba(5,150,105,0.1)' : 'rgba(245,158,11,0.1)'};color:${enrolled ? '#059669' : '#d97706'};">
+                    <span style="width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0;"></span>
+                    ${enrolled ? 'Enrolled' : 'Not enrolled'}
+                </span>
+            </td>
+            <td style="text-align:right;">
+                <div style="display:inline-flex;gap:0.5rem;">
+                    <button class="btn btn-sm face-enroll-btn" data-ufid="${student.ufid}" data-name="${student.name || ''}"
+                        style="background:${enrolled ? 'transparent' : '#0021A5'};color:${enrolled ? '#0021A5' : '#fff'};border:1px solid ${enrolled ? 'rgba(0,33,165,0.25)' : 'transparent'};">
+                        <i class="fas fa-${enrolled ? 'rotate-right' : 'fingerprint'}"></i>
+                        ${enrolled ? 'Re-enroll' : 'Enroll'}
+                    </button>
+                    ${enrolled ? `<button class="btn btn-sm face-clear-btn" data-ufid="${student.ufid}" data-name="${student.name || ''}"
+                        style="background:transparent;color:#ef4444;border:1px solid rgba(220,38,38,0.25);">
+                        <i class="fas fa-trash-can"></i>
+                    </button>` : ''}
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Wire buttons
+    tbody.querySelectorAll('.face-enroll-btn').forEach(btn => {
+        btn.addEventListener('click', () => openFaceEnrollModal(btn.dataset.ufid, btn.dataset.name));
+    });
+    tbody.querySelectorAll('.face-clear-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm(`Remove Face ID for ${btn.dataset.name}?`)) return;
+            await window.electronAPI.clearFaceDescriptor(btn.dataset.ufid);
+            showNotification(`Face ID removed for ${btn.dataset.name}`, 'info');
+            _faceTableEnrolled.delete(btn.dataset.ufid);
+            const enrolled = _faceTableEnrolled.size;
+            const stat = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+            stat('faceStatEnrolled', enrolled);
+            stat('faceStatMissing', _faceTableStudents.length - enrolled);
+            renderFaceTable();
+        });
+    });
+}
 
 // Settings Management
 async function loadSettings() {
@@ -4245,6 +4438,65 @@ if (typeof module !== 'undefined' && module.exports) {
 // Uses InsightFace ArcFace via Python IPC for embeddings.
 // 3-pose capture: center, slight left, slight right. Single embedding per pose.
 
+// ── 3D face model (shared with index.js for the overlay renderer) ──────────
+const FACE3D_PTS = [
+    [-0.52,1.12,0.08],[-0.26,1.22,0.14],[0,1.26,0.16],[0.26,1.22,0.14],[0.52,1.12,0.08],
+    [-0.60,0.86,0.18],[-0.30,0.96,0.24],[0,1.01,0.26],[0.30,0.96,0.24],[0.60,0.86,0.18],
+    [-0.64,0.58,0.28],[-0.36,0.68,0.36],[-0.10,0.66,0.40],[0.10,0.66,0.40],[0.36,0.68,0.36],[0.64,0.58,0.28],
+    [-0.74,0.28,0.28],[-0.50,0.28,0.42],[-0.24,0.26,0.44],[0.24,0.26,0.44],[0.50,0.28,0.42],[0.74,0.28,0.28],
+    [-0.68,0.02,0.34],[-0.40,0.06,0.46],[-0.12,0.04,0.56],[0.12,0.04,0.56],[0.40,0.06,0.46],[0.68,0.02,0.34],
+    [-0.26,-0.18,0.52],[-0.08,-0.20,0.66],[0,-0.24,0.74],[0.08,-0.20,0.66],[0.26,-0.18,0.52],
+    [-0.48,-0.40,0.46],[-0.22,-0.38,0.56],[0,-0.42,0.60],[0.22,-0.38,0.56],[0.48,-0.40,0.46],
+    [-0.50,-0.60,0.42],[-0.24,-0.58,0.52],[0,-0.62,0.56],[0.24,-0.58,0.52],[0.50,-0.60,0.42],
+    [-0.36,-0.80,0.38],[-0.16,-0.88,0.46],[0,-0.92,0.50],[0.16,-0.88,0.46],[0.36,-0.80,0.38],
+    [-0.60,-0.68,0.30],[-0.72,-0.48,0.22],[-0.76,-0.24,0.18],
+    [0.76,-0.24,0.18],[0.72,-0.48,0.22],[0.60,-0.68,0.30],
+    [-0.80,0.16,0.24],[-0.80,-0.12,0.20],[0.80,0.16,0.24],[0.80,-0.12,0.20],
+];
+const FACE3D_EDGES = [
+    [0,1],[1,2],[2,3],[3,4],[5,6],[6,7],[7,8],[8,9],
+    [0,5],[1,6],[2,7],[3,8],[4,9],[5,10],[6,11],[7,12],[8,13],[9,14],[9,15],
+    [10,11],[11,12],[12,13],[13,14],[14,15],
+    [16,17],[17,18],[18,19],[19,20],[20,21],
+    [10,16],[11,17],[12,18],[13,19],[14,20],[15,21],
+    [22,23],[23,24],[24,25],[25,26],[26,27],
+    [16,22],[17,23],[18,24],[19,25],[20,26],[21,27],
+    [28,29],[29,30],[30,31],[31,32],
+    [22,28],[23,29],[24,30],[25,31],[26,32],
+    [33,34],[34,35],[35,36],[36,37],
+    [28,33],[29,34],[30,35],[31,36],[32,37],
+    [38,39],[39,40],[40,41],[41,42],
+    [33,38],[34,39],[35,40],[36,41],[37,42],
+    [43,44],[44,45],[45,46],[46,47],
+    [38,43],[39,44],[40,45],[41,46],[42,47],
+    [48,49],[49,50],[43,48],[38,49],[16,50],
+    [51,52],[52,53],[47,51],[42,52],[21,53],
+    [54,55],[54,22],[55,38],[56,57],[56,27],[57,42],
+];
+
+function project3DFace(kps) {
+    const [le,re,nose,lm,rm]=kps;
+    const iod=Math.hypot(re[0]-le[0],re[1]-le[1]);
+    if(iod<5)return null;
+    const roll=Math.atan2(re[1]-le[1],re[0]-le[0]);
+    const eyeMidX=(le[0]+re[0])/2,eyeMidY=(le[1]+re[1])/2;
+    const mouthMidX=(lm[0]+rm[0])/2,mouthMidY=(lm[1]+rm[1])/2;
+    const originX=eyeMidX+(mouthMidX-eyeMidX)*0.30;
+    const originY=eyeMidY+(mouthMidY-eyeMidY)*0.30;
+    const noseDev=(nose[0]-eyeMidX)/iod;
+    const yaw=Math.max(-1.0,Math.min(1.0,noseDev*1.4));
+    const noseVertDev=(nose[1]-eyeMidY)/iod;
+    const pitch=Math.max(-0.6,Math.min(0.6,(noseVertDev-0.49)*0.9));
+    const cosR=Math.cos(-roll),sinR=Math.sin(-roll);
+    const cosY=Math.cos(-yaw),sinY=Math.sin(-yaw);
+    const cosP=Math.cos(-pitch),sinP=Math.sin(-pitch);
+    return FACE3D_PTS.map(([cx,cy,cz])=>{
+        let x=cx*cosY+cz*sinY,y=cy,z=-cx*sinY+cz*cosY;
+        const py=y*cosP-z*sinP;z=y*sinP+z*cosP;y=py;
+        return{x:(x*cosR-y*sinR)*iod+originX,y:(x*sinR+y*cosR)*(-iod)+originY,z};
+    });
+}
+
 let enrollStream    = null;
 let enrollAnimFrame = null;
 
@@ -4323,6 +4575,7 @@ async function startEnrollCamera(ufid, name) {
             video: { facingMode: 'user', width: 640, height: 480 }
         });
         video.srcObject = enrollStream;
+        video.style.display = 'block';
         await new Promise(res => { video.onloadedmetadata = res; });
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -4396,18 +4649,64 @@ function updateEnrollRing(count) {
     if (cnt) cnt.textContent = `${count} / ${ENROLL_SAMPLE_COUNT}`;
 }
 
-function drawEnrollBox(ctx, x, y, w, h, color) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 2.5;
-    ctx.lineCap     = 'round';
-    const br = Math.min(w, h) * 0.18;
-    const corners = [
-        [x+br,y, x,y, x,y+br], [x+w-br,y, x+w,y, x+w,y+br],
-        [x,y+h-br, x,y+h, x+br,y+h], [x+w,y+h-br, x+w,y+h, x+w-br,y+h]
-    ];
-    for (const [x1,y1,xc,yc,x2,y2] of corners) {
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xc,yc); ctx.lineTo(x2,y2); ctx.stroke();
+function drawEnrollBox(ctx, x, y, w, h, color, kps) {
+    const matched = color === '#34d399';
+    const glowRgb = matched ? '0,255,136' : '100,180,255';
+    ctx.save();
+
+    if (kps && kps.length >= 5) {
+        const pts = project3DFace(kps);
+        if (pts) {
+            // 3D mesh lines
+            ctx.strokeStyle=color; ctx.lineWidth=0.65;
+            ctx.globalAlpha=matched?0.22:0.14; ctx.beginPath();
+            for(const [a,b] of FACE3D_EDGES){
+                if(a<pts.length&&b<pts.length){ctx.moveTo(pts[a].x,pts[a].y);ctx.lineTo(pts[b].x,pts[b].y);}
+            }
+            ctx.stroke();
+
+            // Depth-layered dots
+            ctx.shadowColor=`rgba(${glowRgb},0.55)`;
+            [[0.55,2.4,0.95],[0.35,1.7,0.75],[-9,1.1,0.45]].forEach(([minZ,r,alpha])=>{
+                ctx.globalAlpha=(matched?1.0:0.75)*alpha; ctx.shadowBlur=r*2.5;
+                ctx.fillStyle=color; ctx.beginPath();
+                pts.forEach(p=>{if(p.z>=minZ){ctx.moveTo(p.x+r,p.y);ctx.arc(p.x,p.y,r,0,Math.PI*2);}});
+                ctx.fill();
+            });
+            ctx.shadowBlur=0;
+
+            // Scan line on face (only while scanning, not when matched)
+            if (!matched) {
+                const scanPos=(performance.now()%2200)/2200;
+                const scanY=y+scanPos*h;
+                ctx.save();
+                ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+                const g=ctx.createLinearGradient(x,0,x+w,0);
+                g.addColorStop(0,'transparent');g.addColorStop(0.2,`rgba(${glowRgb},0.15)`);
+                g.addColorStop(0.5,`rgba(${glowRgb},0.8)`);g.addColorStop(0.8,`rgba(${glowRgb},0.15)`);g.addColorStop(1,'transparent');
+                ctx.strokeStyle=g;ctx.lineWidth=2;ctx.shadowColor=`rgba(${glowRgb},0.9)`;ctx.shadowBlur=10;
+                ctx.globalAlpha=0.7;ctx.beginPath();ctx.moveTo(x,scanY);ctx.lineTo(x+w,scanY);ctx.stroke();
+                ctx.restore();
+            }
+
+            // 5 keypoint anchors
+            ctx.globalAlpha=1;ctx.shadowColor=matched?'rgba(0,255,136,1)':'rgba(140,210,255,0.9)';
+            ctx.shadowBlur=matched?20:14;ctx.fillStyle=matched?'#ffffff':'#e0f4ff';ctx.beginPath();
+            kps.forEach(([kx,ky])=>{ctx.moveTo(kx+4,ky);ctx.arc(kx,ky,4,0,Math.PI*2);});
+            ctx.fill();ctx.shadowBlur=0;
+        }
     }
+
+    // Corner brackets
+    ctx.globalAlpha=matched?1:0.85;ctx.strokeStyle=color;ctx.lineWidth=2.5;
+    ctx.shadowColor=color;ctx.shadowBlur=matched?12:6;ctx.lineCap='round';
+    const arm=Math.min(w,h)*0.16;
+    [[x+arm,y,x,y,x,y+arm],[x+w-arm,y,x+w,y,x+w,y+arm],
+     [x,y+h-arm,x,y+h,x+arm,y+h],[x+w,y+h-arm,x+w,y+h,x+w-arm,y+h]].forEach(([x1,y1,xc,yc,x2,y2])=>{
+        ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(xc,yc);ctx.lineTo(x2,y2);ctx.stroke();
+    });
+    ctx.shadowBlur=0;ctx.globalAlpha=1;
+    ctx.restore();
 }
 
 function runEnrollDetectionLoop(video, canvas, ufid, name) {
@@ -4452,14 +4751,14 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
 
             // Quality gates
             if (face.det_score < ENROLL_MIN_DET_SCORE) {
-                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, "#f87171", face.kps);
                 setEnrollStatus('error', 'Move closer — face too small or blurry');
                 hasFace = false; poseOkStart = 0;
                 if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
                 return;
             }
             if (faceW < ENROLL_MIN_FACE_SIZE) {
-                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#f87171');
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, "#f87171", face.kps);
                 setEnrollStatus('error', 'Move closer to the camera');
                 hasFace = false; poseOkStart = 0;
                 if (active) enrollAnimFrame = requestAnimationFrame(() => setTimeout(detect, 300));
@@ -4472,7 +4771,7 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
 
             if (poseCorrect) {
                 drawEnrollBox(ctx, x1, y1, faceW, y2 - y1,
-                    samples.length >= ENROLL_SAMPLE_COUNT ? '#34d399' : '#60a5fa');
+                    samples.length >= ENROLL_SAMPLE_COUNT ? '#34d399' : '#00ff88', face.kps);
 
                 if (!hasFace || poseOkStart === 0) {
                     hasFace = true; poseOkStart = Date.now();
@@ -4541,7 +4840,7 @@ function runEnrollDetectionLoop(video, canvas, ufid, name) {
                 }
             } else {
                 // Wrong pose — show guidance
-                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, '#fbbf24');
+                drawEnrollBox(ctx, x1, y1, faceW, y2 - y1, "#fbbf24", face.kps);
                 poseOkStart = 0;
                 setEnrollStatus('scanning', pose.label);
             }
@@ -4572,9 +4871,10 @@ function closeEnrollModal() {
     }
     const modal = document.getElementById('faceEnrollModal');
     if (modal) modal.style.display = 'none';
-    // Clear video
     const video = document.getElementById('enrollVideo');
-    if (video) video.srcObject = null;
+    if (video) { video.srcObject = null; video.style.display = 'block'; }
     const canvas = document.getElementById('enrollCanvas');
     if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); }
+    // After enrollment, refresh the Face ID table if it's the active section
+    if (typeof refreshFaceEnrollTable === 'function') refreshFaceEnrollTable().catch(() => {});
 }

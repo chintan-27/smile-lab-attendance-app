@@ -363,9 +363,17 @@ app.whenReady().then(async () => {
   // Start InsightFace Python service (non-blocking — app works without it until first frame)
   faceService.start().then(() => {
     dataManager.logger.info('system', 'Face recognition service ready', 'system');
+    // Notify renderer that face service is up (for camera status badge)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('face-service-ready');
+    }
   }).catch((err) => {
     dataManager.logger.error('system', `Face service failed to start: ${err.message}`, 'system');
   });
+
+  // Show window immediately — cron job setup and Dropbox sync happen in background
+  createWindow();
+  initAutoUpdate();
 
   let backupJobStarted = false;
   let dailySummaryJobStarted = false;
@@ -734,14 +742,15 @@ app.whenReady().then(async () => {
     // One immediate sync respecting mode:
     // - masterMode true  => pull
     // - masterMode false => push
-    await safeSyncByMode('startup-sync');
+    // Fire-and-forget — don't block window display
+    safeSyncByMode('startup-sync').catch(e =>
+      dataManager.logger.warning('dropbox', `startup sync error: ${e.message}`, 'system')
+    );
 
     // Periodic job (minutes, not seconds)
     const mins = Math.max(2, parseInt(cfg.dropbox.syncIntervalMinutes || 10, 10));
     syncTimer = setInterval(() => safeSyncByMode('interval-sync'), mins * 60 * 1000);
   }
-  createWindow();
-  initAutoUpdate();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -2185,6 +2194,29 @@ ipcMain.handle('backup-data', async (event) => {
   } catch (error) {
     dataManager.logger.error('backup', `Backup data error: ${error.message}`, 'admin');
     return { success: false, error: error.message };
+  }
+});
+
+// Face service + camera status (for Face ID admin tab and camera badge)
+ipcMain.handle('get-face-service-status', async () => {
+  try {
+    const serviceReady = faceService.ready;
+    const cam = serviceReady
+      ? await faceService.cameraStatus().catch(() => ({ depth_available: false, color_from_astra: false }))
+      : { depth_available: false, color_from_astra: false };
+    return { ready: serviceReady, depthCamera: cam.depth_available, colorFromAstra: cam.color_from_astra };
+  } catch (_) {
+    return { ready: false, depthCamera: false, colorFromAstra: false };
+  }
+});
+
+// Recent sign-ins for left panel ticker
+ipcMain.handle('get-recent-signins', async (event, count = 4) => {
+  try {
+    const signins = dataManager.getRecentSignins(count);
+    return { success: true, signins };
+  } catch (e) {
+    return { success: false, signins: [] };
   }
 });
 

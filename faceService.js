@@ -1,14 +1,12 @@
 /**
  * faceService.js
- * Manages the InsightFace Python subprocess and provides a simple HTTP client.
- * Usage:
- *   const faceService = require('./faceService');
- *   await faceService.start();
- *   const result = await faceService.analyze(base64jpeg);  // { face: {...} | null }
- *   faceService.stop();
+ * Manages the InsightFace Python subprocess with automatic environment setup.
+ * On first run: finds the best available Python (>=3.9 preferred), creates a
+ * .venv, installs requirements, and optionally installs orbbec-astra-raw for
+ * depth+IR liveness if Python >=3.9 is available.
  */
 
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const http = require('http');
 const path = require('path');
 const fs   = require('fs');
@@ -20,64 +18,188 @@ class FaceService {
         this._ready = false;
     }
 
-    _findPython() {
-        // In packaged app, use bundled binary
+    // ── Environment setup ────────────────────────────────────────────────────
+
+    /**
+     * Find the best available Python executable.
+     * Prefers Python 3.9 (needed for orbbec-astra-raw), then newer versions,
+     * then any Python 3.x as a last resort.
+     */
+    _findBestPython() {
+        // Ordered preference: 3.9 first (orbbec-astra-raw compat), then newer
+        const candidates = [
+            'python3.9', 'python3.10', 'python3.11', 'python3.12', 'python3.13',
+            // Common full paths (Homebrew, pyenv, system)
+            '/opt/homebrew/bin/python3.9',
+            '/opt/homebrew/bin/python3.10',
+            '/opt/homebrew/bin/python3.11',
+            '/opt/homebrew/bin/python3.12',
+            '/usr/local/bin/python3.9',
+            '/usr/local/bin/python3.10',
+            '/usr/local/bin/python3.11',
+            // Generic fallbacks
+            'python3', 'python',
+        ];
+
+        for (const py of candidates) {
+            const r = spawnSync(py, ['--version'], { encoding: 'utf8', timeout: 3000 });
+            if (r.status === 0) {
+                const ver = (r.stdout || r.stderr || '').trim();
+                console.log(`[FaceService] found ${py}: ${ver}`);
+                return { exe: py, version: ver };
+            }
+        }
+
+        console.warn('[FaceService] no Python found — face service unavailable');
+        return null;
+    }
+
+    /**
+     * Check if a Python executable can import the given modules.
+     */
+    _canImport(pythonExe, modules) {
+        return new Promise((resolve) => {
+            const code = modules.map(m => `import ${m}`).join('; ');
+            const proc = spawn(pythonExe, ['-c', code], { stdio: 'pipe' });
+            const timer = setTimeout(() => { proc.kill(); resolve(false); }, 10_000);
+            proc.on('close', (c) => { clearTimeout(timer); resolve(c === 0); });
+            proc.on('error', () => { clearTimeout(timer); resolve(false); });
+        });
+    }
+
+    /**
+     * Run a subprocess and stream its output to the console.
+     */
+    _runSetupStep(exe, args, label) {
+        return new Promise((resolve, reject) => {
+            console.log(`[FaceService:setup] ${label}...`);
+            const proc = spawn(exe, args, { stdio: 'pipe' });
+            proc.stdout.on('data', d => {
+                d.toString().split('\n').forEach(l => { if (l.trim()) console.log(`[FaceService:setup] ${l.trim()}`); });
+            });
+            proc.stderr.on('data', d => {
+                d.toString().split('\n').forEach(l => {
+                    const line = l.trim();
+                    if (line && !/WARNING|DEPRECATION|warning/i.test(line)) {
+                        console.log(`[FaceService:setup] ${line}`);
+                    }
+                });
+            });
+            proc.on('error', (e) => reject(new Error(`${label}: ${e.message}`)));
+            proc.on('close', (code) => {
+                if (code === 0) { console.log(`[FaceService:setup] ${label} done`); resolve(); }
+                else reject(new Error(`${label} exited with code ${code}`));
+            });
+        });
+    }
+
+    /**
+     * Ensure a project-local .venv exists with all required packages.
+     * Returns the path to the venv's Python executable.
+     * Safe to call on every startup — skips setup if already complete.
+     */
+    async _ensureVenv() {
+        const venvDir = path.join(__dirname, '.venv');
+        const venvPython = process.platform === 'win32'
+            ? path.join(venvDir, 'Scripts', 'python.exe')
+            : path.join(venvDir, 'bin', 'python3');
+        const reqFile = path.join(__dirname, 'face_service', 'requirements.txt');
+
+        // Fast path: venv exists and has all core packages
+        if (fs.existsSync(venvPython)) {
+            const ok = await this._canImport(venvPython, ['insightface', 'fastapi', 'uvicorn', 'cv2', 'scipy']);
+            if (ok) {
+                console.log('[FaceService] .venv ready (skipping setup)');
+                return venvPython;
+            }
+            console.log('[FaceService] .venv exists but missing packages — reinstalling');
+        }
+
+        // Find the best system Python for creating the venv
+        const bestPy = this._findBestPython();
+        if (!bestPy) throw new Error('No Python installation found. Please install Python 3.9+ from python.org');
+
+        const { exe: pyExe, version: pyVer } = bestPy;
+        const pyMinor = parseInt((pyVer.match(/Python \d+\.(\d+)/) || [])[1] || '0', 10);
+        console.log(`[FaceService] creating environment with ${pyExe} (${pyVer})`);
+
+        // Create venv
+        if (!fs.existsSync(venvPython)) {
+            await this._runSetupStep(pyExe, ['-m', 'venv', venvDir], 'creating .venv');
+        }
+
+        // Upgrade pip silently
+        await this._runSetupStep(venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'],
+            'upgrading pip');
+
+        // Install base requirements
+        await this._runSetupStep(
+            venvPython, ['-m', 'pip', 'install', '--quiet', '-r', reqFile],
+            'installing requirements (first run may take a few minutes)'
+        );
+
+        // Try orbbec-astra-raw 0.2.0+ — requires Python 3.9+, adds color stream API
+        if (pyMinor >= 9) {
+            try {
+                await this._runSetupStep(
+                    venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw>=0.2.0'],
+                    'installing orbbec-astra-raw 0.2.0 (Astra depth+IR+color)'
+                );
+            } catch (e) {
+                console.log('[FaceService] orbbec-astra-raw not available — depth liveness disabled (standard camera will be used)');
+            }
+        } else {
+            console.log(`[FaceService] Python ${pyVer} < 3.9 — skipping orbbec-astra-raw (needs 3.9+)`);
+        }
+
+        return venvPython;
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    /**
+     * Start the face service. Auto-provisions a .venv with all requirements
+     * on first run. Resolves when the Python service prints "READY:<port>".
+     * @param {string} [pythonOverride]  Force a specific Python executable.
+     * @param {string} [modelDir]        InsightFace model cache dir override.
+     */
+    async start(pythonOverride = undefined, modelDir = undefined) {
+        // Bundled binary: packaged Electron app
         const isPackaged = typeof process !== 'undefined' && process.resourcesPath
             && !process.resourcesPath.includes('node_modules');
         if (isPackaged) {
             const bundled = path.join(process.resourcesPath, 'face_service_dist', 'face_service', 'face_service');
             if (fs.existsSync(bundled)) {
-                return { exe: bundled, args: [], bundled: true };
+                return this._spawnService(bundled, modelDir ? [modelDir] : [], true);
             }
         }
 
-        // Project-local .venv takes highest priority (avoids Anaconda conflicts)
-        const venvPython = process.platform === 'win32'
-            ? path.join(__dirname, '.venv', 'Scripts', 'python.exe')
-            : path.join(__dirname, '.venv', 'bin', 'python3');
-        if (fs.existsSync(venvPython)) {
-            console.log(`[FaceService] using local venv: ${venvPython}`);
-            return { exe: venvPython, args: [], bundled: false };
-        }
-
-        // Dev mode: prefer python with Orbbec SDK (either v2 or v1)
-        for (const py of ['python3.11', 'python3', 'python']) {
-            for (const mod of ['pyorbbecsdk2', 'pyorbbecsdk']) {
-                try {
-                    execSync(`${py} -c "import ${mod}"`, { stdio: 'ignore' });
-                    return { exe: py, args: [], bundled: false };
-                } catch (_) { /* try next */ }
-            }
-        }
-        // Last resort: use whichever python is available
-        for (const py of ['python3.11', 'python3', 'python']) {
+        // Dev mode: auto-provision .venv
+        let exe;
+        if (pythonOverride) {
+            exe = pythonOverride;
+        } else {
             try {
-                execSync(`${py} --version`, { stdio: 'ignore' });
-                return { exe: py, args: [], bundled: false };
-            } catch (_) { /* try next */ }
+                exe = await this._ensureVenv();
+            } catch (err) {
+                console.error('[FaceService] environment setup failed:', err.message);
+                // Fall back to best available system Python
+                const fallback = this._findBestPython();
+                exe = fallback ? fallback.exe : 'python3';
+                console.log(`[FaceService] falling back to system ${exe}`);
+            }
         }
-        return { exe: 'python3', args: [], bundled: false };
+
+        const script = path.join(__dirname, 'face_service', 'face_service.py');
+        const args = modelDir ? [script, modelDir] : [script];
+        return this._spawnService(exe, args, false);
     }
 
     /**
-     * Spawn the Python service.  Resolves when the process prints "READY:<port>".
-     * @param {string} [python]    Python executable name / path (auto-detected if omitted).
-     * @param {string} [modelDir]  Optional override for InsightFace model cache dir.
-     * @returns {Promise<void>}
+     * Spawn the Python process and wait for the READY signal.
      */
-    start(python = undefined, modelDir = undefined) {
+    _spawnService(exe, spawnArgs, isBundled) {
         return new Promise((resolve, reject) => {
-            const detected = this._findPython();
-            const exe = python || detected.exe;
-
-            let spawnArgs;
-            if (detected.bundled) {
-                spawnArgs = modelDir ? [modelDir] : [];
-            } else {
-                const script = path.join(__dirname, 'face_service', 'face_service.py');
-                spawnArgs = modelDir ? [script, modelDir] : [script];
-            }
-
             console.log(`[FaceService] starting: ${exe} ${spawnArgs.join(' ')}`);
 
             this._proc = spawn(exe, spawnArgs, {
@@ -96,7 +218,6 @@ class FaceService {
                     console.log(`[FaceService] ready on port ${this._port}`);
                     resolve();
                 }
-                // Forward all stdout lines (depth/rPPG diagnostics)
                 chunk.toString().split('\n').forEach(line => {
                     const l = line.trim();
                     if (l && !l.startsWith('READY:') && !/INFO|WARNING|UserWarning|warn|albumentations/.test(l)) {
@@ -107,14 +228,13 @@ class FaceService {
 
             this._proc.stderr.on('data', (chunk) => {
                 const msg = chunk.toString();
-                // Suppress expected noise; log actual errors
                 if (!/INFO|WARNING|UserWarning|warn|albumentations/.test(msg)) {
                     console.error('[FaceService]', msg.trim());
                 }
             });
 
             this._proc.on('error', (err) => {
-                reject(new Error(`Failed to start face service (is python3 installed?): ${err.message}`));
+                reject(new Error(`Failed to start face service: ${err.message}`));
             });
 
             this._proc.on('exit', (code) => {
@@ -124,36 +244,40 @@ class FaceService {
                 }
             });
 
-            // 90-second timeout — first run downloads InsightFace models (~50 MB)
+            // 90s timeout — first run downloads InsightFace models (~50 MB)
             const timer = setTimeout(() => {
                 if (!this._ready) reject(new Error('Face service startup timed out'));
             }, 90_000);
-
-            // Don't hold the Node process open waiting for the timer
             if (timer.unref) timer.unref();
         });
     }
 
-    /**
-     * Detect the largest face in a JPEG frame.
-     * @param {string} base64jpeg  Base64-encoded JPEG (no data-URI prefix).
-     * @returns {Promise<{ face: object|null, error?: string }>}
-     */
+    // ── Public API ───────────────────────────────────────────────────────────
+
     analyze(base64jpeg) {
         if (!this._ready) return Promise.reject(new Error('Face service not ready'));
         return this._post('/analyze', { image: base64jpeg });
     }
 
-    /** Clear the temporal liveness buffer in the Python service. */
     resetLiveness() {
         if (!this._ready) return Promise.resolve({ ok: true });
         return this._post('/reset-liveness', {});
     }
 
-    /** @returns {Promise<{ ok: boolean }>} */
     health() {
-        if (!this._ready) return Promise.reject(new Error('Face service not ready'));
+        if (!this._ready) return Promise.resolve({ ok: false, ready: false });
         return this._get('/health');
+    }
+
+    depthStatus() {
+        if (!this._ready) return Promise.resolve({ available: false });
+        return this._get('/depth-status');
+    }
+
+    /** Full camera status: depth_available + color_from_astra */
+    cameraStatus() {
+        if (!this._ready) return Promise.resolve({ depth_available: false, color_from_astra: false });
+        return this._get('/camera-status');
     }
 
     stop() {
@@ -167,7 +291,7 @@ class FaceService {
 
     get ready() { return this._ready; }
 
-    // ---- private helpers ----
+    // ── HTTP helpers ─────────────────────────────────────────────────────────
 
     _post(urlPath, body) {
         return new Promise((resolve, reject) => {
@@ -177,18 +301,12 @@ class FaceService {
                 port:     this._port,
                 path:     urlPath,
                 method:   'POST',
-                headers:  {
-                    'Content-Type':   'application/json',
-                    'Content-Length': Buffer.byteLength(payload),
-                },
+                headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
             };
             const req = http.request(options, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
-                res.on('end',  () => {
-                    try   { resolve(JSON.parse(data)); }
-                    catch (e) { reject(e); }
-                });
+                res.on('end',  () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
             });
             req.on('error', reject);
             req.setTimeout(6_000, () => { req.destroy(); reject(new Error('Face service request timed out')); });
@@ -202,10 +320,7 @@ class FaceService {
             http.get({ hostname: '127.0.0.1', port: this._port, path: urlPath }, (res) => {
                 let data = '';
                 res.on('data', (c) => { data += c; });
-                res.on('end',  () => {
-                    try   { resolve(JSON.parse(data)); }
-                    catch (e) { reject(e); }
-                });
+                res.on('end',  () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
             }).on('error', reject);
         });
     }

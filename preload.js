@@ -106,6 +106,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Backup
   backupData: () => ipcRenderer.invoke('backup-data'),
 
+  // Recent sign-ins (for left panel ticker)
+  getRecentSignins: (count) => ipcRenderer.invoke('get-recent-signins', count),
+
+  // Face service + camera status
+  getFaceServiceStatus: () => ipcRenderer.invoke('get-face-service-status'),
+
+  // Renderer events from main process
+  onFaceServiceReady: (cb) => ipcRenderer.on('face-service-ready', cb),
+
   // Face ID
   faceProcessFrame: (base64jpeg) => ipcRenderer.invoke('face-process-frame', base64jpeg),
   faceResetLiveness: () => ipcRenderer.invoke('face-reset-liveness'),

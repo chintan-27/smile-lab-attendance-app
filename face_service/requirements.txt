@@ -5,4 +5,4 @@ numpy>=1.24.0
 opencv-python-headless>=4.8.0
 onnxruntime>=1.16.0
 scipy>=1.11.0
-# pyorbbecsdk>=1.3.0  # install manually from Orbbec SDK wheel if depth camera needed
+# orbbec-astra-raw is installed automatically by faceService.js if Python >=3.9 is available
