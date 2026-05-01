@@ -158,9 +158,8 @@ CLAUDE.md
 
 CLAUDE_CONTEXT.md
 
-# ML models (large binaries — downloaded at setup time)
-models/*.onnx
-models/*.task
+# ML models (large binaries — downloaded at setup time, not committed)
+models/
 inspo
 
 # App runtime logs
