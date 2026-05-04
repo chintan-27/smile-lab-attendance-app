@@ -78,7 +78,7 @@
         /* Smooth theme toggle */
         .right-panel, .left-panel,
         .ufid-digit, .action-btn, .camera-status-pill,
-        .face-dormant-circle, .face-blink-indicator,
+        .face-dormant-btn, .face-blink-indicator,
         .face-name-badge, .face-confirm-prompt, .face-cancel-btn,
         .summary-card, .summary-body, .summary-stat, .summary-pending,
         .admin-modal-content, .admin-password-input,
@@ -483,25 +483,30 @@
             transition: opacity 0.35s ease;
         }
 
-        .face-dormant-circle {
-            width: 280px;
-            height: 280px;
-            border-radius: 50%;
-            border: 2px solid var(--accent-dim);
+        .face-dormant-btn {
+            width: 100%;
+            height: 56px;
+            background: var(--accent);
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            cursor: pointer;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 0.75rem;
-            font-size: 3.5rem;
-            color: var(--accent);
-            background: var(--surface2);
-            opacity: 0.85;
-            transition: opacity 0.3s, border-color 0.3s;
+            gap: 0.625rem;
+            box-shadow: 0 2px 12px var(--accent-glow);
+            transition: all 0.2s;
         }
-        .face-dormant-circle:hover {
-            opacity: 1;
-            border-color: var(--accent);
+        .face-dormant-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px var(--accent-glow);
+            filter: brightness(1.08);
+        }
+        .face-dormant-btn i {
+            font-size: 1.125rem;
         }
 
         .face-blink-indicator {
@@ -1499,7 +1504,7 @@
             .left-bottom { display: none; }
             .right-content { min-height: auto; padding: 2rem 1.25rem; }
             .face-viewport { width: 240px; height: 240px; }
-            .face-dormant-circle { width: 240px; height: 240px; }
+            .face-dormant-btn { height: 48px; font-size: 0.875rem; }
         }
 
         @media (max-width: 480px) {
@@ -1613,13 +1618,13 @@
 
                         <!-- Dormant screensaver -->
                         <div id="faceDormant">
-                            <div class="face-dormant-circle">
-                                <i class="fas fa-face-smile"></i>
-                                <span style="font-size:0.8125rem;font-weight:600;color:var(--t2);letter-spacing:0.02em;">Step closer to sign in</span>
+                            <div class="face-dormant-btn">
+                                <i class="fas fa-camera"></i>
+                                <span>Sign In with Camera</span>
                             </div>
                             <div class="face-blink-indicator">
                                 <span class="face-blink-indicator-dot"></span>
-                                Camera ready
+                                Camera ready — step closer to activate
                             </div>
                         </div>
 
