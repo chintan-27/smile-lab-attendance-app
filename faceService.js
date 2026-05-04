@@ -26,27 +26,50 @@ class FaceService {
      * then any Python 3.x as a last resort.
      */
     _findBestPython() {
-        // Ordered preference: 3.9 first (orbbec-astra-raw compat), then newer
-        const candidates = [
-            'python3.9', 'python3.10', 'python3.11', 'python3.12', 'python3.13',
-            // Common full paths (Homebrew, pyenv, system)
-            '/opt/homebrew/bin/python3.9',
-            '/opt/homebrew/bin/python3.10',
-            '/opt/homebrew/bin/python3.11',
-            '/opt/homebrew/bin/python3.12',
-            '/usr/local/bin/python3.9',
-            '/usr/local/bin/python3.10',
-            '/usr/local/bin/python3.11',
-            // Generic fallbacks
-            'python3', 'python',
-        ];
+        const candidates = process.platform === 'win32'
+            ? [
+                // Windows: use py launcher with version flags (avoids picking 3.14 which is too new)
+                ['py', ['-3.12', '--version'], 'py -3.12'],
+                ['py', ['-3.11', '--version'], 'py -3.11'],
+                ['py', ['-3.13', '--version'], 'py -3.13'],
+                ['py', ['-3.10', '--version'], 'py -3.10'],
+                ['py', ['-3.9', '--version'], 'py -3.9'],
+                ['python', ['--version'], 'python'],
+            ]
+            : [
+                // macOS/Linux: versioned binaries, Homebrew, then generic
+                ['python3.12', ['--version'], 'python3.12'],
+                ['python3.11', ['--version'], 'python3.11'],
+                ['python3.13', ['--version'], 'python3.13'],
+                ['python3.10', ['--version'], 'python3.10'],
+                ['python3.9', ['--version'], 'python3.9'],
+                ['/opt/homebrew/bin/python3.12', ['--version'], '/opt/homebrew/bin/python3.12'],
+                ['/opt/homebrew/bin/python3.11', ['--version'], '/opt/homebrew/bin/python3.11'],
+                ['/opt/homebrew/bin/python3.10', ['--version'], '/opt/homebrew/bin/python3.10'],
+                ['/opt/homebrew/bin/python3.9', ['--version'], '/opt/homebrew/bin/python3.9'],
+                ['/usr/local/bin/python3.11', ['--version'], '/usr/local/bin/python3.11'],
+                ['/usr/local/bin/python3.10', ['--version'], '/usr/local/bin/python3.10'],
+                ['python3', ['--version'], 'python3'],
+                ['python', ['--version'], 'python'],
+            ];
 
-        for (const py of candidates) {
-            const r = spawnSync(py, ['--version'], { encoding: 'utf8', timeout: 3000 });
+        for (const [exe, args, label] of candidates) {
+            const r = spawnSync(exe, args, { encoding: 'utf8', timeout: 3000 });
             if (r.status === 0) {
                 const ver = (r.stdout || r.stderr || '').trim();
-                console.log(`[FaceService] found ${py}: ${ver}`);
-                return { exe: py, version: ver };
+                const minor = parseInt((ver.match(/Python \d+\.(\d+)/) || [])[1] || '0', 10);
+                // Skip Python 3.14+ — too new, many packages lack wheels
+                if (minor >= 14) {
+                    console.log(`[FaceService] skipping ${label}: ${ver} (too new)`);
+                    continue;
+                }
+                console.log(`[FaceService] found ${label}: ${ver}`);
+                // For py launcher, return the actual command with version flag
+                if (exe === 'py') {
+                    const verFlag = args[0]; // e.g. '-3.12'
+                    return { exe: 'py', version: ver, args: [verFlag] };
+                }
+                return { exe, version: ver, args: [] };
             }
         }
 
@@ -119,13 +142,13 @@ class FaceService {
         const bestPy = this._findBestPython();
         if (!bestPy) throw new Error('No Python installation found. Please install Python 3.9+ from python.org');
 
-        const { exe: pyExe, version: pyVer } = bestPy;
+        const { exe: pyExe, version: pyVer, args: pyArgs = [] } = bestPy;
         const pyMinor = parseInt((pyVer.match(/Python \d+\.(\d+)/) || [])[1] || '0', 10);
-        console.log(`[FaceService] creating environment with ${pyExe} (${pyVer})`);
+        console.log(`[FaceService] creating environment with ${pyExe} ${pyArgs.join(' ')} (${pyVer})`);
 
         // Create venv
         if (!fs.existsSync(venvPython)) {
-            await this._runSetupStep(pyExe, ['-m', 'venv', venvDir], 'creating .venv');
+            await this._runSetupStep(pyExe, [...pyArgs, '-m', 'venv', venvDir], 'creating .venv');
         }
 
         // Upgrade pip silently
