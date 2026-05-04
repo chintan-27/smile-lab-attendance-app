@@ -412,11 +412,12 @@
 
         /* Face section label */
         .face-section-label {
-            font-size: 0.6875rem;
+            font-size: 0.8125rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.14em;
             color: var(--accent);
+            margin-bottom: 0.25rem;
         }
 
         /* Right heading */
@@ -424,7 +425,7 @@
 
         .right-heading h1 {
             font-family: 'DM Serif Display', serif;
-            font-size: 1.75rem;
+            font-size: 2.125rem;
             font-weight: 400;
             color: var(--t1);
             letter-spacing: -0.02em;
@@ -486,13 +487,21 @@
             width: 280px;
             height: 280px;
             border-radius: 50%;
-            border: 1.5px solid var(--border2);
+            border: 2px solid var(--accent-dim);
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            font-size: 3rem;
-            color: var(--t3);
+            gap: 0.75rem;
+            font-size: 3.5rem;
+            color: var(--accent);
             background: var(--surface2);
+            opacity: 0.85;
+            transition: opacity 0.3s, border-color 0.3s;
+        }
+        .face-dormant-circle:hover {
+            opacity: 1;
+            border-color: var(--accent);
         }
 
         .face-blink-indicator {
@@ -1606,10 +1615,11 @@
                         <div id="faceDormant">
                             <div class="face-dormant-circle">
                                 <i class="fas fa-face-smile"></i>
+                                <span style="font-size:0.8125rem;font-weight:600;color:var(--t2);letter-spacing:0.02em;">Step closer to sign in</span>
                             </div>
                             <div class="face-blink-indicator">
                                 <span class="face-blink-indicator-dot"></span>
-                                Move to activate
+                                Camera ready
                             </div>
                         </div>
 
