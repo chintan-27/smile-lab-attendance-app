@@ -4571,17 +4571,23 @@ async function startEnrollCamera(ufid, name) {
     const loading = document.getElementById('enrollLoading');
 
     try {
+        console.log('[Enroll] requesting camera...');
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        console.log('[Enroll] video devices:', videoDevices.map(d => `${d.label || 'unnamed'} (${d.deviceId.slice(0,8)})`));
         enrollStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: 640, height: 480 }
         });
+        console.log('[Enroll] camera granted:', enrollStream.getVideoTracks()[0]?.label);
         video.srcObject = enrollStream;
         video.style.display = 'block';
         await new Promise(res => { video.onloadedmetadata = res; });
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
     } catch (e) {
+        console.error('[Enroll] camera error:', e.name, e.message);
         loading.style.display = 'none';
-        setEnrollStatus('error', 'Camera access denied');
+        setEnrollStatus('error', `Camera error: ${e.name} — ${e.message}`);
         return;
     }
 
