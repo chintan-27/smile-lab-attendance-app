@@ -59,9 +59,7 @@ def _init_model(model_dir: Optional[str] = None):
 _depth_lock = threading.Lock()
 _latest_depth: Optional[np.ndarray] = None  # (480, 640) float32 in mm
 _latest_ir: Optional[np.ndarray] = None     # (480, 640) uint16 structured-light IR
-_latest_color: Optional[np.ndarray] = None  # (480, 640, 3) uint8 BGR from Astra color sensor
 _depth_available = False
-_color_from_astra = False  # True when read_color() is providing frames
 _astra_cam = None  # AstraIRCamera instance
 
 _DEPTH_VARIANCE_THRESHOLD = 150  # real face ~200-2000; flat surface <50
@@ -111,23 +109,18 @@ def _start_astra_thread():
 
 
 def _astra_poll_loop(cam):
-    """Background thread: polls AstraIRCamera at ~30fps, stores latest depth+IR+color frames."""
-    global _latest_depth, _latest_ir, _latest_color, _color_from_astra
-    has_color_api = hasattr(cam, 'read_color')
-    if has_color_api:
-        print("[Astra] read_color() available — using Astra color for face detection", flush=True)
+    """Background thread: polls AstraIRCamera at ~30fps, stores latest depth+IR frames.
+    Color is NOT read here — on Windows, OpenCV holds the camera exclusively which
+    blocks getUserMedia in the browser. Frames come from the renderer instead."""
+    global _latest_depth, _latest_ir
     while True:
         try:
             depth = cam.read_depth_mm(timeout=0.5)
             ir    = cam.read_ir(timeout=0.5)
-            color = cam.read_color() if has_color_api else None  # (480,640,3) BGR or None
             if depth is not None and ir is not None:
                 with _depth_lock:
                     _latest_depth = depth.astype(np.float32)
                     _latest_ir    = ir
-                    if color is not None:
-                        _latest_color     = color
-                        _color_from_astra = True
         except Exception as e:
             print(f"[Astra] poll error: {e}", flush=True)
             time.sleep(1.0)
@@ -497,14 +490,7 @@ def analyze(req: AnalyzeRequest):
       or  { face: null }
     """
     try:
-        # Use Astra color frame when available — it's natively aligned with depth/IR
-        # so face bbox coordinates directly map onto the depth and IR frames.
-        # Fall back to browser-sent frame when Astra color isn't available.
-        if _color_from_astra and _latest_color is not None:
-            with _depth_lock:
-                img = _latest_color.copy()
-        else:
-            img = _b64_to_bgr(req.image)
+        img = _b64_to_bgr(req.image)
 
         faces = _fa.get(img)
         if not faces:
@@ -582,10 +568,10 @@ def reset_liveness():
 
 @app.get("/camera-status")
 def camera_status():
-    """Full camera status: depth/IR availability and whether Astra color is active."""
+    """Full camera status: depth/IR availability."""
     return {
         "depth_available": _depth_available,
-        "color_from_astra": _color_from_astra,
+        "color_from_astra": False,
     }
 
 
