@@ -138,9 +138,16 @@ class FaceService {
             'installing requirements (first run may take a few minutes)'
         );
 
-        // Try orbbec-astra-raw 0.2.1+ — requires Python 3.9+, adds color stream + Windows libusb fix
+        // Try orbbec-astra-raw — requires Python 3.9+
         if (pyMinor >= 9) {
             try {
+                // On Windows, ensure libusb-package>=1.0.26.3 (older versions can't find the DLL)
+                if (process.platform === 'win32') {
+                    await this._runSetupStep(
+                        venvPython, ['-m', 'pip', 'install', '--quiet', '--no-cache-dir', 'libusb-package>=1.0.26.3'],
+                        'installing libusb-package (Windows USB backend)'
+                    );
+                }
                 await this._runSetupStep(
                     venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw'],
                     'installing orbbec-astra-raw (Astra depth+IR+color)'
