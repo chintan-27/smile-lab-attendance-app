@@ -4571,21 +4571,54 @@ async function startEnrollCamera(ufid, name) {
     const loading = document.getElementById('enrollLoading');
 
     try {
-        console.log('[Enroll] requesting camera...');
+        console.log('[Enroll] === CAMERA DEBUG START ===');
+        console.log('[Enroll] navigator.mediaDevices exists:', !!navigator.mediaDevices);
+        console.log('[Enroll] getUserMedia exists:', !!navigator.mediaDevices?.getUserMedia);
+        console.log('[Enroll] window.isSecureContext:', window.isSecureContext);
+        console.log('[Enroll] location.protocol:', window.location.protocol);
+        console.log('[Enroll] location.href:', window.location.href);
+
+        console.log('[Enroll] enumerating devices...');
         const devices = await navigator.mediaDevices.enumerateDevices();
+        console.log('[Enroll] all devices:', JSON.stringify(devices.map(d => ({kind: d.kind, label: d.label, id: d.deviceId.slice(0,12), groupId: d.groupId.slice(0,12)}))));
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        console.log('[Enroll] video devices:', videoDevices.map(d => `${d.label || 'unnamed'} (${d.deviceId.slice(0,8)})`));
+        console.log('[Enroll] video input devices found:', videoDevices.length);
+        videoDevices.forEach((d, i) => console.log(`[Enroll]   [${i}] label="${d.label}" id=${d.deviceId.slice(0,12)} group=${d.groupId.slice(0,12)}`));
+
+        if (videoDevices.length === 0) {
+            console.error('[Enroll] NO VIDEO DEVICES FOUND — camera may be claimed by another process or driver missing');
+            loading.style.display = 'none';
+            setEnrollStatus('error', 'No camera found — check if another app is using it');
+            return;
+        }
+
+        console.log('[Enroll] calling getUserMedia({ video: { facingMode: user, width: 640, height: 480 } })...');
         enrollStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: 640, height: 480 }
         });
-        console.log('[Enroll] camera granted:', enrollStream.getVideoTracks()[0]?.label);
+        console.log('[Enroll] getUserMedia SUCCESS');
+        console.log('[Enroll] stream id:', enrollStream.id);
+        console.log('[Enroll] stream active:', enrollStream.active);
+        const tracks = enrollStream.getVideoTracks();
+        console.log('[Enroll] video tracks:', tracks.length);
+        tracks.forEach((t, i) => console.log(`[Enroll]   track[${i}] label="${t.label}" readyState=${t.readyState} muted=${t.muted} enabled=${t.enabled}`));
+        const settings = tracks[0]?.getSettings();
+        console.log('[Enroll] track settings:', JSON.stringify(settings));
+
         video.srcObject = enrollStream;
         video.style.display = 'block';
+        console.log('[Enroll] waiting for video metadata...');
         await new Promise(res => { video.onloadedmetadata = res; });
+        console.log('[Enroll] video dimensions:', video.videoWidth, 'x', video.videoHeight);
         canvas.width  = video.videoWidth;
         canvas.height = video.videoHeight;
+        console.log('[Enroll] === CAMERA DEBUG END (success) ===');
     } catch (e) {
-        console.error('[Enroll] camera error:', e.name, e.message);
+        console.error('[Enroll] === CAMERA ERROR ===');
+        console.error('[Enroll] error name:', e.name);
+        console.error('[Enroll] error message:', e.message);
+        console.error('[Enroll] error stack:', e.stack);
+        console.error('[Enroll] error constraint:', e.constraint || 'none');
         loading.style.display = 'none';
         setEnrollStatus('error', `Camera error: ${e.name} — ${e.message}`);
         return;
