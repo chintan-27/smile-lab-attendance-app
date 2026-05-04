@@ -79,7 +79,7 @@ def _start_astra_thread():
         return
 
     try:
-        cam = AstraIRCamera()
+        cam = AstraIRCamera(color_index=None)
         cam.open()  # must call open() to start the background USB streaming thread
         print("[Astra] camera opened, waiting for first frames…", flush=True)
     except Exception as e:
