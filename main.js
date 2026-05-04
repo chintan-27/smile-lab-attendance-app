@@ -334,6 +334,14 @@ const createWindow = () => {
     }
     console.log(`Console [${level}]: ${message}`);
   });
+
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
 }
 
 if (process.platform === 'darwin') {

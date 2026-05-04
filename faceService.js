@@ -138,12 +138,12 @@ class FaceService {
             'installing requirements (first run may take a few minutes)'
         );
 
-        // Try orbbec-astra-raw 0.2.0+ — requires Python 3.9+, adds color stream API
+        // Try orbbec-astra-raw 0.2.1+ — requires Python 3.9+, adds color stream + Windows libusb fix
         if (pyMinor >= 9) {
             try {
                 await this._runSetupStep(
-                    venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw>=0.2.0'],
-                    'installing orbbec-astra-raw 0.2.0 (Astra depth+IR+color)'
+                    venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw>=0.2.1'],
+                    'installing orbbec-astra-raw (Astra depth+IR+color)'
                 );
             } catch (e) {
                 console.log('[FaceService] orbbec-astra-raw not available — depth liveness disabled (standard camera will be used)');
