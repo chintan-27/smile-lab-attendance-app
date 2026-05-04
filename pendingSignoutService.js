@@ -562,12 +562,14 @@ This is an automated message. Please do not reply to this email.`;
         },
         replyTo: config.emailSettings.email,
         to: record.email,
-        subject: `Sign-Out Time Needed - ${signInTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })}`,
+        subject: `${record.name}, please submit your sign-out time (${signInTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })})`,
         text: plainText,
         html,
         headers: {
-          'X-Priority': '3',
-          'X-Mailer': 'SMILE Lab Attendance System'
+          'List-Unsubscribe': `<mailto:${config.emailSettings.email}?subject=unsubscribe>`,
+          'Precedence': 'bulk',
+          'Auto-Submitted': 'auto-generated',
+          'Feedback-ID': 'pending-signout:smile-lab:attendance'
         }
       };
 

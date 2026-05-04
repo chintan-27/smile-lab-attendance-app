@@ -238,13 +238,20 @@ class EmailService {
 
             const mailOptions = {
                 from: {
-                    name: 'UF Lab Attendance System',
+                    name: 'SMILE Lab Attendance',
                     address: config.emailSettings.email
                 },
                 to: config.emailSettings.recipientEmail,
-                subject: `Weekly Lab Attendance Report - ${new Date().toLocaleDateString()}`,
+                subject: `Weekly Lab Attendance Report — ${new Date().toLocaleDateString()}`,
+                text: `Weekly Lab Attendance Report\nPeriod: ${reportResult.reportData.startDate} to ${reportResult.reportData.endDate}\nActive students: ${reportResult.reportData.studentsWithActivity}\nTotal records: ${reportResult.reportData.totalRecords}\n\nSee attached CSV for full details.`,
                 html: emailHTML,
-                attachments: attachments
+                attachments: attachments,
+                headers: {
+                    'List-Unsubscribe': `<mailto:${config.emailSettings.email}?subject=unsubscribe>`,
+                    'Precedence': 'bulk',
+                    'Auto-Submitted': 'auto-generated',
+                    'Feedback-ID': 'weekly-report:smile-lab:attendance'
+                }
             };
 
             const info = await transporter.sendMail(mailOptions);
@@ -278,17 +285,21 @@ class EmailService {
 
             const mailOptions = {
                 from: {
-                    name: 'UF Lab Attendance System',
+                    name: 'SMILE Lab Attendance',
                     address: emailConfig.email
                 },
                 to: emailConfig.recipientEmail || emailConfig.email,
-                subject: 'Test Email - Lab Attendance System',
+                subject: 'SMILE Lab Attendance — email test',
+                text: `Email configuration test.\n\nIf you received this, your email configuration is working correctly.\n\nSent at: ${new Date().toLocaleString()}`,
                 html: `
                     <h2>Email Configuration Test</h2>
                     <p>This is a test email from your Lab Attendance System.</p>
                     <p><strong>If you received this, your email configuration is working correctly!</strong></p>
                     <p><em>Sent at: ${new Date().toLocaleString()}</em></p>
-                `
+                `,
+                headers: {
+                    'Auto-Submitted': 'auto-generated'
+                }
             };
 
             const info = await transporter.sendMail(mailOptions);
@@ -460,8 +471,15 @@ class EmailService {
         const mailOptions = {
             from: { name: 'SMILE Lab Attendance', address: emailConfig.email },
             to: student.email,
-            subject: `Attendance Reminder — Week of ${weekLabel}`,
-            html
+            subject: `${student.name}, attendance reminder — week of ${weekLabel}`,
+            text: `Hello ${student.name},\n\nYour hours this week: ${weekSummary.actualHours}h (expected: ${weekSummary.expectedHours}h).\nThis is week ${streak} below expectations.\n\nPlease ensure you are meeting your lab time commitment.\n\n—\nSMILE Lab Attendance System\nUniversity of Florida`,
+            html,
+            headers: {
+                'List-Unsubscribe': `<mailto:${emailConfig.email}?subject=unsubscribe>`,
+                'Precedence': 'bulk',
+                'Auto-Submitted': 'auto-generated',
+                'Feedback-ID': 'attendance-warning:smile-lab:attendance'
+            }
         };
 
         const info = await transporter.sendMail(mailOptions);
