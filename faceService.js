@@ -142,7 +142,7 @@ class FaceService {
         if (pyMinor >= 9) {
             try {
                 await this._runSetupStep(
-                    venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw>=0.2.1'],
+                    venvPython, ['-m', 'pip', 'install', '--quiet', '--upgrade', 'orbbec-astra-raw'],
                     'installing orbbec-astra-raw (Astra depth+IR+color)'
                 );
             } catch (e) {
